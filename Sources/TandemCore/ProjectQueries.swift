@@ -99,6 +99,24 @@ extension Project {
         return item.duration
     }
 
+    /// Where a clip that holds its edges shows a held frame, in timeline
+    /// time: before its file starts (`head`) and after it ends (`tail`).
+    /// Nil where it plays its media, and for clips that don't hold.
+    public func heldStretches(of clip: Clip) -> (head: TimeRange?, tail: TimeRange?) {
+        guard clip.holdEdges, !clip.freezeFrame, clip.mediaID != nil, clip.speed > 0 else { return (nil, nil) }
+        var head: TimeRange?
+        if clip.sourceStart < .zero {
+            let length = min((.zero - clip.sourceStart).scaled(by: 1 / clip.speed), clip.duration)
+            head = TimeRange(start: clip.start, duration: length)
+        }
+        var tail: TimeRange?
+        if let limit = sourceLimit(for: clip), clip.sourceEnd > limit {
+            let runsOut = max(clip.start + (limit - clip.sourceStart).scaled(by: 1 / clip.speed), clip.start)
+            if runsOut < clip.end { tail = TimeRange(start: runsOut, end: clip.end) }
+        }
+        return (head, tail)
+    }
+
     /// Every ID in use, for uniqueness checks.
     public var allIDs: Set<String> {
         var ids = Set<String>()

@@ -310,7 +310,12 @@ public enum TimelineDump {
             let name = names[mediaID] ?? "\(mediaID) (missing)"
             if project.media(mediaID)?.kind == .image { return name }
             if clip.freezeFrame { return "\(name) frozen at \(clip.sourceStart)" }
-            return "\(name) [\(clip.sourceStart)-\(clip.sourceEnd)]"
+            var result = "\(name) [\(clip.sourceStart)-\(clip.sourceEnd)]"
+            // Like: holds its first frame 00:00.500, last frame 00:01.200
+            let held = project.heldStretches(of: clip)
+            let holds = [held.head.map { "first frame \($0.duration)" }, held.tail.map { "last frame \($0.duration)" }].compactMap { $0 }
+            if !holds.isEmpty { result += " holds its " + holds.joined(separator: ", ") }
+            return result
         case .text(let text):
             var result = "text \"\(shorten(text.text.replacingOccurrences(of: "\n", with: " / "), 48))\""
             if let preset = text.preset { result += " \(preset)" }

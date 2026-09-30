@@ -540,6 +540,19 @@ struct ClipInfo: View {
                 .fixedSize()
                 Spacer()
             }
+            if item?.kind == .video, !clip.freezeFrame {
+                HStack(spacing: 10) {
+                    Text("Hold ends")
+                        .font(.ui(12))
+                        .foregroundStyle(Theme.textMuted.color)
+                        .frame(width: 86, alignment: .leading)
+                    Spacer()
+                    GraphiteSwitch(isOn: clip.holdEdges) {
+                        model.apply(InspectorEdits.holdEdges(clip, !clip.holdEdges, in: model.project))
+                    }
+                }
+                .tip("Lets the clip run past the start or end of its file, holding the first or last frame there. Drag its edges out on the timeline.")
+            }
             if let group = clip.linkGroup {
                 InfoRow(label: "Linked", value: "\(model.project.linkedClipIDs(of: clip.id).count) clips (\(group))")
             }

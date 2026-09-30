@@ -348,6 +348,7 @@ extension CommandSchema {
         "sourceStart": S.time("Where playback starts in the media (media time)."),
         "speed": S.number(),
         "freezeFrame": S.boolean(),
+        "holdEdges": S.boolean("Lets the clip run past its media's ends, holding the first frame before the file starts (a negative sourceStart) and the last after it ends."),
         "enabled": S.boolean(),
         "linkGroup": S.string(),
         "video": S.ref("VideoProperties"),

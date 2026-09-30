@@ -792,6 +792,23 @@ about -18. `null` stops normalising.
 {"updateClip": {"clipID": "clip_k3f9x2mq", "patch": {"video": {"opacity": 0.5}}}}
 ```
 
+`holdEdges` lets a clip run past the ends of its file: its first frame
+holds before the file starts (a negative `sourceStart`) and its last frame
+after it ends, with no sound there. Use it when a shot is a little short
+for its line, or to hold a shot under a section card, instead of placing a
+still of its last frame. A still goes stale when the shot is regenerated;
+the clip's own frame can't. Set it, then trim the edge out, in one batch:
+
+```json
+{"label": "Hold the rail shot to the end of the line", "commands": [
+  {"updateClip": {"clipID": "clip_k3f9x2mq", "patch": {"holdEdges": true}}},
+  {"trim": {"clipID": "clip_k3f9x2mq", "edge": "end", "to": 81.9}}
+]}
+```
+
+`tandem timeline` shows how long it holds (`holds its last frame
+00:00.600`). To turn it off, trim the clip back inside its file first.
+
 #### link
 
 Links clips so they select, move, trim and cut together.

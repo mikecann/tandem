@@ -71,7 +71,8 @@ public enum ProjectValidator {
                     if track.kind == .audio && !item.hasAudio {
                         error("Clip \(clip.id) on audio track \"\(track.name)\" has no sound.", clip.id)
                     }
-                    if item.kind != .image {
+                    // A clip that holds its edges runs past its file on purpose.
+                    if item.kind != .image && !clip.holdEdges {
                         if clip.sourceStart < -frame {
                             error("Clip \(clip.id) starts before the beginning of \(item.path).", clip.id)
                         }

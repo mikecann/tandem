@@ -331,6 +331,17 @@ public struct Clip: Codable, Equatable, Identifiable, Sendable {
     public var speed: Double
     /// Holds the frame at `sourceStart` for the whole clip.
     public var freezeFrame: Bool
+    /// Lets the clip run past the ends of its media, holding the first
+    /// frame before the file starts (a negative `sourceStart`) and the last
+    /// frame after it ends. Sound goes quiet there. For B-roll that's a
+    /// little short for its line, instead of a still of its last frame.
+    public var holdEdges: Bool {
+        get { holdsEdges ?? false }
+        set { holdsEdges = newValue ? true : nil }
+    }
+    /// Stored as nil when off, so project files only mention it where it's
+    /// on.
+    private var holdsEdges: Bool?
     public var enabled: Bool
     /// Clips that share a link group are selected, moved, trimmed and cut
     /// together: a camera clip, its audio and the matching screen clip.
@@ -353,6 +364,7 @@ public struct Clip: Codable, Equatable, Identifiable, Sendable {
         sourceStart: Time = .zero,
         speed: Double = 1,
         freezeFrame: Bool = false,
+        holdEdges: Bool = false,
         enabled: Bool = true,
         linkGroup: String? = nil,
         video: VideoProperties? = nil,
@@ -368,12 +380,19 @@ public struct Clip: Codable, Equatable, Identifiable, Sendable {
         self.sourceStart = sourceStart
         self.speed = speed
         self.freezeFrame = freezeFrame
+        self.holdsEdges = holdEdges ? true : nil
         self.enabled = enabled
         self.linkGroup = linkGroup
         self.video = video
         self.audio = audio
         self.keyframes = keyframes
         self.tags = tags
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, content, start, duration, sourceStart, speed, freezeFrame
+        case holdsEdges = "holdEdges"
+        case enabled, linkGroup, video, audio, keyframes, tags
     }
 
     public var end: Time { start + duration }
@@ -1091,6 +1110,7 @@ extension Clip {
         sourceStart = try c.decode(.sourceStart, or: .zero)
         speed = try c.decode(.speed, or: 1)
         freezeFrame = try c.decode(.freezeFrame, or: false)
+        holdsEdges = try c.decodeIfPresent(Bool.self, forKey: .holdsEdges) == true ? true : nil
         enabled = try c.decode(.enabled, or: true)
         linkGroup = try c.decodeIfPresent(String.self, forKey: .linkGroup)
         video = try c.decodeIfPresent(VideoProperties.self, forKey: .video)

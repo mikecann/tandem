@@ -54,7 +54,8 @@ Project ──RenderPlanner──▶ RenderPlan (pure)
   nest: `(A to B) to C`.
 - Speed uses `scaleTimeRange`; a freeze frame is one frame stretched; media
   that runs out holds its edge frame (video, first or last; the direct
-  decode path clamps to the first frame too) or goes quiet (audio).
+  decode path clamps to the first frame too) or goes quiet (audio). That's
+  how a clip with `holdEdges` runs past its file, too.
 - Instructions split at every visible clip edge and transition edge.
 - Graphic clips (`.graphic`) with a built-in template, the section card
   (`sectionCard`), are drawn by the compositor like titles. Other graphic

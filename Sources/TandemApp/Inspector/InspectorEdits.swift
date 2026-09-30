@@ -8,6 +8,19 @@ enum InspectorEdits {
         EditBatch(label: label, commands: [.updateClip(clipID: clipID, patch: .object(["video": .object(fields)]))])
     }
 
+    /// Holding a clip's edges on or off. Off trims the clip back to its
+    /// file first, since the held stretches have no media under them.
+    static func holdEdges(_ clip: Clip, _ on: Bool, in project: Project) -> EditBatch {
+        var commands: [EditCommand] = []
+        if !on {
+            let held = project.heldStretches(of: clip)
+            if let head = held.head { commands.append(.trim(clipID: clip.id, edge: .start, to: head.end, ripple: false, includeLinked: false)) }
+            if let tail = held.tail { commands.append(.trim(clipID: clip.id, edge: .end, to: tail.start, ripple: false, includeLinked: false)) }
+        }
+        commands.append(.updateClip(clipID: clip.id, patch: .object(["holdEdges": .bool(on)])))
+        return EditBatch(label: on ? "Hold first and last frames" : "Stop holding first and last frames", commands: commands)
+    }
+
     static func audio(_ clipIDs: [String], _ fields: [String: JSONValue], label: String) -> EditBatch? {
         guard !clipIDs.isEmpty else { return nil }
         return EditBatch(label: label, commands: clipIDs.map { .updateClip(clipID: $0, patch: .object(["audio": .object(fields)])) })

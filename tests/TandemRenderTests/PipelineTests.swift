@@ -110,6 +110,27 @@ final class PipelineTests: XCTestCase {
         assertColor(try await grab(context, 2.25)[160, 90], [64, 191, 0], tolerance: 10)
     }
 
+    /// A clip that holds its edges runs past both ends of its file: its
+    /// first frame shows before the file starts and its last after it ends.
+    func testAClipThatHoldsItsEdgesShowsItsFirstAndLastFrames() async throws {
+        let media = try TestMedia()
+        // Red for the first second, green for the second.
+        try await media.movie("turns.mov", seconds: 2, draw: { frame, c in
+            frame < 30 ? TestMedia.fill(c, 1, 0, 0) : TestMedia.fill(c, 0, 1, 0)
+        })
+        let clip = Clip(id: "clip_h", content: .media(mediaID: "med_t"), start: .zero, duration: t(4), sourceStart: t(-1), holdEdges: true)
+        let project = smallProject(
+            video: [Track(kind: .video, name: "V1", clips: [clip])],
+            media: [media.item("med_t", "turns.mov", seconds: 2)]
+        )
+        XCTAssertTrue(ProjectValidator.validate(project).filter { $0.severity == .error }.isEmpty)
+        let context = RenderContext(project: project, folder: media.projectFolder)
+        assertColor(try await grab(context, 0.5)[160, 90], [255, 0, 0], tolerance: 8)
+        assertColor(try await grab(context, 1.5)[160, 90], [255, 0, 0], tolerance: 8)
+        assertColor(try await grab(context, 2.5)[160, 90], [0, 255, 0], tolerance: 8)
+        assertColor(try await grab(context, 3.5)[160, 90], [0, 255, 0], tolerance: 8)
+    }
+
     func testCutoutWithAMatteFile() async throws {
         let media = try TestMedia()
         try await media.movie("red.mov", seconds: 2, draw: { TestMedia.fill($1, 1, 0, 0) })

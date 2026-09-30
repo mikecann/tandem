@@ -226,6 +226,41 @@ final class TrimTests: XCTestCase {
         }
     }
 
+    func testAClipThatHoldsItsEdgesRunsPastItsMedia() throws {
+        // The B-roll is 10 s of file, placed at 20 s from 1 s in for 5 s.
+        let (f, c) = try Fixture.edited()
+        let broll = f.clips("B-roll")[0].id
+        XCTAssertThrowsError(try c.run("Trim", .trim(clipID: broll, edge: .end, to: t(30), ripple: false, includeLinked: false))) { error in
+            XCTAssertTrue("\(error)".contains("Set holdEdges on it"), "the error says how: \(error)")
+        }
+        try c.run("Hold", .updateClip(clipID: broll, patch: .object(["holdEdges": .bool(true)])))
+        try c.run("Trim end", .trim(clipID: broll, edge: .end, to: t(30), ripple: false, includeLinked: false))
+        try c.run("Trim start", .trim(clipID: broll, edge: .start, to: t(18), ripple: false, includeLinked: false))
+        let clip = try XCTUnwrap(c.project.clip(broll))
+        XCTAssertEqual(clip.sourceStart, t(-1))
+        XCTAssertEqual(clip.sourceEnd, t(11))
+        let held = c.project.heldStretches(of: clip)
+        XCTAssertEqual(held.head, TimeRange(start: t(18), end: t(19)), "the first frame holds until the file starts")
+        XCTAssertEqual(held.tail, TimeRange(start: t(29), end: t(30)), "the last frame holds after it ends")
+        assertValid(c.project)
+
+        // Turning it off needs the clip back inside its file.
+        XCTAssertThrowsError(try c.run("Stop holding", .updateClip(clipID: broll, patch: .object(["holdEdges": .bool(false)]))))
+        XCTAssertEqual(c.project.heldStretches(of: try XCTUnwrap(c.project.clip(broll))).tail, held.tail, "nothing changed")
+    }
+
+    func testHoldingEdgesIsOnlySavedWhereItsOn() throws {
+        var clip = Clip(content: .media(mediaID: "med_x"), start: .zero, duration: t(2))
+        let plain = String(decoding: try JSONEncoder().encode(clip), as: UTF8.self)
+        XCTAssertFalse(plain.contains("holdEdges"), plain)
+        clip.holdEdges = true
+        let held = try JSONEncoder().encode(clip)
+        XCTAssertTrue(String(decoding: held, as: UTF8.self).contains("\"holdEdges\":true"))
+        XCTAssertTrue(try JSONDecoder().decode(Clip.self, from: held).holdEdges)
+        let off = Data(#"{"id": "clip_a", "content": {"media": {"mediaID": "med_x"}}, "duration": 2, "holdEdges": false}"#.utf8)
+        XCTAssertEqual(try JSONDecoder().decode(Clip.self, from: off), Clip(id: "clip_a", content: .media(mediaID: "med_x"), start: .zero, duration: t(2)), "false reads as never set")
+    }
+
     func testRollMovesTheCutOnEveryLinkedTrack() throws {
         let (f, c) = try Fixture.edited()
         try c.run("Cut", .blade(at: t(30), clipIDs: [f.clips("Camera")[0].id]))

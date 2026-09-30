@@ -332,17 +332,18 @@ public enum Editing {
         }
     }
 
-    /// Throws when a clip reaches outside its media.
+    /// Throws when a clip reaches outside its media, unless it holds its
+    /// edges there.
     static func checkSource(_ clip: Clip, in p: Project) throws {
         guard clip.duration > .zero else { throw EditError.invalid("clip \(clip.id) would have no duration") }
         guard clip.speed > 0 else { throw EditError.invalid("clip \(clip.id) needs a speed above 0") }
-        guard clip.mediaID != nil else { return }
+        guard clip.mediaID != nil, !clip.holdEdges else { return }
         let tolerance = p.settings.frameRate.frameDuration
         if clip.sourceStart < -tolerance {
-            throw EditError.invalid("clip \(clip.id) would start \(-clip.sourceStart) before the beginning of its media")
+            throw EditError.invalid("clip \(clip.id) would start \(-clip.sourceStart) before the beginning of its media. Set holdEdges on it to hold its first frame there, or trim it")
         }
         if let limit = p.sourceLimit(for: clip), clip.sourceEnd > limit + tolerance {
-            throw EditError.invalid("clip \(clip.id) needs media up to \(clip.sourceEnd) but the file is \(limit) long")
+            throw EditError.invalid("clip \(clip.id) needs media up to \(clip.sourceEnd) but the file is \(limit) long. Set holdEdges on it to hold its last frame past the end, or trim it")
         }
     }
 
@@ -1238,14 +1239,15 @@ public enum Editing {
               let to = track.clips.first(where: { $0.id == toID }) else { return [] }
         let half = Time(flicks: t.duration.flicks / 2)
         var notes: [String] = []
-        if !from.freezeFrame, let limit = p.sourceLimit(for: from) {
+        // A clip that holds its edges holds them on purpose.
+        if !from.freezeFrame, !from.holdEdges, let limit = p.sourceLimit(for: from) {
             let short = from.sourceEnd + half.scaled(by: from.speed) - limit
             if short > .zero {
                 notes.append("\(name(of: from, in: p)) has no frames after its end, so its last frame holds for \(seconds(short.scaled(by: 1 / from.speed))) of the \(t.type.rawValue).")
             }
         }
         // Stills can show any amount of themselves.
-        if !to.freezeFrame, let mediaID = to.mediaID, p.media(mediaID)?.kind != .image {
+        if !to.freezeFrame, !to.holdEdges, let mediaID = to.mediaID, p.media(mediaID)?.kind != .image {
             let short = half.scaled(by: to.speed) - to.sourceStart
             if short > .zero {
                 notes.append("\(name(of: to, in: p)) has no frames before its start, so its first frame holds for \(seconds(short.scaled(by: 1 / to.speed))) of the \(t.type.rawValue).")

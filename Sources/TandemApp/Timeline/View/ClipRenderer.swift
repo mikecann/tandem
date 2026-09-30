@@ -167,12 +167,16 @@ struct ClipRenderer {
         // Align tiles to the clip's start so they don't swim while scrolling.
         var x = rect.minX + (((start - rect.minX) / tileWidth).rounded(.down)) * tileWidth
         let hasThumbnails = item.flatMap { artwork?.thumbnailStrip(for: $0) } != nil
+        // Where a clip holds its edges, its tiles show the held frame.
+        let lastFrame = item?.duration.map { max(.zero, $0 - project.settings.frameRate.frameDuration) }
         while x < end {
             let tile = CGRect(x: x, y: rect.minY, width: tileWidth, height: rect.height)
             if hasThumbnails, let item {
                 let time = scale.time(atX: min(max(x + tileWidth / 2, rect.minX), rect.maxX), rate: project.settings.frameRate)
                 let pixels = CGSize(width: tile.width * backingScale, height: tile.height * backingScale)
-                if let cg = artwork?.thumbnail(for: item, at: clip.sourceTime(atTimelineTime: time), pixelSize: pixels, colorSpace: colorSpace) {
+                var at = clip.sourceTime(atTimelineTime: time)
+                if clip.holdEdges { at = min(max(at, .zero), lastFrame ?? at) }
+                if let cg = artwork?.thumbnail(for: item, at: at, pixelSize: pixels, colorSpace: colorSpace) {
                     context.saveGState()
                     context.interpolationQuality = .medium
                     context.translateBy(x: tile.minX, y: tile.maxY)
@@ -193,6 +197,38 @@ struct ClipRenderer {
                 context.fill(CGRect(x: tile.maxX - 1, y: tile.minY, width: 1, height: tile.height))
             }
             x += tileWidth
+        }
+        drawHeldStretches(clip, rect: rect, style: style, in: context)
+    }
+
+    /// Hatches the stretches where a clip that holds its edges shows its
+    /// first or last frame, so the pause in the picture shows.
+    private func drawHeldStretches(_ clip: Clip, rect: CGRect, style: Theme.ClipStyle, in context: CGContext) {
+        let held = project.heldStretches(of: clip)
+        for range in [held.head, held.tail].compactMap({ $0 }) {
+            let x0 = max(rect.minX, scale.x(range.start))
+            let x1 = min(rect.maxX, scale.x(range.end))
+            guard x1 - x0 >= 1 else { continue }
+            let band = CGRect(x: x0, y: rect.minY, width: x1 - x0, height: rect.height)
+            context.saveGState()
+            context.clip(to: band)
+            context.setFillColor(Theme.window.opacity(0.35).cg)
+            context.fill(band)
+            context.setStrokeColor(style.detail.opacity(0.5).cg)
+            context.setLineWidth(1)
+            // Diagonals 6 pt apart, tied to the band so they don't swim.
+            var x = x0 - band.height
+            while x < x1 {
+                context.move(to: CGPoint(x: x, y: band.maxY))
+                context.addLine(to: CGPoint(x: x + band.height, y: band.minY))
+                x += 6
+            }
+            context.strokePath()
+            context.restoreGState()
+            // The file's own edge.
+            let edge = range.start == clip.start ? x1 : x0
+            context.setFillColor(style.detail.opacity(0.8).cg)
+            context.fill(CGRect(x: edge - 0.5, y: rect.minY, width: 1, height: rect.height))
         }
     }
 

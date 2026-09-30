@@ -296,9 +296,10 @@ enum DragPlanner {
     // the pointer's side of the limit instead of refusing the whole drag.
 
     /// How much media a clip has left before and after what it shows, in
-    /// timeline time. Unlimited for text, solids and stills.
+    /// timeline time. Unlimited for text, solids and stills, and for clips
+    /// that hold their edges.
     static func handles(_ project: Project, clip: Clip) -> (head: Time?, tail: Time?) {
-        guard clip.mediaID != nil, !clip.freezeFrame else { return (nil, nil) }
+        guard clip.mediaID != nil, !clip.freezeFrame, !clip.holdEdges else { return (nil, nil) }
         let head = Time(seconds: max(0, clip.sourceStart.seconds) / clip.speed)
         guard let limit = project.sourceLimit(for: clip) else { return (head, nil) }
         let tail = Time(seconds: max(0, (limit - clip.sourceEnd).seconds) / clip.speed)
