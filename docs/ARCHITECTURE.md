@@ -62,6 +62,7 @@ until the project is archived (see Archiving).
     backups/               the previous 20 saves
     <name>.journal.jsonl   committed edits since the last save (crash recovery)
     <name>.undo.json       undo history for edits made headless, and idempotency keys
+    <name>.review.json     agent edits Mike hasn't reviewed yet (see Review)
     <name>.lock            pid and owner (app or cli), plus the API port and token
     cache/                 analysis results keyed by content hash
 ```
@@ -124,6 +125,10 @@ the app has copied them in from the asset library.
   and its next scan adds the movie as a video, as scans did before, so it
   didn't need a schema version either. It's a file the project uses like
   `path`: archiving copies it, relink and segments carry it.
+- `Transition.soundClipID` (the clip playing a transition's sound) didn't
+  need a schema version either: an older build that drops it leaves the
+  sound as a clip on SFX where it was, so the video sounds the same, and
+  only the tie that moves it with the transition is lost.
 - Keyframe times are relative to the clip start and move with the clip.
 - A text clip's `style` fields are all optional. One that's set wins over
   the clip's preset even when it's the default value (`"uppercase": false`
@@ -158,6 +163,33 @@ IDs) and is announced to observers.
 `expectedRevision` lets an agent refuse to edit a timeline that changed under
 it. `idempotencyKey` makes retries safe.
 
+### Review
+
+Mike reviews what agents changed instead of watching the whole video
+again. Every `ProjectSession` (the app, `tandem serve` and each headless
+command) has a `ReviewRecorder` that hears the coordinator's change events,
+which carry the project before and after. A committed batch whose author
+isn't Mike (`user`) or Tandem (`system`) is compared clip by clip
+(`ReviewDiff`) and recorded in the review log by ID: clips added, clips
+changed, transitions added or changed, and removals, which are marks at the
+join pinned to the clip after it. The take (the `cut` tracks) is the
+reference: its surviving media maps old times to new ones, so a clip that
+moved exactly as the take around it rode along with a ripple, the right
+half of a cut clip is the same clip, and only the join of a ripple delete
+is news. The log is saved to `.tandem/<name>.review.json` after each
+change, so it survives restarts, and because headless commands keep it too
+the app finds their edits when it opens the project (agent batches a crash
+left in the journal are caught up then). Later edits by anyone carry the
+highlights along (both halves of a cut clip stay highlighted), an undo or
+headless undo drops what it put back, and Mark reviewed in the app clears
+the log. `status` reports it as `reviewPending`; agents can't clear it.
+
+The app shows it from `TimelineDrawState.review`: a violet band on the
+ruler with a wedge at each stop, marks over the lanes in a view of their
+own (placed again only when the changes, the clips or the zoom move, and
+scrolled with the lanes, so the tiles never repaint for them), a toolbar
+chip, and Previous and Next agent change, which step the playhead.
+
 ### Ripple modes
 
 Each track has a `rippleMode`:
@@ -190,9 +222,40 @@ split at the same time, their right-hand parts form a new group together.
 
 A transition belongs to a track and joins two touching clips (`fromClipID`,
 `toClipID`) or sits at one clip's head or tail (the other side nil). A
-two-sided transition is centred on the cut and needs half its duration of
-spare media (handles) on both clips; the command fails with a clear message
-otherwise. On audio tracks every transition plays as a crossfade.
+two-sided transition is centred on the cut and plays half its duration of
+each clip past the cut; a clip with no frames there holds its edge frame
+(the edit warns). On audio tracks every transition plays as a crossfade.
+`Transition.window(on:)` says when it plays, and the render, the timeline
+and its sound all use it.
+
+A transition can have a sound (`soundClipID`): an ordinary clip on an audio
+track, the first free SFX track when it's added, so it can be seen, nudged,
+trimmed and turned down like any sound. `Editing.apply` keeps the two in
+step after every command (`TransitionSounds`): it notes each transition
+with a sound and where its middle is (the cut, or the middle of a one-sided
+window), runs the command, then
+
+- removes the sound of a transition that went, whatever took it;
+- carries the sound, as it was before the command, by as much as the
+  transition's middle moved (a roll, a ripple, both clips moved, a
+  one-sided transition's length), so a ripple through the sound doesn't
+  chop it, and a swoosh stays on the cut when a centred transition's
+  length changes; pieces a cut in the command made of it go (the edit
+  context records which clip each cut piece came from), so an extract
+  through it never leaves two;
+- clears the tie when the sound itself was deleted or overwritten while
+  its transition stayed put.
+
+Sounds a command put somewhere on purpose (`addTransition`'s `sound`, a
+`sound` patch) are left there, and so are sounds a command names itself
+(a nudge, a trim, a delete, even a ripple delete that moves the cut):
+what it did to them was meant. Clips it only reaches through a link
+don't count, so a roll inside a saved segment, whose clips are all
+linked, still carries the segment's sound. The work goes in timeline
+order, so a journal replay makes the same tracks. Undo restores the whole
+project, so it needs nothing extra. The validator refuses a tie to a clip
+that isn't on an audio track or is shared by two transitions, and tying
+refuses a clip in a crossfade of its own.
 
 ## Transform contract
 
@@ -303,10 +366,14 @@ exports are tagged TV-range BT.709.
 Graphic clips are drawn by the compositor when their template is built
 in: the section card (`sectionCard`, RENDER.md has the design). Its props
 are plain values (`SectionCard.Props`: title, subtitle, number, total,
-kicker and four colours) that the inspector, agents and templates edit
-alike, and its motion (`SectionCard.Motion`) is in Core, so
-`addSectionCards` knows when a card hides the frame and puts the cut
-there. Other templates warn until Remotion renders exist.
+kicker, cursor and four colours) that the inspector, agents and templates
+edit alike. Its motion (`SectionCard.Motion`, the cursor's blink too) and
+the length its words need (`SectionCard.fittedDuration(for:)`) are in
+Core, so `addSectionCards` knows how long each card is, when it hides the
+frame and where to put the cut. Its whooshes are set against the voice:
+`AudioLevels.speechLevel(in:)` says where a project's speech plays, and
+the card's sounds move with it. Other templates warn until Remotion
+renders exist.
 
 Text and fonts:
 
@@ -418,9 +485,9 @@ Two modes:
   with relative paths. The original folder is left as it was. Left out:
   proxies, mattes, thumbnails and isolated voice, which Tandem makes again
   for what the edit uses (`--with-cache` keeps them); `node_modules`; lock
-  files, cache temporaries, and the archived projects' journals and headless
-  undo history (they describe the old paths); links to things outside the
-  folder. Transcripts, waveforms and loudness always go, and so do the
+  files, cache temporaries, and the archived projects' journals, headless
+  undo history (they describe the old paths) and review logs; links to
+  things outside the folder. Transcripts, waveforms and loudness always go, and so do the
   converted copies of video macOS can't decode (small, and making them
   again needs ffmpeg). Their cache keys
   come from the media fingerprints, which survive because copies keep

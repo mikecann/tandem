@@ -37,7 +37,7 @@ result. Errors go to standard error with exit code 1 (2 for usage
 mistakes); with `--json` the error is printed as `{"error": {...}}`.
 
 ```
-tandem status                      revision, length, who has it open, jobs, missing fonts
+tandem status                      revision, length, who has it open, jobs, missing fonts, edits waiting for review
 tandem timeline [--summary] [--from T] [--to T] [--words] [--json]
 tandem media [--refresh]           files, clip counts, analysis status
 tandem transcript [<clip or media id>] [--from T] [--to T]
@@ -46,7 +46,7 @@ tandem pauses [--min 0.6]          silences between words
 tandem tighten [--min 0.6] [--keep 0.15] [--apply]
 tandem captions [--from T] [--to T] [--max-words 3] [--y 0.42] [--apply]
 tandem short [--apply]             lay out a 9:16 short from the same edit
-tandem cards [--kicker Section] [--insert] [--no-sounds] [--apply]   a section card at every section marker
+tandem cards [--insert] [--no-sounds] [--apply]   a section card at every section marker
 tandem apply <batch.json | ->      [--dry-run] [--expect N] [--label L] [--key K]
 tandem undo [--expect N]    tandem redo    tandem history    tandem validate
 tandem frame <time> [-o out.png]   tandem clip <start> <end> [-o out.mp4]
@@ -285,10 +285,24 @@ the groups as `linked #1`, `linked #2`.
 ### Transitions
 
 A transition joins two touching clips on one track, or sits at one clip's
-head or tail. A transition between two clips is centred on the cut, so both
-clips need half its length of spare media beyond the cut (handles). Without
-them the command fails and says how much is missing; trim first or use a
-shorter transition. On audio tracks every transition is a crossfade.
+head or tail. A transition between two clips is centred on the cut, so each
+clip plays half its length past the cut. Where a clip has no frames there
+(its file used to the last frame, or from the first) that edge frame holds
+for the rest, as in Premiere and Filmora, and the edit's warnings say how
+long; trim the clip for real motion instead. On audio tracks every
+transition is a crossfade, and sound past a file's ends is silence.
+
+A transition can carry a sound effect: an ordinary clip on SFX (the first
+free SFX track), so Mike sees it and can nudge, trim or turn it down, tied
+to the transition by its `soundClipID`. It keeps its distance from the
+transition's middle (the cut, for one between two clips, where a push or
+wipe moves fastest), so a swoosh stays on the cut whatever the length:
+rolling the cut, rippling the take or moving both clips takes it along,
+whole, and a fade at a clip's head carries it as it grows. It goes when
+the transition goes, whether that's a `removeTransition`, a clip it joins
+deleted, the clips moved apart, or an undo. Deleting the sound clip
+leaves the transition silent. In the app, push, slide, cut slide and wipe
+come with a light swoosh unless Mike picks otherwise (Tandem > Settings).
 
 ## Reading the project
 
@@ -326,11 +340,13 @@ Media
 ```
 
 Each track line has the track's ID for commands that need one. Transitions
-(`~`) sit between the clips they join, and gaps in the take are listed as
-`gap`. When most of a track's clips share settings (a PiP camera track's
-`layout pipRight, scale 0.5 at 0.87,0.77, cutout, fx dropShadow`), the
-track line says them once as `(most clips: ...)`, each clip lists only
-what's different, and `not: ...` marks a clip that lacks one of them.
+(`~`) sit between the clips they join, ending `sound clip_...` when one
+plays a sound (that's its clip on SFX, whose own line says `sound of
+tr_...`), and gaps in the take are listed as `gap`. When most of a track's
+clips share settings (a PiP camera track's `layout pipRight, scale 0.5 at
+0.87,0.77, cutout, fx dropShadow`), the track line says them once as
+`(most clips: ...)`, each clip lists only what's different, and `not: ...`
+marks a clip that lacks one of them.
 
 A real edit runs to hundreds of clips, so start with `--summary` (one line
 per track with its clip count, span and gaps, plus the markers), then read a
@@ -650,9 +666,13 @@ at the very start is the cold open, which gets none), or at `markerIDs`
 (any kind). Cards are numbered in time order (`01`, `02`...), `total` is
 the count, the title is the marker's name and the subtitle its note. Each
 card starts just early enough to hide the whole frame from its marker on,
-so the cut between sections is never seen. A section card already over a
-marker is renumbered (and gets `kicker` if you pass one) but keeps its own
-words, colours and sounds, so run it again after adding a section.
+so the cut between sections is never seen, and is as long as its words need
+to be read (1.4 s for the wipes and 0.8 s to take it in, then the title,
+subtitle and kicker at 15 characters a second, from 4 s to 7 s) unless
+`duration` sets one length for all. Leave `kicker` off unless Mike asks for
+one: he prefers the number alone, which reads faster. A section card already over a marker is renumbered (and gets
+`kicker` if you pass one) but keeps its own words, colours, length and
+sounds, so run it again after adding a section.
 
 `mode` `overwrite` (the default) lays the cards over the timeline on
 Graphics (`trackID` for another video track). `insert` also makes room at
@@ -662,10 +682,23 @@ section and the first of the next; the whole take moves. `soundIn` and
 sweep, linked to its card: a media item already in the project, its gain
 (default -15 dB) and `offset`, seconds after its sweep starts (default 0.2
 in, 0 out). `tandem cards` fills them in with the section card whooshes
-from the asset library.
+from the asset library, levelled for the project's speech.
 
 ```json
-{"addSectionCards": {"kicker": "Section", "soundIn": {"mediaID": "med_whooshin", "gainDB": -14}, "soundOut": {"mediaID": "med_whooshout", "gainDB": -19}}}
+{"addSectionCards": {"soundIn": {"mediaID": "med_swishin", "gainDB": -5.4, "offset": 0}, "soundOut": {"mediaID": "med_swishout", "gainDB": -8.3}}}
+```
+
+#### fitSectionCards
+
+Makes section cards as long as their words need, like Fit to text in the
+app: every card, or `clipIDs`. Each keeps its start and its end moves
+(nothing ripples, so a longer card covers a little more of the section it
+opens), and its whoosh out moves with its sweep out. Cards that fit already
+are left alone. Use it after changing a card's words, clearing its kicker,
+or on cards made before the lengths grew (they used to be 3.2 s).
+
+```json
+{"fitSectionCards": {}}
 ```
 
 ### Cutting and trimming
@@ -832,17 +865,53 @@ Mike's usual length for the type.
 {"addTransition": {"trackID": "trk_camera", "transition": {"type": "dissolve", "duration": 0.5, "fromClipID": "clip_a", "toClipID": "clip_b"}}}
 ```
 
+`sound` plays a sound effect with it: a media item already in the project
+(`tandem assets use` adds one), its clip `gainDB` (default -15) and its
+`offset`, when it starts in seconds from the transition's middle (default:
+as the transition starts). The batch returns the transition's ID, then the
+sound clip's. The light swoosh Mike likes on pushes is loudest 0.39 s in, so
+`-0.39` peaks it on the cut, and `-23.3` puts it 15 LU under speech at
+-20 LUFS ([Put a swoosh on every push](#put-a-swoosh-on-every-push) has
+the rest).
+
+```json
+{"addTransition": {"trackID": "trk_camera", "transition": {"type": "push", "fromClipID": "clip_a", "toClipID": "clip_b"}, "sound": {"mediaID": "med_rgm8r7d7", "gainDB": -23.3, "offset": -0.39}}}
+```
+
 #### updateTransition
 
-Changes a transition's type, direction or duration.
+Changes a transition's type, direction or duration, and its `sound`: an
+object with any of `mediaID` (another file in its place), `gainDB` and
+`offset` changes it, or adds one when there's none (with `mediaID`), and
+`null` removes it. What you leave out stays as the sound has it, so a new
+length or type keeps the sound where it is against the middle. The sound
+clip is an ordinary clip too: `updateClip` and `moveClips` on its ID work,
+and it stays tied. `soundClipID` ties a clip that's already on an audio
+track instead, like a whoosh someone placed by hand beside the transition
+(its old sound, if it had one, stays as a plain clip), and `null` unties
+it, leaving it where it is; `addTransition` takes one in its transition
+too. The clip can't be another transition's sound, or be in a crossfade
+of its own, which moving it with the transition would pull apart.
 
 ```json
 {"updateTransition": {"transitionID": "tr_x", "patch": {"duration": 0.8}}}
 ```
 
+```json
+{"updateTransition": {"transitionID": "tr_x", "patch": {"sound": {"gainDB": -20}}}}
+```
+
+```json
+{"updateTransition": {"transitionID": "tr_x", "patch": {"sound": null}}}
+```
+
+```json
+{"updateTransition": {"transitionID": "tr_x", "patch": {"soundClipID": "clip_whoosh"}}}
+```
+
 #### removeTransition
 
-Removes a transition.
+Removes a transition and its sound.
 
 ```json
 {"removeTransition": {"transitionID": "tr_x"}}
@@ -1121,11 +1190,13 @@ back to the preset's.
 Mike's section card is one clip, the built-in `sectionCard` graphic, about
 three seconds between the cold open, the intro and each section. Convex's
 yellow, red and purple bands sweep across to wipe it in; the dark card holds
-a number chip, the title (Anton, upper case), a letter-spaced subtitle and
-progress bars (a bar for each section up to six, then one bar in proportion
-with a count like `3 / 14`); and the bands sweep across again to wipe it
-out, showing the next shot. It lasts 3.2 s; a longer or shorter card holds
-longer or shorter and the wipes stay the same.
+a number chip, the title (Anton, upper case) with a yellow text cursor
+blinking after its last letter, a letter-spaced subtitle and progress bars
+(a bar for each section up to six, then one bar in proportion with a count
+like `3 / 14`); and the bands sweep across again to wipe it out, showing the
+next shot. It's as long as its words need to be read, from 4 s for a short
+title and subtitle to 7 s: a longer card holds longer and the wipes stay the
+same.
 
 The usual way is a card at every section marker. Mark where each section
 starts (`addMarker` with `"kind": "section"`, or a marker's Kind menu in the
@@ -1134,12 +1205,18 @@ the subtitle. Then:
 
 ```bash
 tandem cards                              # the plan: numbers, titles, where each card goes
-tandem cards --kicker Section --apply     # SECTION 1 OF 9 beside each number
+tandem cards --apply                      # just the number in the chip, as Mike likes
 tandem frame 0:33 -o /tmp/card.png        # look at one
 ```
 
 The cards go on Graphics, each starting 0.43 s before its marker so the
-card hides the whole frame from the marker on. The section keeps playing
+card hides the whole frame from the marker on, and each as long as its
+words need: 1.4 s for the wipes and 0.8 s to take it in, then the title,
+subtitle and kicker read at 15 characters a second (a little slower than
+Netflix's 17 for subtitles: Mike found cards at 17 a bit quick), rounded up
+to a tenth of a second, at least 4 s and at most 7. `--duration` makes them
+all one length. Mike prefers no kicker (`SECTION 1 OF 9` beside the number):
+only pass `--kicker` when he asks. The section keeps playing
 under it (Mike's voice too). With `--insert` each marker gets room instead:
 the take moves on by the card's hold, so the card is a pause and its wipes
 show the last shot of one section and the first of the next. A marker at
@@ -1149,30 +1226,38 @@ keep their words. `--kicker Tip` suits a list video. It's one undo step,
 and in the app it's Timeline > Add section cards at section markers
 (Option-M).
 
-A whoosh goes with each sweep: two ElevenLabs sounds made for the card, kept
-in the asset library (docs/ASSETS.md). `tandem cards --apply` copies them
-into the project's `assets/sfx/` and puts them on SFX, linked to their card:
-the one in 0.2 s after the card starts at -14 dB, the one out as the out
-sweep starts, 0.88 s before the end, at -19 dB. A Mac whose library doesn't
-have them makes silent cards and says so; `--no-sounds` leaves them out.
+A soft whoosh goes with each sweep: two airy swishes made for the card with
+ElevenLabs, kept in the asset library (docs/ASSETS.md). `tandem cards
+--apply` copies them into the project's `assets/sfx/` and puts them on SFX,
+linked to their card: one as the card starts, one as the out sweep starts,
+0.88 s before the end. Their gains (-5.4 and -8.3 dB) put their loudest
+moment 15 LU under speech at -20 LUFS, where Mike's own swipes sit; in a
+project whose speech plays elsewhere they move with it (an imported edit at
+-28.7 gets -14.1 and -17). A Mac whose library doesn't have them makes
+silent cards and says so; `--no-sounds` leaves them out.
 
 One card by hand, anywhere:
 
 ```json
 {"label": "Section card: Results", "commands": [
-  {"insertClip": {"trackID": "trk_graphics", "clip": {"content": {"graphic": {"template": "sectionCard", "props": {"number": "02", "title": "Results", "subtitle": "Finally!", "total": 3, "kicker": "Section"}}}, "start": 95, "duration": 3.2}}}
+  {"insertClip": {"trackID": "trk_graphics", "clip": {"content": {"graphic": {"template": "sectionCard", "props": {"number": "02", "title": "Results", "subtitle": "Finally!", "total": 3}}}, "start": 95, "duration": 4}}}
 ]}
 ```
 
 Props: `title`, `subtitle`, `number` (what the chip says; a number is
 written `02`), `total` (how many sections, for the progress bars; 0 hides
 them), `kicker` (`Section` or `Tip`, shown as `SECTION 2 OF 3` beside the
-chip), and the colours `accent` (the first band, the chip, the subtitle and
-the lit bars), `band2`, `band3` and `background`, as `{"r", "g", "b"}` or a
-hex string like `"#F3B01C"`. A missing word leaves that part out; colours
-default to Convex's. Change them later with a patch, for example
+chip; off by default, and Mike prefers it off), `cursor` (`false` turns off the cursor after the title; it's on by
+default), and the colours `accent` (the first band, the chip, the subtitle,
+the lit bars and the cursor), `band2`, `band3` and `background`, as
+`{"r", "g", "b"}` or a hex string like `"#F3B01C"`. A missing word leaves
+that part out; colours default to Convex's. Change them later with a patch, for example
 `{"updateClip": {"clipID": "clip_...", "patch": {"content": {"graphic": {"props": {"subtitle": "Let's keep it fair"}}}}}}`
-(`null` removes one). `tandem frame` shows the result.
+(`null` removes one). `tandem frame` shows the result. A card added by hand
+is as long as you make it. After changing its words, the Video tab's Fit to
+text sets the length they need, trimming the card's end and moving its
+whoosh out with the wipe out; by hand that's a `trim` of its end and a
+`moveClips` of the whoosh by the same amount.
 
 ### Set the PiP layout
 
@@ -1302,36 +1387,39 @@ of a 4K project is 1920x1080 and of a 9:16 one 1080x1920.
 and `export` to `exports/<name> r<revision>.mp4`. In MCP, `frame` returns
 the picture directly, so you can look at the result of an edit.
 
-### Put a whoosh on every push transition
+### Put a swoosh on every push
 
-Find the cut each push transition sits on (the end of its outgoing clip,
-or the start of its incoming one), pick a whoosh, add it to the project
-once, then place it at every cut in one batch:
+A swoosh belongs to its transition: give a push a `sound` and it goes
+where the push goes, and away with it. The light swoosh Mike likes (the
+app's default for push, slide, cut slide and wipe) is
+`elevenlabs:sfx_2ybnc2tu` in his asset library. Copy it into the project
+once, find the pushes that have no sound yet, and give them all one in one
+batch:
 
 ```bash
-tandem timeline --json | jq -c '[.project.videoTracks[] | . as $t | .transitions[]
-  | select(.type == "push") | . as $x | $t.clips[]
-  | if $x.fromClipID then select(.id == $x.fromClipID) | .start + .duration
-    else select(.id == $x.toClipID) | .start end | . * 1000 | round / 1000] | unique'
-# [106.932,136.59,242.9,...]
-tandem assets search whoosh --kind sfx          # or --online, or generate one
-tandem assets use import:sfx-3fa2c1/Whoosh_03.wav   # adds it to the media, prints its media ID
+tandem assets use elevenlabs:sfx_2ybnc2tu     # adds it to the media: med_rgm8r7d7
+tandem timeline --json | jq -r '.project.videoTracks[].transitions[] | select(.type == "push" and .soundClipID == null) | .id'
+# tr_k3f9x2mq
+# tr_p8zq4w2m
 ```
 
-Start each whoosh about 0.3 s before its cut so it peaks on the cut:
-
 ```json
-{"label": "Whooshes on the pushes", "commands": [
-  {"placeMedia": {"mediaIDs": ["med_w4k2p8zq"], "at": 106.632}},
-  {"placeMedia": {"mediaIDs": ["med_w4k2p8zq"], "at": 136.29}},
-  {"placeMedia": {"mediaIDs": ["med_w4k2p8zq"], "at": 242.6}}
+{"label": "Swooshes on the pushes", "commands": [
+  {"updateTransition": {"transitionID": "tr_k3f9x2mq", "patch": {"sound": {"mediaID": "med_rgm8r7d7", "gainDB": -23.3, "offset": -0.39}}}},
+  {"updateTransition": {"transitionID": "tr_p8zq4w2m", "patch": {"sound": {"mediaID": "med_rgm8r7d7", "gainDB": -23.3, "offset": -0.39}}}}
 ]}
 ```
 
-`placeMedia` puts each one on SFX at the usual -15 dB. When another sound is
-already there, add `"mode": "overwrite"` or name a free audio track with
-`"audioTrackID"`. For a handful, `tandem assets use <id> --at <time>` once
-per cut does the same, one undo step each.
+Each goes on SFX (SFX 2 where SFX is taken) starting 0.39 s before the
+cut, so its loudest moment lands where the push moves fastest. -23.3 dB is
+for speech at Tandem's -20 LUFS: its loudest 400 ms then sits 15 LU under
+the voice, as the section card whooshes do. In a project whose speech
+plays elsewhere (`tandem loudness` says where), move the gain by the
+difference: -32 for speech at -28.7. For another sound, `offset` is minus
+the moment it's loudest, and the gain puts that 15 LU under the speech. A
+push that already has a whoosh placed by hand beside it can keep that one:
+tie it with `{"soundClipID": "clip_..."}` in the patch, and it moves and
+goes with the push from then on.
 
 ### Credits for the description
 
@@ -1504,6 +1592,16 @@ still when it's beside it. It's one undo step.
 - `tandem watch --once` (MCP `watch`) waits until the project changes, for
   example after asking Mike to fix something in the app. `tandem watch`
   prints every change as it happens.
+- Mike reviews your edits in the app rather than watching the whole video
+  again: every batch that changes the timeline and isn't his is
+  highlighted there (the clips it added or changed, a mark where it took
+  something out) until he marks them reviewed, and he steps from one to
+  the next. Label batches with what they do (`"B-roll over the config
+  file"`), since that's what he reads when he hovers one.
+- `tandem status` lists your edits still waiting for him as `waiting for
+  Mike's review` (`reviewPending` in JSON: each edit's label, author, date
+  and the clip IDs it added or changed). It's read-only; only Mike clears
+  it, from the app.
 
 ## Operations
 

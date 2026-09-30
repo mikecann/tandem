@@ -40,6 +40,8 @@ final class EditorActions {
         case .deselectAll: return !model.selection.isEmpty || AssetLibraryHost.shared.previewing != nil
         case .liftInOut, .extractInOut: return model.inOutRange != nil
         case .addSectionCards: return SectionCardBatches.canAddAtMarkers(model.project)
+        case .previousAgentChange, .nextAgentChange: return !model.review.stops.isEmpty
+        case .markAgentChangesReviewed: return !model.reviewLog.isEmpty
         default: return true
         }
     }
@@ -131,7 +133,7 @@ final class EditorActions {
         case .addSectionCards:
             SectionCardActions.addAtMarkers(in: model)
         case .addTransition:
-            return apply(TimelineEdits.addDefaultTransition(project, playhead: playhead, selection: model.selection), otherwise: "Put the playhead on a cut between two clips.")
+            return TransitionSoundActions.addDefault(in: model)
         case .toggleKeyframe: return model.toggleKeyframes()
         case .addVideoTrack, .addAudioTrack:
             let kind: TrackKind = command == .addVideoTrack ? .video : .audio
@@ -179,6 +181,11 @@ final class EditorActions {
         // Viewer
         case .toggleSafeMargins: model.showSafeMargins.toggle()
         case .toggleProxy: playback.useProxies.toggle()
+
+        // Review
+        case .previousAgentChange: return model.goToAgentChange(forward: false)
+        case .nextAgentChange: return model.goToAgentChange(forward: true)
+        case .markAgentChangesReviewed: return model.markAgentChangesReviewed()
 
         // Project
         case .undo: model.undo()

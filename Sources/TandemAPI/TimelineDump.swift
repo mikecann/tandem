@@ -148,6 +148,8 @@ public enum TimelineDump {
         let speechTrackIDs = Set(TranscriptTools.speechTracks(project).map(\.id))
         var usedMedia: [String] = []
         var untranscribed: [String] = []
+        // Which transition each sound clip plays for.
+        let soundOf = Dictionary(project.allTracks.flatMap(\.transitions).compactMap { t in t.soundClipID.map { ($0, t.id) } }, uniquingKeysWith: { a, _ in a })
 
         for (label, track, clips) in shown {
             out.append("")
@@ -159,7 +161,7 @@ public enum TimelineDump {
             if !track.targeted { flags.append("untargeted") }
             // Settings most of the track's clips share are said once, in
             // the header, and each clip lists only what's different.
-            let settings = clips.map { clipSettings($0, links: linkNumbers, names: names) }
+            let settings = clips.map { clipSettings($0, links: linkNumbers, names: names, sounds: soundOf) }
             let usual = usualSettings(settings)
             var header = "\(label) \(track.name)  \(track.id)  \(flags.joined(separator: " "))"
             if !usual.isEmpty { header += "  (most clips: \(usual.joined(separator: ", ")))" }
@@ -193,7 +195,7 @@ public enum TimelineDump {
                     out.append("    gap \(previousEnd)-\(clip.start) (\(TimeText.duration(clip.start - previousEnd)))")
                 }
                 if let transition = heads[clip.id] {
-                    out.append("    ~ \(transition.type.rawValue)\(direction(transition)) \(TimeText.duration(transition.duration)) in  \(transition.id)")
+                    out.append("    ~ \(transition.type.rawValue)\(direction(transition)) \(TimeText.duration(transition.duration)) in  \(transition.id)\(sound(transition))")
                 }
                 let id = clip.id.padding(toLength: idWidth, withPad: " ", startingAt: 0)
                 let length = String(repeating: " ", count: max(0, lengthWidth - TimeText.duration(clip.duration).count)) + TimeText.duration(clip.duration)
@@ -209,7 +211,7 @@ public enum TimelineDump {
                 if let mediaID = clip.mediaID, !usedMedia.contains(mediaID) { usedMedia.append(mediaID) }
                 if let transition = tails[clip.id] {
                     let target = transition.toClipID.map { " into \($0)" } ?? " out"
-                    out.append("    ~ \(transition.type.rawValue)\(direction(transition)) \(TimeText.duration(transition.duration))\(target)  \(transition.id)")
+                    out.append("    ~ \(transition.type.rawValue)\(direction(transition)) \(TimeText.duration(transition.duration))\(target)  \(transition.id)\(sound(transition))")
                 }
                 if options.transcripts != nil, speechTrackIDs.contains(track.id),
                    let mediaID = clip.mediaID, let item = project.media(mediaID), item.hasAudio {
@@ -323,6 +325,7 @@ public enum TimelineDump {
             if !card.subtitle.isEmpty { result += " / \"\(shorten(card.subtitle, 32))\"" }
             if let index = card.index, card.total > 0 { result += " \(index) of \(card.total)" }
             if !card.kicker.isEmpty { result += " kicker \(card.kicker)" }
+            if !card.cursor { result += " no cursor" }
             return result
         case .solid(let color):
             return "solid \(hex(color))"
@@ -331,8 +334,9 @@ public enum TimelineDump {
         }
     }
 
-    static func clipSettings(_ clip: Clip, links: [String: Int], names: [String: String] = [:]) -> [String] {
+    static func clipSettings(_ clip: Clip, links: [String: Int], names: [String: String] = [:], sounds: [String: String] = [:]) -> [String] {
         var parts: [String] = []
+        if let transitionID = sounds[clip.id] { parts.append("sound of \(transitionID)") }
         if let name = clip.name, !name.isEmpty {
             // Clips placed from a file are named after it; only show names someone chose.
             let fileName = clip.mediaID.flatMap { names[$0] }.map { ($0 as NSString).deletingPathExtension }
@@ -395,6 +399,12 @@ public enum TimelineDump {
 
     static func direction(_ transition: Transition) -> String {
         transition.direction.map { " \($0.rawValue)" } ?? ""
+    }
+
+    /// The clip that plays a transition's sound, for agents to nudge or
+    /// turn down like any other.
+    static func sound(_ transition: Transition) -> String {
+        transition.soundClipID.map { "  sound \($0)" } ?? ""
     }
 
     /// Levels to a tenth of a dB, which is all anyone hears.

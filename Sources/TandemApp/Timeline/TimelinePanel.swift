@@ -51,6 +51,7 @@ struct TimelineToolbar: View {
                     .foregroundStyle(Theme.amber.color)
             }
             Spacer(minLength: 8)
+            ReviewChip(model: model, actions: actions)
             Button {
                 showTighten = true
             } label: {
@@ -59,7 +60,7 @@ struct TimelineToolbar: View {
                     .foregroundStyle(Theme.textMuted.color)
             }
             .buttonStyle(.plain)
-            .help("Tighten pauses: remove long silences from the take, found from its transcript")
+            .tip("Tighten pauses: remove long silences from the take, found from its transcript")
             .popover(isPresented: $showTighten, arrowEdge: .top) {
                 TightenPausesPopover(model: model) { showTighten = false }
             }
@@ -71,7 +72,7 @@ struct TimelineToolbar: View {
                 fill: Theme.textMuted
             )
             .frame(width: 84)
-            .help(zoomHelp)
+            .tip(zoomHelp)
         }
         .padding(.horizontal, 14)
         .frame(height: Theme.Metrics.timelineToolbarHeight)
@@ -92,15 +93,21 @@ struct ToggleText: View {
     let on: Bool
     var help: String = ""
     let action: () -> Void
+    @State private var hovering = false
 
     var body: some View {
         Button(action: action) {
             Text(title)
                 .font(.ui(11.5))
-                .foregroundStyle(on ? Theme.text.color : Theme.textMuted.color)
+                .foregroundStyle(on || hovering ? Theme.text.color : Theme.textMuted.color)
+                .padding(.horizontal, 4)
+                .padding(.vertical, 2)
+                .hoverBackground(Theme.tabSelected.color.opacity(0.6), cornerRadius: 4)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help(help)
+        .pointerHover { hovering = $0 }
+        .tip(help)
     }
 }
 
@@ -114,12 +121,13 @@ private struct ToolButton: View {
             ToolIcon(tool: tool, color: selected ? Theme.text.color : Theme.textMuted.color)
                 .frame(width: 13, height: 12)
                 .frame(width: 28, height: 24)
+                .hoverBackground(Theme.tabSelected.color.opacity(0.6), cornerRadius: 5, when: !selected)
                 .background(RoundedRectangle(cornerRadius: 5).fill(selected ? Theme.tabSelected.color : .clear))
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         // "Blade tool (B): click a clip to cut it there"
-        .help(Shortcuts.help("\(tool.name) tool", tool.command) + ": " + tool.summary)
+        .tip(Shortcuts.help("\(tool.name) tool", tool.command) + ": " + tool.summary)
     }
 }
 

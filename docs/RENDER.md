@@ -47,11 +47,14 @@ Project ──RenderPlanner──▶ RenderPlan (pure)
   time mapping. A tiny black movie underlies everything, so the video spans
   the whole timeline even with only titles or a trailing gap.
 - A two-sided transition is centred on the cut (the outgoing clip plays on
-  for half, the incoming one starts half early from its handle). A one-sided
+  for half, the incoming one starts half early from its handle, holding its
+  first frame where the file has none before, as the outgoing one holds its
+  last). A one-sided
   transition sits inside its clip. Short clips with overlapping transitions
   nest: `(A to B) to C`.
 - Speed uses `scaleTimeRange`; a freeze frame is one frame stretched; media
-  that runs out holds its last frame (video) or goes quiet (audio).
+  that runs out holds its edge frame (video, first or last; the direct
+  decode path clamps to the first frame too) or goes quiet (audio).
 - Instructions split at every visible clip edge and transition edge.
 - Graphic clips (`.graphic`) with a built-in template, the section card
   (`sectionCard`), are drawn by the compositor like titles. Other graphic
@@ -157,7 +160,9 @@ Directions are the direction of motion; the default is `left`.
 | wipe | A soft edge sweeps in the direction of motion |
 | zoom | Cross zoom: into the outgoing shot, out of the incoming one, with a light zoom blur |
 
-On audio tracks every transition is an equal-power crossfade.
+On audio tracks every transition is an equal-power crossfade. A
+transition's sound (ARCHITECTURE.md) is an ordinary clip on SFX, mixed like
+any sound effect.
 
 ## Titles
 
@@ -207,6 +212,33 @@ export all show the same frame.
   come in 0.52 s after the start over 0.45 s with `cubic-bezier(.16, 1,
   .3, 1)`, from transparent, 2.5cqw lower and 98% of their size, about the
   frame's centre.
+- **Cursor.** Mike asked for a little life on the hold: a text cursor
+  after the last letter of the title's last line, a solid bar in the
+  accent 0.1em wide (of the title's size) from the baseline up to the
+  capitals' height, 0.07em after the letter and its letter-spacing. The
+  title stays centred as the mockup has it and the cursor hangs after it,
+  so nothing moves as it blinks. It comes in with the words (same fade
+  and rise), is lit as the title lands (0.97 s), then goes off and on
+  every 0.53 s with hard steps, like a terminal's (Windows' standard caret
+  blink), and is gone once the wipe out starts; a lit spell the wipe out
+  would cut to under half isn't started, so it never flashes before the
+  wipe. The `cursor` prop (on unless false) and the Video tab's switch
+  turn it off. `SectionCardRenderTests` pins it at 1080p (x 1464, y 447,
+  17 by 154 after METHODOLOGY) and 4K (twice that, to the pixel), in the
+  compositor, a frame grab and an export.
+- **Length.** A card's words set how long it needs
+  (`SectionCard.fittedDuration(for:)`): 1.4 s for the wipes (the words
+  are fully in from about 0.7 s, and the wipe out's first band reaches
+  them about 0.7 s before the end), 0.8 s to find the card and take it
+  in, then the title, subtitle and kicker as the card shows them, spaces
+  included, at 15 characters a second: a little slower than Netflix's 17
+  for adult subtitles, since Mike found cards at 17 went by a bit fast.
+  Rounded up to a tenth of a second (and to a frame), at least 4 s and at
+  most 7 s (about 72 characters; longer stops being a breather), so
+  METHODOLOGY / LET'S KEEP IT FAIR (30 characters) gets 4.2 s. `addSectionCards`, `tandem cards` and
+  the Templates tile use it unless given a length, and the Video tab's Fit
+  to text sets it for a card whose words changed, moving its whoosh out
+  with the wipe out.
 - **Wipes.** The card shows behind the first band on the way in (left of
   its left edge) and the next shot shows behind the last band on the way
   out, so the wipes reveal the shots either side; the bands are drawn on
@@ -240,8 +272,9 @@ export all show the same frame.
   draws the same card. Without the bundle the card falls back to Impact,
   the system font and SF Mono or Menlo.
 - **Cost.** The words are drawn once per card and frame size; a wipe
-  frame fills the card, draws them over it, clips and draws the bands,
-  about 22 ms at 4K in a debug build. The hold is drawn once and reused.
+  frame fills the card, draws them over it (and the cursor), clips and
+  draws the bands, about 22 ms at 4K in a debug build. The hold is drawn
+  twice, cursor lit and not, and reused.
   A 3.2 s card exports at 4K in 1.1 s against 0.9 s for a plain solid
   (release build).
 

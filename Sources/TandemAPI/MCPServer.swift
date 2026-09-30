@@ -494,7 +494,7 @@ enum MCPTools {
     static let all: [Tool] = [
         Tool(
             name: "status", title: "Project status",
-            description: "The project's name, revision, length, unsaved changes, who has it open, undo and redo, and background jobs.",
+            description: "The project's name, revision, length, unsaved changes, who has it open, undo and redo, background jobs, and agent edits still waiting for Mike's review (reviewPending).",
             operation: .status, properties: [:], readOnly: true, idempotent: true
         ),
         Tool(
@@ -578,12 +578,12 @@ enum MCPTools {
         ),
         Tool(
             name: "cards", title: "Add section cards",
-            description: "Puts a numbered section card at every section marker after the start (or at markers): Convex's bands wipe in, the card holds the number, the marker's name as the title, its note as the subtitle and progress bars for the count, and the bands wipe out, with a whoosh on each sweep from the asset library. A card already at a marker is renumbered and keeps its words. A dry run that returns the plan and the commands unless apply: true.",
+            description: "Puts a numbered section card at every section marker after the start (or at markers): Convex's bands wipe in, the card holds the number, the marker's name as the title, its note as the subtitle and progress bars for the count, and the bands wipe out, with a soft whoosh on each sweep from the asset library. Each card is as long as its words need to be read. A card already at a marker is renumbered and keeps its words. A dry run that returns the plan and the commands unless apply: true.",
             operation: .cards,
             properties: [
                 "markers": S.ids("Marker IDs to put cards at. Default: every section marker after 0:00."),
                 "kicker": S.string("Words beside the number, like Section or Tip, shown as SECTION 1 OF 3."),
-                "duration": time("Card length. Default 3.2 s; the wipes keep their length."),
+                "duration": time("Every card's length. Default: each fitted to its words, 3.2 to 6 s; the wipes keep their length."),
                 "track": S.string("Video track ID for the cards. Default Graphics."),
                 "insert": S.boolean("Make room at each marker so the card is a pause and its wipes show the shots either side (the whole take moves)."),
                 "sounds": S.boolean("A whoosh on each sweep, from the asset library. Default true."),

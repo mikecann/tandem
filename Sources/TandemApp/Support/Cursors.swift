@@ -30,6 +30,8 @@ enum CursorKind: Equatable {
     case pointer
     /// The viewer with Z held: drag a box to zoom into it.
     case zoomIn
+    /// An end of the timeline's scroll bar: drag to zoom.
+    case zoomEdge
 
     var nsCursor: NSCursor {
         switch self {
@@ -43,6 +45,7 @@ enum CursorKind: Equatable {
         case .rowResize: return .rowResize
         case .pointer: return .pointingHand
         case .zoomIn: return .zoomIn
+        case .zoomEdge: return .columnResize
         }
     }
 
@@ -148,7 +151,7 @@ extension CursorKind {
         }
         if overKeyframe { return .pointer }
         switch press {
-        case .trim?: return .trim
+        case .trim?, .transitionLength?: return .trim
         case .roll?: return .roll
         case .slip?, .slide?: return .grab
         // Clips move with the arrow, as in other editors.
@@ -159,7 +162,7 @@ extension CursorKind {
     /// While a timeline drag runs.
     static func dragging(_ kind: DragKind) -> CursorKind {
         switch kind {
-        case .trim: return .trim
+        case .trim, .transitionLength: return .trim
         case .roll: return .roll
         case .slip, .slide: return .grabbing
         case .move: return .arrow

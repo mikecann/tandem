@@ -85,6 +85,7 @@ private struct InspectorTabButton: View {
     let available: Bool
     let showsTitle: Bool
     let action: () -> Void
+    @State private var hovering = false
 
     var body: some View {
         Button(action: action) {
@@ -97,7 +98,7 @@ private struct InspectorTabButton: View {
                         .lineLimit(1)
                 }
             }
-            .foregroundStyle(selected ? Theme.text.color : Theme.textFaint.color)
+            .foregroundStyle(selected ? Theme.text.color : (hovering && available ? Theme.textMuted.color : Theme.textFaint.color))
             .opacity(available ? 1 : 0.4)
             .padding(.bottom, 2)
             .overlay(alignment: .bottom) {
@@ -107,7 +108,8 @@ private struct InspectorTabButton: View {
         }
         .buttonStyle(.plain)
         .disabled(!available)
-        .help(help)
+        .pointerHover { hovering = $0 }
+        .tip(help)
     }
 
     private var help: String {
@@ -601,11 +603,12 @@ struct TransitionInspector: View {
                     .frame(width: 86, alignment: .leading)
                 Menu(transition.type.displayName) {
                     ForEach(TransitionType.allCases, id: \.self) { type in
-                        Button(type.displayName) { update(["type": .string(type.rawValue)], "Change transition") }
+                        Button(type.displayName) { TransitionSoundActions.changeType(transition.id, to: type, in: model) }
                     }
                 }
                 .menuStyle(.borderlessButton)
                 .fixedSize()
+                .tip("The kind of move. A new type brings its own sound when this one plays its old type's, or none")
                 Spacer()
             }
             if [.push, .slide, .wipe, .cutSlide].contains(transition.type) {
@@ -620,9 +623,10 @@ struct TransitionInspector: View {
                 }
             }
             SliderRow(label: "Duration", value: transition.duration.seconds, range: 0.1...3, format: { String(format: "%.2f s", $0) },
-                      defaultValue: transition.type.defaultDuration.seconds, help: "How long the transition takes.") { value in
+                      defaultValue: transition.type.defaultDuration.seconds, help: "How long the transition takes. Dragging its box's edges on the timeline does it too.") { value in
                 update(["duration": .number((value * 100).rounded() / 100)], "Transition length")
             }
+            TransitionSoundRows(model: model, transition: transition)
             Button {
                 model.apply(EditBatch(label: "Remove transition", commands: [.removeTransition(transitionID: transition.id)]))
             } label: {
@@ -732,7 +736,7 @@ private struct TextSection: View {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .font(.system(size: 11))
                     .foregroundStyle(Theme.amber.color)
-                    .help("Not installed, so it's drawn in SF Pro. Pick a font in the Fonts tab, or run: tandem assets use \(missing.assetID)")
+                    .tip("Not installed, so it's drawn in SF Pro. Pick a font in the Fonts tab, or run: tandem assets use \(missing.assetID)")
             }
             Spacer()
             resetButton(["font"], own.font != nil, base.font)

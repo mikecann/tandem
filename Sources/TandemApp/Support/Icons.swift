@@ -99,6 +99,8 @@ enum Icons {
     static let cardProgress = "chart.bar.xaxis"
     static let cardKicker = "tag"
     static let cardColours = "paintpalette"
+    static let cardCursor = "character.cursor.ibeam"
+    static let cardLength = "timer"
 
     // The Colour tab.
     /// What the grade applies to: every clip of the take, or this one.
@@ -181,6 +183,9 @@ enum Icons {
         case .toolSlide: return "arrow.left.and.line.vertical.and.arrow.right"
         case .toggleSafeMargins: return "rectangle.dashed"
         case .toggleProxy: return "bolt.horizontal"
+        case .previousAgentChange: return "chevron.left.circle"
+        case .nextAgentChange: return "chevron.right.circle"
+        case .markAgentChangesReviewed: return "checkmark.seal"
         case .undo: return "arrow.uturn.backward"
         case .redo: return "arrow.uturn.forward"
         case .save: return "square.and.arrow.down"

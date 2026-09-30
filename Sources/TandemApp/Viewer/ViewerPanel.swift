@@ -74,7 +74,7 @@ struct TransportBar: View {
                         .background(Circle().fill(Theme.text.color))
                 }
                 .buttonStyle(.plain)
-                .help(Shortcuts.help("Play or pause", .playPause) + ". J, K and L shuttle backwards, stop and forwards.")
+                .tip(Shortcuts.help("Play or pause", .playPause) + ". J, K and L shuttle backwards, stop and forwards.")
                 TransportIcon(name: "forward.end.fill", help: Shortcuts.help("Next edit", .nextEdit)) { actions.perform(.nextEdit) }
             }
 
@@ -87,7 +87,7 @@ struct TransportBar: View {
                         .foregroundStyle(model.showSafeMargins ? Theme.text.color : Theme.textMuted.color)
                 }
                 .buttonStyle(.plain)
-                .help(Shortcuts.help("Safe margins: show the title-safe and action-safe areas", .toggleSafeMargins))
+                .tip(Shortcuts.help("Safe margins: show the title-safe and action-safe areas", .toggleSafeMargins))
                 ToggleText(title: "Proxy", on: playback.useProxies, help: Shortcuts.help("Proxies: play from 1080p copies where they're ready; off plays the original files", .toggleProxy)) {
                     playback.useProxies.toggle()
                 }
@@ -109,7 +109,7 @@ struct TransportBar: View {
                 .menuStyle(.borderlessButton)
                 .menuIndicator(.hidden)
                 .fixedSize()
-                .help("Viewer zoom, relative to fitting the frame. Pinch, or scroll with ⌘ or ⌥, to zoom about the pointer; scroll to move around; double-click the picture to fit.")
+                .tip("Viewer zoom, relative to fitting the frame. Pinch, or scroll with ⌘ or ⌥, to zoom about the pointer; scroll to move around; double-click the picture to fit.")
             }
             .frame(maxWidth: .infinity, alignment: .trailing)
         }
@@ -129,10 +129,11 @@ private struct TransportIcon: View {
             Image(systemName: name)
                 .font(.system(size: 13))
                 .foregroundStyle(Theme.textMuted.color)
-                .frame(width: 20, height: 20)
+                .frame(width: 26, height: 24)
+                .hoverBackground(Theme.tabSelected.color, cornerRadius: 5)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help(help)
+        .tip(help)
     }
 }

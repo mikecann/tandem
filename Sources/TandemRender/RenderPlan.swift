@@ -133,14 +133,13 @@ enum RenderPlanner {
                     break
                 }
 
-                var head = heads[clip.id] ?? .zero
+                // A transition plays the clip past its edges. Where the file
+                // runs out (before its first frame or after its last) the
+                // assembler holds the edge frame, as Premiere and Filmora do,
+                // so the clip is there for the whole transition.
+                let head = heads[clip.id] ?? .zero
                 let tail = tails[clip.id] ?? .zero
                 let isMovingVideo = item.map { $0.kind == .video } ?? false
-                if isMovingVideo && !clip.freezeFrame {
-                    // There's no picture before the start of the file.
-                    let available = Time(seconds: max(0, clip.sourceStart.seconds) / clip.speed)
-                    head = min(head, available)
-                }
                 let visible = TimeRange(start: clip.start - head, end: clip.end + tail)
                 planned[trackIndex].append(PlannedClip(clip: clip, trackIndex: trackIndex, visible: visible))
 
@@ -302,26 +301,10 @@ enum RenderPlanner {
     /// When each transition on a track plays. A transition between two clips
     /// is centred on the cut; one at a clip's head or tail sits inside it.
     static func transitionWindows(_ track: Track, trackIndex: Int) -> [TransitionRef] {
-        let clips = Dictionary(track.clips.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
-        return track.transitions.compactMap { t in
-            guard t.duration > .zero else { return nil }
-            let from = t.fromClipID.flatMap { clips[$0] }
-            let to = t.toClipID.flatMap { clips[$0] }
-            let window: TimeRange
-            switch (from, to) {
-            case let (a?, b?):
-                guard a.end == b.start else { return nil }
-                let half = Time(flicks: t.duration.flicks / 2)
-                window = TimeRange(start: a.end - half, duration: t.duration)
-            case let (a?, nil):
-                let length = min(t.duration, a.duration)
-                window = TimeRange(start: a.end - length, duration: length)
-            case let (nil, b?):
-                window = TimeRange(start: b.start, duration: min(t.duration, b.duration))
-            case (nil, nil):
-                return nil
-            }
-            return TransitionRef(transition: t, window: window, trackIndex: trackIndex)
+        // One rule for when a transition plays (`Transition.window(on:)`),
+        // shared with the timeline's drawing and the transition's sound.
+        track.transitions.compactMap { t in
+            t.window(on: track).map { TransitionRef(transition: t, window: $0, trackIndex: trackIndex) }
         }
         .sorted { $0.window.start < $1.window.start }
     }

@@ -73,10 +73,12 @@ public enum EditCommand: Codable, Equatable, Sendable {
     /// time order, `total` the count, the title from the marker's name and
     /// the subtitle from its note. Each card hides the frame from its
     /// marker on, so the cut between sections isn't seen. A card already at
-    /// a marker is renumbered and keeps its own words. `mode` `overwrite`
-    /// (the default) lays the cards over the timeline; `insert` also makes
-    /// room, so the card is a pause and its wipes show the shots either
-    /// side. `soundIn` and `soundOut` put a whoosh on SFX for each sweep.
+    /// a marker is renumbered and keeps its own words and length. Each new
+    /// card is as long as its words need (`SectionCard.fittedDuration`,
+    /// 4 to 7 s) unless `duration` is given. `mode` `overwrite` (the
+    /// default) lays the cards over the timeline; `insert` also makes room,
+    /// so the card is a pause and its wipes show the shots either side.
+    /// `soundIn` and `soundOut` put a whoosh on SFX for each sweep.
     case addSectionCards(
         markerIDs: [String]? = nil,
         trackID: String? = nil,
@@ -86,6 +88,12 @@ public enum EditCommand: Codable, Equatable, Sendable {
         soundIn: SectionCardSound? = nil,
         soundOut: SectionCardSound? = nil
     )
+    /// Makes section cards as long as their words need
+    /// (`SectionCard.fittedDuration`), like Fit to text in the app: every
+    /// card, or `clipIDs`. Each keeps its start, its end moves and its
+    /// whoosh out moves with its sweep out. Cards that fit already are left
+    /// alone. JSON: `{"fitSectionCards": {}}`.
+    case fitSectionCards(clipIDs: [String]? = nil)
 
     // MARK: Cutting and trimming
 
@@ -143,8 +151,14 @@ public enum EditCommand: Codable, Equatable, Sendable {
 
     // MARK: Transitions
 
-    case addTransition(trackID: String, transition: Transition)
+    /// `sound` plays a sound effect with it, on the first free SFX track,
+    /// tied to it from then on (`TransitionSounds`).
+    case addTransition(trackID: String, transition: Transition, sound: TransitionSound? = nil)
+    /// Merge patch on `type`, `direction` and `duration`, plus `sound`: an
+    /// object with any of `mediaID`, `gainDB` and `offset` changes the
+    /// sound (or adds one), `null` removes it.
     case updateTransition(transitionID: String, patch: JSONValue)
+    /// Removes the transition and its sound.
     case removeTransition(transitionID: String)
 
     // MARK: Effects and animation

@@ -51,6 +51,9 @@ enum Theme {
     /// Text and icons drawn on amber.
     static let onAmber = Swatch(0x0C0D0F)
     static let green = Swatch(0x5CC98F)
+    /// Agent edits waiting for review: a soft violet, clear of the amber
+    /// that selection and markers use.
+    static let agent = Swatch(0xA78BFA)
     static let red = Swatch(0xE5484D)
     static let sliderTrack = Swatch(0x2A2E33)
     static let sliderFill = Swatch(0xAEB3B9)
@@ -92,6 +95,10 @@ enum Theme {
     /// Small labels drawn over thumbnails ("PiP right · cutout").
     static let badge = Swatch(0x0C0D0F, alpha: 0.75)
     static let transitionChip = Swatch(0xE8EAED)
+    /// A transition's box over its clips, and its edge: see-through, so
+    /// the clips' ends show under it, as in Filmora.
+    static let transitionBox = Swatch(0xE8EAED, alpha: 0.2)
+    static let transitionOutline = Swatch(0xE8EAED, alpha: 0.65)
     static let linkHighlight = Swatch(0xFFB224, alpha: 0.45)
     static let marqueeFill = Swatch(0xFFB224, alpha: 0.08)
     static let inOutFill = Swatch(0xFFB224, alpha: 0.07)
@@ -107,6 +114,8 @@ enum Theme {
         static let transportHeight: CGFloat = 46
         static let timelineToolbarHeight: CGFloat = 36
         static let rulerHeight: CGFloat = 24
+        /// The scroll bar under the tracks.
+        static let timelineScrollerHeight: CGFloat = 12
         static let statusBarHeight: CGFloat = 26
         static let trackHeaderWidth: CGFloat = 112
         static let trackGap: CGFloat = 3

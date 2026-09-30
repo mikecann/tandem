@@ -54,7 +54,7 @@
     "4": "layoutSplit",
 
     "cmd+a": "selectAll",
-    "cmd+shift+a": "deselectAll",
+    "cmd+shift+a": "selectForward",
     "escape": "deselectAll",
     "a": "selectForward",
 
@@ -78,6 +78,10 @@
 
     "cmd+'": "toggleSafeMargins",
     "cmd+shift+p": "toggleProxy",
+
+    "[": "previousAgentChange",
+    "]": "nextAgentChange",
+    "option+]": "markAgentChangesReviewed",
 
     "cmd+z": "undo",
     "cmd+shift+z": "redo",

@@ -13,6 +13,9 @@ final class TimelineContainerView: NSView {
     let headers = TimelineHeaderView()
     let lanes = TimelineLanesView()
     let corner = TimelineCornerView()
+    let scroller = TimelineScrollerView()
+    /// Agent changes waiting for review, marked over the lanes.
+    let reviewOverlay = ReviewOverlayView()
     private let playheadView = PlayheadView()
     private(set) var artwork: MediaArtwork
     private var loops: [ObservationLoop] = []
@@ -42,10 +45,12 @@ final class TimelineContainerView: NSView {
         // fills its dirty rects, so it has to clip.
         clipsToBounds = true
         layer?.backgroundColor = Theme.window.cg
-        for view in [ruler, headers, lanes, corner] as [TimelineChildView] {
+        for view in [ruler, headers, lanes, corner, scroller] as [TimelineChildView] {
             view.container = self
             addSubview(view)
         }
+        reviewOverlay.container = self
+        addSubview(reviewOverlay)
         addSubview(playheadView)
         model.timeline.playheadX = { [weak self] in
             guard let self else { return nil }
@@ -98,6 +103,7 @@ final class TimelineContainerView: NSView {
             previewPending = false
             if relayoutLanes() { headers.needsDisplay = true }
             lanes.previewDidChange()
+            reviewOverlay.update()
         }
     }
 
@@ -121,7 +127,11 @@ final class TimelineContainerView: NSView {
         if old.scale != drawState.scale || old.showTranscript != drawState.showTranscript || old.revision != drawState.revision {
             lanes.playheadMoved(to: playheadTime)
         }
+        if old.scale != drawState.scale || old.project.duration != drawState.project.duration {
+            scroller.needsDisplay = true
+        }
         positionPlayhead()
+        reviewOverlay.update()
         // A new track opens its name for typing.
         if model.timeline.renamingTrackID != nil { headers.syncRename() }
     }
@@ -172,10 +182,14 @@ final class TimelineContainerView: NSView {
         super.layout()
         let header = Theme.Metrics.trackHeaderWidth
         let rulerHeight = Theme.Metrics.rulerHeight
+        let barHeight = Theme.Metrics.timelineScrollerHeight
+        let tracksHeight = max(0, bounds.height - rulerHeight - barHeight)
         corner.frame = CGRect(x: 0, y: 0, width: header, height: rulerHeight)
         ruler.frame = CGRect(x: header, y: 0, width: max(0, bounds.width - header), height: rulerHeight)
-        headers.frame = CGRect(x: 0, y: rulerHeight, width: header, height: max(0, bounds.height - rulerHeight))
-        lanes.frame = CGRect(x: header, y: rulerHeight, width: max(0, bounds.width - header), height: max(0, bounds.height - rulerHeight))
+        headers.frame = CGRect(x: 0, y: rulerHeight, width: header, height: tracksHeight)
+        lanes.frame = CGRect(x: header, y: rulerHeight, width: max(0, bounds.width - header), height: tracksHeight)
+        scroller.frame = CGRect(x: header, y: rulerHeight + tracksHeight, width: max(0, bounds.width - header), height: barHeight)
+        reviewOverlay.frame = lanes.frame
         let width = lanes.bounds.width
         if abs(model.timeline.lanesWidth - width) > 0.5 { model.timeline.lanesWidth = width }
         if model.timeline.fitPending && width > 200 {
@@ -200,6 +214,7 @@ final class TimelineContainerView: NSView {
         positionPlayhead()
         followPlayhead()
         lanes.playheadMoved(to: playheadTime)
+        scroller.needsDisplay = true
     }
 
     func positionPlayhead() {
@@ -207,7 +222,8 @@ final class TimelineContainerView: NSView {
         let width = Theme.Metrics.playheadHeadWidth
         let visible = x >= Theme.Metrics.trackHeaderWidth - width / 2 && x <= bounds.width + width
         playheadView.isHidden = !visible
-        let frame = CGRect(x: (x - width / 2).rounded(), y: Theme.Metrics.rulerHeight - Theme.Metrics.playheadHeadHeight + 2, width: width, height: max(0, bounds.height - Theme.Metrics.rulerHeight + Theme.Metrics.playheadHeadHeight - 2))
+        // Down to the scroll bar, which marks the playhead itself.
+        let frame = CGRect(x: (x - width / 2).rounded(), y: Theme.Metrics.rulerHeight - Theme.Metrics.playheadHeadHeight + 2, width: width, height: max(0, bounds.height - Theme.Metrics.timelineScrollerHeight - Theme.Metrics.rulerHeight + Theme.Metrics.playheadHeadHeight - 2))
         if playheadView.frame != frame { playheadView.frame = frame }
     }
 

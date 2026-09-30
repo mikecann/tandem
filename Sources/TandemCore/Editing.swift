@@ -7,6 +7,12 @@ import Foundation
 /// succeeds and the result validates.
 public enum Editing {
     public static func apply(_ command: EditCommand, to project: inout Project, context: inout EditContext) throws {
+        // Transitions' sounds are kept in step with them after whatever
+        // this command does (`TransitionSounds`).
+        let sounds = TransitionSounds.anchors(in: project)
+        let named = sounds.isEmpty ? [] : TransitionSounds.clips(namedBy: command)
+        let created = context.createdIDs.count
+        context.placedSounds = []
         switch command {
         case .updateProject(let patch):
             try updateProject(&project, patch)
@@ -49,6 +55,8 @@ public enum Editing {
                 &project, markerIDs: markerIDs, trackID: trackID, duration: duration, kicker: kicker,
                 mode: mode ?? .overwrite, soundIn: soundIn, soundOut: soundOut, &context
             )
+        case .fitSectionCards(let clipIDs):
+            try fitSectionCards(&project, clipIDs: clipIDs, &context)
         case .blade(let at, let trackIDs, let clipIDs):
             try blade(&project, at: at, trackIDs: trackIDs, clipIDs: clipIDs, &context)
         case .trim(let clipID, let edge, let to, let ripple, let includeLinked):
@@ -77,10 +85,10 @@ public enum Editing {
             try addMotion(&project, clipIDs, style: style, amount: amount)
         case .setFormatLayout(let clipIDs, let format, let slot, let cutout):
             try setFormatLayout(&project, clipIDs, format: format, slot: slot, cutout: cutout)
-        case .addTransition(let trackID, let transition):
-            try addTransition(&project, trackID: trackID, transition, &context)
+        case .addTransition(let trackID, let transition, let sound):
+            try addTransition(&project, trackID: trackID, transition, sound: sound, &context)
         case .updateTransition(let transitionID, let patch):
-            try updateTransition(&project, transitionID, patch)
+            try updateTransition(&project, transitionID, patch, &context)
         case .removeTransition(let transitionID):
             try removeTransition(&project, transitionID)
         case .addEffect(let clipID, let effect, let index):
@@ -102,6 +110,8 @@ public enum Editing {
         case .removeMarker(let markerID):
             try removeMarker(&project, markerID)
         }
+        TransitionSounds.reconcile(&project, from: sounds, named: named, createdFrom: created, &context)
+        context.placedSounds = []
         project.normalizeLinkGroups()
     }
 
@@ -1160,20 +1170,7 @@ public enum Editing {
             guard half <= from.duration, half <= to.duration else {
                 throw EditError.invalid("a \(t.duration) transition is longer than one of its clips")
             }
-            if let limit = p.sourceLimit(for: from) {
-                let needed = from.sourceEnd + half.scaled(by: from.speed)
-                if needed > limit && !from.freezeFrame {
-                    throw EditError.invalid("clip \(from.id) needs \(needed - limit) more media after its end for a \(t.duration) transition. Trim it shorter first or use a shorter transition.")
-                }
-            }
-            // Stills can show any amount of themselves, so only moving
-            // media needs frames before the cut.
-            if let mediaID = to.mediaID, p.media(mediaID)?.kind != .image, !to.freezeFrame {
-                let needed = to.sourceStart - half.scaled(by: to.speed)
-                if needed < .zero {
-                    throw EditError.invalid("clip \(to.id) needs \(-needed) more media before its start for a \(t.duration) transition. Trim its start later first or use a shorter transition.")
-                }
-            }
+
         case (let from?, nil):
             guard t.duration <= from.duration else { throw EditError.invalid("the transition is longer than clip \(from.id)") }
         case (nil, let to?):
@@ -1181,24 +1178,93 @@ public enum Editing {
         }
     }
 
-    static func addTransition(_ p: inout Project, trackID: String, _ transition: Transition, _ context: inout EditContext) throws {
+    static func addTransition(_ p: inout Project, trackID: String, _ transition: Transition, sound: TransitionSound? = nil, _ context: inout EditContext) throws {
         let location = try requireTrack(p, trackID)
         try requireUnlocked(p[location])
         guard !p.allIDs.contains(transition.id) else { throw EditError.invalid("ID \(transition.id) is already in use") }
         try validateTransition(transition, on: p[location], in: p)
+        if let clipID = transition.soundClipID {
+            // A sound already on the timeline, tied to it from now on.
+            guard sound == nil else { throw EditError.invalid("give a transition sound or soundClipID, not both") }
+            try checkTieable(clipID, in: p)
+        }
+        for note in heldFrames(transition, on: p[location], in: p) { context.warn(note) }
         p[location].transitions.append(transition)
         context.createdIDs.append(transition.id)
+        if let sound { try addTransitionSound(&p, sound, to: transition.id, &context) }
     }
 
-    static func updateTransition(_ p: inout Project, _ transitionID: String, _ patch: JSONValue) throws {
+    static func updateTransition(_ p: inout Project, _ transitionID: String, _ patch: JSONValue, _ context: inout EditContext) throws {
         guard let (location, index) = p.location(ofTransition: transitionID) else {
             throw EditError.notFound("transition \(transitionID)")
         }
         try requireUnlocked(p[location])
         try requireObject(patch, forbidden: ["id"], what: "transition")
-        let updated = try JSONValue.applyMergePatch(patch, to: p[location].transitions[index])
+        guard case .object(var fields) = patch else { return }
+        let current = p[location].transitions[index]
+        // `sound` changes the sound itself; `soundClipID` ties a clip that's
+        // on an audio track already (null unties it, leaving it where it
+        // is), and sending back the one it has changes nothing.
+        var tie = fields.removeValue(forKey: "soundClipID")
+        if tie == (current.soundClipID.map(JSONValue.string) ?? .null) { tie = nil }
+        let sound = fields.removeValue(forKey: "sound")
+        if tie != nil, sound != nil { throw EditError.invalid("give a transition's sound or its soundClipID, not both") }
+        let middle = current.middle(on: p[location])
+        let updated = try JSONValue.applyMergePatch(.object(fields), to: current)
         try validateTransition(updated, on: p[location], in: p, ignoring: transitionID)
+        for note in heldFrames(updated, on: p[location], in: p) { context.warn(note) }
         p[location].transitions[index] = updated
+        switch tie {
+        case nil:
+            break
+        case .null?:
+            p[location].transitions[index].soundClipID = nil
+        case .string(let clipID)?:
+            try checkTieable(clipID, in: p)
+            p[location].transitions[index].soundClipID = clipID
+        default:
+            throw EditError.invalid("a transition's soundClipID is a clip's ID, or null")
+        }
+        if let sound { try patchTransitionSound(&p, transitionID, sound, middleBefore: middle, &context) }
+    }
+
+    /// A centred transition plays half its length past each side of the
+    /// cut. A clip with no frames there (a file used to its last frame, or
+    /// from its first) holds that edge frame instead, as Premiere and
+    /// Filmora do, so any cut can take a transition. These say where.
+    static func heldFrames(_ t: Transition, on track: Track, in p: Project) -> [String] {
+        guard let fromID = t.fromClipID, let toID = t.toClipID,
+              let from = track.clips.first(where: { $0.id == fromID }),
+              let to = track.clips.first(where: { $0.id == toID }) else { return [] }
+        let half = Time(flicks: t.duration.flicks / 2)
+        var notes: [String] = []
+        if !from.freezeFrame, let limit = p.sourceLimit(for: from) {
+            let short = from.sourceEnd + half.scaled(by: from.speed) - limit
+            if short > .zero {
+                notes.append("\(name(of: from, in: p)) has no frames after its end, so its last frame holds for \(seconds(short.scaled(by: 1 / from.speed))) of the \(t.type.rawValue).")
+            }
+        }
+        // Stills can show any amount of themselves.
+        if !to.freezeFrame, let mediaID = to.mediaID, p.media(mediaID)?.kind != .image {
+            let short = half.scaled(by: to.speed) - to.sourceStart
+            if short > .zero {
+                notes.append("\(name(of: to, in: p)) has no frames before its start, so its first frame holds for \(seconds(short.scaled(by: 1 / to.speed))) of the \(t.type.rawValue).")
+            }
+        }
+        return notes
+    }
+
+    private static func name(of clip: Clip, in p: Project) -> String {
+        if let name = clip.name, !name.isEmpty { return name }
+        if let mediaID = clip.mediaID, let item = p.media(mediaID) {
+            return URL(fileURLWithPath: item.path).deletingPathExtension().lastPathComponent
+        }
+        return "Clip \(clip.id)"
+    }
+
+    private static func seconds(_ time: Time) -> String {
+        let value = (time.seconds * 100).rounded() / 100
+        return value == value.rounded() ? "\(Int(value)) s" : "\(value) s"
     }
 
     static func removeTransition(_ p: inout Project, _ transitionID: String) throws {

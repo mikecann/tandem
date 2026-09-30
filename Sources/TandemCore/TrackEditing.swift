@@ -15,6 +15,13 @@ public struct EditContext: Sendable {
     /// When linked clips are split at the same time, their right-hand pieces
     /// join one new link group. Keyed by "<old group>@<flicks>".
     private var splitGroups: [String: String] = [:]
+    /// Transition sounds the command being applied put somewhere on
+    /// purpose (`addTransition`, a `sound` patch), which keeping sounds in
+    /// step with their transitions leaves where they were put.
+    var placedSounds: Set<String> = []
+    /// The clip each clip cut off another came from, by the new clip's
+    /// ID, so a transition's sound that a cut split can be put back whole.
+    var cutFrom: [String: String] = [:]
 
     public init(seed: UInt64 = UInt64.random(in: 0...UInt64.max)) {
         self.seed = seed
@@ -131,6 +138,7 @@ extension Track {
         guard let i = clips.firstIndex(where: { $0.start < time && time < $0.end }) else { return nil }
         let original = clips[i]
         let rightID = context.makeID("clip")
+        context.cutFrom[rightID] = original.id
         guard let parts = original.split(at: time, rightID: rightID) else { return nil }
         var left = parts.left
         var right = parts.right
@@ -174,6 +182,7 @@ extension Track {
                 right.moveHead(to: range.end)
                 if hasLeft {
                     right.id = context.makeID("clip")
+                    context.cutFrom[right.id] = clip.id
                     context.createdIDs.append(right.id)
                     if var audio = right.audio {
                         audio.fadeIn = .zero

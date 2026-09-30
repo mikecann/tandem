@@ -56,6 +56,8 @@ final class TimelineLanesView: TimelineChildView {
     private var assetDrop: (id: String, time: Time)?
     /// A look or font on its way to the clip under the pointer.
     private var assetApply: (asset: Asset, clipID: String)?
+    /// A transition on its way to a cut, once its sound is in the project.
+    private var transitionDrop: (type: TransitionType, time: Time, trackID: String?)?
     /// Media files dragged in from Finder, found once per drag, and where
     /// they'd go.
     private var fileDrop: (files: [URL], time: Time, trackID: String?, newTrack: TrackKind?)?
@@ -552,7 +554,8 @@ final class TimelineLanesView: TimelineChildView {
             CursorKind.pointer.set()
             return
         }
-        let hit = tester.hit(point)
+        // The blade cuts clips, through any transition over them.
+        let hit = tester.hit(point, transitions: model.tool != .blade)
         updateToolTip(hit, model: model)
         // The selection only decides which clips a move takes, not the kind
         // of drag, so it's left out here; the pointer moves a lot.
@@ -573,6 +576,7 @@ final class TimelineLanesView: TimelineChildView {
             lines.append("\(Timecode.string(clip.start, rate: rate)) to \(Timecode.string(clip.end, rate: rate)) (\(Timecode.string(clip.duration, rate: rate)))")
             if let badge = renderer.badgeText(for: clip) { lines.append(badge) }
             if clip.speed != 1 { lines.append("Speed \(Int((clip.speed * 100).rounded()))%") }
+            if let owner = TransitionTips.owner(ofSound: clip.id, in: model.project) { lines.append(owner) }
             switch part {
             case .head: lines.append("Drag to trim the start")
             case .tail: lines.append("Drag to trim the end")
@@ -580,10 +584,9 @@ final class TimelineLanesView: TimelineChildView {
             }
             tip = lines.joined(separator: "\n")
         case .transition(let id, _):
-            if let location = model.project.location(ofTransition: id) {
-                let transition = model.project[location.track].transitions[location.index]
-                tip = "\(transition.type.displayName) · \(String(format: "%.2f s", transition.duration.seconds))"
-            }
+            tip = TransitionTips.body(id, in: model.project)
+        case .transitionEdge(let id, _, _):
+            tip = TransitionTips.edge(id, in: model.project)
         case .emptyTrack, .transcript, .nothing:
             tip = nil
         }
@@ -625,7 +628,7 @@ final class TimelineLanesView: TimelineChildView {
         guard let model, let tester = tester(for: model.project) else { return }
         window?.makeFirstResponder(self)
         let point = lanePoint(event)
-        let hit = tester.hit(point)
+        let hit = tester.hit(point, transitions: model.tool != .blade)
         let mods = modifiers(event)
         pressPoint = point
         pressSeconds = model.timeline.scale.seconds(atX: point.x)
@@ -678,6 +681,16 @@ final class TimelineLanesView: TimelineChildView {
             model.selection = []
             model.selectedTransitionID = id
             return
+        case .transitionEdge(let id, _, _):
+            // Picked, and its edge drags its length.
+            model.selection = []
+            model.selectedTransitionID = id
+            guard let kind = DragKind.forPress(
+                on: hit, tool: model.tool, project: model.project, selection: [],
+                rippleByDefault: model.rippleTrims, command: mods.command, option: mods.option
+            ), let context = dragContext() else { return }
+            session = DragSession(kind: kind, context: context)
+            CursorKind.dragging(kind).set()
         case .clip(let id, _, let part):
             model.selectedTransitionID = nil
             model.focusedClipID = id
@@ -767,6 +780,9 @@ final class TimelineLanesView: TimelineChildView {
                 let sign = delta < .zero ? "−" : "+"
                 var text = sign + Timecode.string(Time(flicks: abs(delta.flicks)), rate: model.frameRate)
                 if case .move = session.kind, flags.contains(.command) { text += "  insert" }
+                if case .transitionLength(let id, _) = session.kind, let length = session.plan.length {
+                    text = TransitionTips.dragLabel(id, length: length, in: model.project)
+                }
                 dragLabel = (text, point)
             }
             container.previewChanged()
@@ -907,7 +923,8 @@ final class TimelineLanesView: TimelineChildView {
                 model.selection = SelectionRules.members(of: id, in: model.project, linkedSelection: model.linkedSelection, option: false)
             }
             buildClipMenu(menu, clipID: id, trackID: trackID, at: time)
-        case .transition(let id, _):
+        case .transition(let id, _), .transitionEdge(let id, _, _):
+            model.selection = []
             model.selectedTransitionID = id
             buildTransitionMenu(menu, transitionID: id)
         case .emptyTrack(let trackID, let at):
@@ -971,14 +988,15 @@ final class TimelineLanesView: TimelineChildView {
                 }
             }
         }
-        if let left = track.clip(endingAt: clip.start, excluding: clip.id) {
+        // With the dissolve's sound, if Mike gave it one in Settings.
+        if track.clip(endingAt: clip.start, excluding: clip.id) != nil, !track.transitions.contains(where: { $0.toClipID == clip.id }) {
             menu.add("Add dissolve at start", icon: Icons.transition) {
-                model.apply(EditBatch(label: "Add dissolve", commands: [.addTransition(trackID: trackID, transition: Transition(type: .dissolve, duration: TransitionType.dissolve.defaultDuration, fromClipID: left.id, toClipID: clip.id))]))
+                TransitionSoundActions.add(.dissolve, at: clip.start, trackID: trackID, in: model)
             }
         }
-        if let right = track.clip(startingAt: clip.end, excluding: clip.id) {
+        if track.clip(startingAt: clip.end, excluding: clip.id) != nil, !track.transitions.contains(where: { $0.fromClipID == clip.id }) {
             menu.add("Add dissolve at end", icon: Icons.transition) {
-                model.apply(EditBatch(label: "Add dissolve", commands: [.addTransition(trackID: trackID, transition: Transition(type: .dissolve, duration: TransitionType.dissolve.defaultDuration, fromClipID: clip.id, toClipID: right.id))]))
+                TransitionSoundActions.add(.dissolve, at: clip.end, trackID: trackID, in: model)
             }
         }
         menu.addItem(.separator())
@@ -1043,7 +1061,7 @@ final class TimelineLanesView: TimelineChildView {
         menu.addSubmenu("Type", icon: Icons.transition) { sub in
             for type in TransitionType.allCases {
                 sub.add(type.displayName, checked: transition.type == type) {
-                    model.apply(EditBatch(label: "Change transition", commands: [.updateTransition(transitionID: transitionID, patch: .object(["type": .string(type.rawValue)]))]))
+                    TransitionSoundActions.changeType(transitionID, to: type, in: model)
                 }
             }
         }
@@ -1052,6 +1070,14 @@ final class TimelineLanesView: TimelineChildView {
                 sub.add(String(format: "%.2f s", seconds), checked: abs(transition.duration.seconds - seconds) < 0.01) {
                     model.apply(EditBatch(label: "Transition length", commands: [.updateTransition(transitionID: transitionID, patch: .object(["duration": .number(seconds)]))]))
                 }
+            }
+        }
+        menu.addSubmenu("Sound", icon: "speaker.wave.2") { sub in
+            sub.add("None", checked: transition.soundClipID == nil) {
+                TransitionSoundActions.setSound(.none, of: transitionID, in: model)
+            }
+            sub.add(TransitionSoundText.defaultItem(transition.type, choices: [])) {
+                TransitionSoundActions.setSound(.typeDefault, of: transitionID, in: model)
             }
         }
         menu.addItem(.separator())
@@ -1122,6 +1148,12 @@ final class TimelineLanesView: TimelineChildView {
             clearDrop()
             AssetLibraryHost.shared.dragged = nil
             AssetLibraryHost.shared.apply(pending.asset, to: [pending.clipID], in: model)
+            window?.makeKeyAndOrderFront(nil)
+            return true
+        }
+        if let pending = transitionDrop, drop != nil {
+            clearDrop()
+            TransitionSoundActions.add(pending.type, at: pending.time, trackID: pending.trackID, in: model)
             window?.makeKeyAndOrderFront(nil)
             return true
         }
@@ -1209,7 +1241,7 @@ final class TimelineLanesView: TimelineChildView {
         let target = DropTarget.at(y: point.y, in: container.layoutCache)
         let key = DropKey(
             payload: dragged, time: time, target: target, insert: NSEvent.modifierFlags.contains(.command),
-            clipID: tester(for: model.project)?.hit(point).clipID
+            clipID: tester(for: model.project)?.hit(point, transitions: false).clipID
         )
         if let lastDrop, lastDrop.key == key {
             // The same frame, track and clip: the same edit. Only the label
@@ -1232,6 +1264,7 @@ final class TimelineLanesView: TimelineChildView {
         var label: String
         assetDrop = nil
         assetApply = nil
+        transitionDrop = nil
         switch dragged {
         case .media(let ids):
             let insert = NSEvent.modifierFlags.contains(.command)
@@ -1256,7 +1289,7 @@ final class TimelineLanesView: TimelineChildView {
                 drop = nil
                 previewProject = nil
                 snapLine = nil
-                let clip = tester(for: model.project)?.hit(point).clipID.flatMap { model.project.clip($0) }
+                let clip = tester(for: model.project)?.hit(point, transitions: false).clipID.flatMap { model.project.clip($0) }
                 if let clip, !AssetApplying.targets(for: asset, among: [clip.id], in: model.project).isEmpty {
                     assetApply = (asset, clip.id)
                     let name = ClipRenderer.name(of: clip, in: model.project)
@@ -1275,10 +1308,16 @@ final class TimelineLanesView: TimelineChildView {
             dragLabel = ((NSEvent.modifierFlags.contains(.command) ? "Insert \(name) at " : "Add \(name) at ") + at, point)
             return .copy
         case .transition(let type):
-            batch = LibraryDrops.transition(type, at: time, trackID: lane?.trackID, in: model.project)
+            // Previewed with its sound once that's in the project; the drop
+            // itself waits for it (`TransitionSoundActions.add`).
+            batch = LibraryDrops.transition(
+                type, at: time, trackID: lane?.trackID, in: model.project,
+                sound: TransitionSoundActions.cached(type, in: model), soundFor: TransitionSoundActions.soundFor()
+            )
             label = batch?.label ?? "Drop on a cut"
+            transitionDrop = batch == nil ? nil : (type, time, lane?.trackID)
         case .effect(let type):
-            let clipID = tester(for: model.project)?.hit(point).clipID
+            let clipID = tester(for: model.project)?.hit(point, transitions: false).clipID
             batch = LibraryDrops.effect(type, on: clipID, in: model.project)
             let name = clipID.flatMap { model.project.clip($0) }.map { ClipRenderer.name(of: $0, in: model.project) }
             label = batch.map { "\($0.label) to \(name ?? "clip")" } ?? "Drop on a clip"
@@ -1309,6 +1348,7 @@ final class TimelineLanesView: TimelineChildView {
         drop = nil
         assetDrop = nil
         assetApply = nil
+        transitionDrop = nil
         fileDrop = nil
         previewProject = nil
         snapLine = nil

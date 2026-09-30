@@ -160,10 +160,10 @@ struct ScrubbableNumber: View {
                     .padding(.vertical, 1)
                     .background(RoundedRectangle(cornerRadius: 4).fill(hovering || scrubbed != nil ? Theme.field.color : .clear))
                     .contentShape(Rectangle())
-                    .onHover { hovering = $0 }
+                    .pointerHover { hovering = $0 }
                     .pointerStyle(.columnResize)
                     .gesture(scrub)
-                    .help(ifAny: help)
+                    .tip(ifAny: help)
             }
         }
         .frame(width: width, alignment: alignment)
@@ -237,11 +237,12 @@ struct IconButton: View {
                 .font(.system(size: size, weight: .semibold))
                 .foregroundStyle(enabled ? Theme.textMuted.color : Theme.textFainter.color.opacity(0.6))
                 .frame(width: 18, height: 18)
+                .hoverBackground(Theme.tabSelected.color, cornerRadius: 4, when: enabled)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .disabled(!enabled)
-        .help(help)
+        .tip(help)
     }
 }
 
@@ -285,7 +286,7 @@ struct GraphiteSegmented<Option: Hashable>: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .help(help?(option) ?? "")
+                .tip(help?(option) ?? "")
             }
         }
         .padding(3)
@@ -386,7 +387,7 @@ struct SliderRow: View {
                 .frame(minWidth: Self.labelWidth, alignment: .leading)
                 .contentShape(Rectangle())
                 .onTapGesture(count: 2) { if let resetValue { commit(resetValue) } }
-                .help(ifAny: help.map { [$0, resetHint].compactMap { $0 }.joined(separator: " ") })
+                .tip(ifAny: help.map { [$0, resetHint].compactMap { $0 }.joined(separator: " ") })
             GraphiteSlider(
                 value: Binding(get: { draft ?? value }, set: { draft = $0; onPreview($0) }),
                 range: range,
@@ -395,7 +396,7 @@ struct SliderRow: View {
                 defaultValue: resetValue,
                 onEditingChanged: { editing in if !editing { finish() } }
             )
-            .help(ifAny: help.map { [$0, resetHint].compactMap { $0 }.joined(separator: " ") })
+            .tip(ifAny: help.map { [$0, resetHint].compactMap { $0 }.joined(separator: " ") })
             ScrubbableNumber(
                 value: draft ?? value, range: range, width: valueWidth,
                 format: format, parse: parse,
@@ -424,15 +425,6 @@ struct SliderRow: View {
         var v = min(max(raw, range.lowerBound), range.upperBound)
         if let step, step > 0 { v = min(max((v / step).rounded() * step, range.lowerBound), range.upperBound) }
         if v != value { onCommit(v) }
-    }
-}
-
-extension View {
-    /// A tooltip when there's something to say. With none, a tooltip set
-    /// around the view (a caller's `.help`) still shows.
-    @ViewBuilder
-    func help(ifAny text: String?) -> some View {
-        if let text { help(text) } else { self }
     }
 }
 
@@ -468,6 +460,7 @@ struct OutlineButton: View {
                 .foregroundStyle(Theme.text.color)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 3)
+                .hoverBackground(Theme.tabSelected.color, cornerRadius: 5)
                 .overlay(RoundedRectangle(cornerRadius: 5).stroke(Theme.buttonBorder.color, lineWidth: 1))
                 .contentShape(Rectangle())
         }
