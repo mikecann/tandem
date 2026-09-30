@@ -74,7 +74,11 @@ struct MotionPicture {
     }
 
     /// Video range 16...235 to 0...255.
-    static let fullRange: [UInt8] = (0..<256).map { UInt8(max(0, min(255, ($0 - 16) * 255 / 219))) }
+    static let fullRange: [UInt8] = (0..<256).map { value in
+        let stretched: Int = (value - 16) * 255 / 219
+        let clamped: Int = max(0, min(255, stretched))
+        return UInt8(clamped)
+    }
 
     static func blurred(_ plane: [UInt8], _ width: Int, _ height: Int) -> [UInt8] {
         var source = plane
@@ -138,7 +142,11 @@ final class MatteSmoother {
 
     /// Picture change to weight: 0 where still, 255 where it moved.
     static let weightTable: [UInt8] = (0..<256).map { value in
-        UInt8((min(1, max(0, (Float(value) - stillBelow) / (movedAbove - stillBelow))) * 255).rounded())
+        let range: Float = movedAbove - stillBelow
+        let fraction: Float = (Float(value) - stillBelow) / range
+        let clamped: Float = min(1, max(0, fraction))
+        let scaled: Float = (clamped * 255).rounded()
+        return UInt8(scaled)
     }
 
     private var raw: [[UInt8]] = []
@@ -345,7 +353,11 @@ final class MatteSmoother {
     /// `weight` of 255 gives `moving`, 0 gives `still`.
     @inline(__always)
     static func blend(_ moving: UInt8, _ still: UInt8, _ weight: UInt8) -> UInt8 {
-        UInt8((Int(weight) * Int(moving) + (255 - Int(weight)) * Int(still) + 127) / 255)
+        let w: Int = Int(weight)
+        let movingPart: Int = w * Int(moving)
+        let stillPart: Int = (255 - w) * Int(still)
+        let rounded: Int = (movingPart + stillPart + 127) / 255
+        return UInt8(rounded)
     }
 
     /// The median of seven values, by the comparisons of a sorting network
