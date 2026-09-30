@@ -98,6 +98,18 @@ final class CLITests: XCTestCase {
         XCTAssertTrue(badTime.stderr.contains("isn't a time"), badTime.stderr)
     }
 
+    func testApplyTakesTheBatchQuotedAsItsArgument() throws {
+        // As `tandem media` suggests fixes: tandem apply '{"updateMedia": ...}'.
+        let folder = TempFolder()
+        XCTAssertEqual(try tandem("new", "Inline.tandem", in: folder.url).status, 0)
+        let inline = try tandem("apply", #"  {"addMarker": {"marker": {"id": "mk_inline", "time": 2, "name": "Inline"}}}"#, in: folder.url)
+        XCTAssertEqual(inline.status, 0, inline.stderr)
+        XCTAssertNotNil(try ProjectFile.load(from: folder.file("Inline.tandem")).project.markers.first { $0.id == "mk_inline" })
+        let missing = try tandem("apply", "nope.json", in: folder.url)
+        XCTAssertEqual(missing.status, 2)
+        XCTAssertTrue(missing.stderr.contains("Couldn't read"), missing.stderr)
+    }
+
     func testHeadlessEditLoop() throws {
         let folder = TempFolder()
         let created = try tandem("new", "Loop.tandem", in: folder.url)

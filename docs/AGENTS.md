@@ -47,7 +47,7 @@ tandem tighten [--min 0.6] [--keep 0.15] [--apply]
 tandem captions [--from T] [--to T] [--max-words 3] [--y 0.42] [--apply]
 tandem short [--apply]             lay out a 9:16 short from the same edit
 tandem cards [--insert] [--no-sounds] [--apply]   a section card at every section marker
-tandem apply <batch.json | ->      [--dry-run] [--expect N] [--label L] [--key K]
+tandem apply <batch.json | - | '<json>'>   [--dry-run] [--expect N] [--label L] [--key K]
 tandem undo [--expect N]    tandem redo    tandem history    tandem validate
 tandem frame <time> [-o out.png]   tandem clip <start> <end> [-o out.mp4]
 tandem export [--preset <name>] [-o out.mp4] [--from T] [--to T] [--format <id>]
@@ -481,7 +481,7 @@ A batch looks like this; `commands` is required and the rest is optional:
  ]}
 ```
 
-`tandem apply` also takes a bare list of commands, or a single command.
+`tandem apply` also takes a bare list of commands, or a single command, and the JSON can be quoted as the argument itself: `tandem apply '{"blade": {"at": 12.5}}'`.
 Patches (`updateClip`, `updateTrack`...) are JSON merge patches: send only
 the fields to change, nested objects merge, and `null` removes a field.
 `tandem schema` prints the full JSON schema.
@@ -1657,7 +1657,7 @@ still when it's beside it. It's one undo step.
 | captions | `tandem captions [--from] [--to] [--max-words] [--y] [--apply]` | `POST /v1/captions {"from", "to", "words", "y", "apply"}` | `captions` |
 | short | `tandem short [--apply]` | `POST /v1/short {"apply"}` | `short` |
 | cards | `tandem cards [--kicker] [--duration] [--insert] [--no-sounds] [--marker]... [--apply]` | `POST /v1/cards {"markers", "kicker", "duration", "insert", "sounds", "apply"}` | `cards` |
-| apply | `tandem apply <file or ->` | `POST /v1/apply <batch>` | `apply` |
+| apply | `tandem apply <file, - or '<json>'>` | `POST /v1/apply <batch>` | `apply` |
 | undo, redo | `tandem undo`, `tandem redo` | `POST /v1/undo`, `/v1/redo` | `undo`, `redo` |
 | history | `tandem history` | `POST /v1/history` | `history` |
 | validate | `tandem validate` | `POST /v1/validate` | `validate` |

@@ -398,10 +398,13 @@ struct CLI {
     /// Reads the batch for `apply` from a file or stdin. Accepts a batch
     /// object, a list of commands, or a single command.
     private func applyRequest(_ args: Arguments) throws -> ApplyRequest {
-        let source = try args.positional(0, "a JSON file, or - to read standard input", command: "apply")
+        let source = try args.positional(0, "a JSON file, - to read standard input, or the batch itself", command: "apply")
         let data: Data
         if source == "-" {
             data = FileHandle.standardInput.readDataToEndOfFile()
+        } else if let first = source.first(where: { !$0.isWhitespace }), first == "{" || first == "[" {
+            // The batch itself, quoted on the command line.
+            data = Data(source.utf8)
         } else {
             let url = URL(fileURLWithPath: absolute(source))
             guard let contents = try? Data(contentsOf: url) else { throw UsageError(message: "Couldn't read \(url.path).") }

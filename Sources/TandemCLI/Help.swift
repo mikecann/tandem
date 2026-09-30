@@ -22,9 +22,9 @@ enum Help {
                     details: "--refresh scans the project folder for new files first."),
         CommandHelp(name: "timeline", usage: "tandem timeline [--from <time>] [--to <time>] [--words] [--summary] [--json]", summary: "The edit as readable text (or the project JSON).", options: ["from", "to", "words", "summary"],
                     details: "Tracks top to bottom as the app shows them, one line per clip. --summary gives one line per track, for finding your way round a long edit; --words adds what's said in each voice clip; --json prints the project JSON."),
-        CommandHelp(name: "apply", usage: "tandem apply <file.json | -> [--dry-run] [--expect <revision>] [--label <text>] [--key <id>]", summary: "Apply a batch of edit commands as one undo step.", options: ["dry-run", "expect", "label", "key"],
+        CommandHelp(name: "apply", usage: "tandem apply <file.json | - | '<json>'> [--dry-run] [--expect <revision>] [--label <text>] [--key <id>]", summary: "Apply a batch of edit commands as one undo step.", options: ["dry-run", "expect", "label", "key"],
                     details: """
-                    The JSON can be a batch {"label": ..., "commands": [...]}, a list of commands, or one command like {"blade": {"at": 12.5}}.
+                    The JSON can be a batch {"label": ..., "commands": [...]}, a list of commands, or one command like {"blade": {"at": 12.5}}, in a file, on standard input (-) or quoted as the argument itself.
                     --expect refuses the edit unless the project is at that revision. --key makes a retry safe (idempotency key).
                     `tandem schema` prints the JSON schema; docs/AGENTS.md has an example of every command.
                     """),
