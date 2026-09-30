@@ -485,10 +485,14 @@ Real footage, release build (`report.txt` has the latest numbers):
 
 ## Tests
 
+The speech-service test is opt-in with `TANDEM_SPEECH_TESTS=1`, because
+SpeechAnalyzer can install a language model and needs macOS 26 speech services.
+Default tests do not download models.
+
 ```bash
-swift test --package-path tools/tandem                      # about 9 s of media tests
+swift test --package-path .                      # about 9 s of media tests
 TANDEM_REAL_MEDIA=1 swift test -c release -Xswiftc -enable-testing \
-  --package-path tools/tandem --filter RealMediaTests       # about a minute
+  --package-path . --filter RealMediaTests       # about a minute
 TANDEM_REAL_MEDIA_FULL=1 ...                                # adds the whole-take transcript
 ```
 

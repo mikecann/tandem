@@ -577,7 +577,7 @@ The spike's plain composite managed about 3.5x; the encoder is the limit.
 
 ## Tests
 
-`swift test --package-path tools/tandem` runs the render tests in about
+`swift test --package-path .` runs the render tests in about
 8 s (the whole package in about 40 s):
 pure maths and plan tests, golden-pixel compositor tests with stand-in
 frames, end-to-end grabs and exports of synthetic movies (frame-number
@@ -585,7 +585,7 @@ stripes, a flash and a beep, tones with clicks). Real footage is opt-in:
 
 ```
 TANDEM_REAL_MEDIA=1 swift test -c release -Xswiftc -enable-testing \
-    --package-path tools/tandem --filter RealMediaTests
+    --package-path . --filter RealMediaTests
 ```
 
 It reads the decision-models folder and the imported v14 project (never

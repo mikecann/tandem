@@ -7,7 +7,7 @@ import XCTest
 ///
 ///     TANDEM_DEMO_OUT="/private/tmp/claude-501/tandem-app/Decision Models.tandem" \
 ///     TANDEM_DEMO_MEDIA=~/dev/convex/convex-videos/decision-models \
-///     swift test --package-path tools/tandem --filter DemoProjectBuilder
+///     swift test --package-path . --filter DemoProjectBuilder
 ///
 /// Skipped unless `TANDEM_DEMO_OUT` is set. The media is only read.
 final class DemoProjectBuilder: XCTestCase {

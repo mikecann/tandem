@@ -5,7 +5,7 @@ import XCTest
 
 /// Imports Mike's real projects. Opt-in, since they need his media:
 ///
-///     TANDEM_REAL_MEDIA=1 swift test --package-path tools/tandem --filter RealProjectTests
+///     TANDEM_REAL_MEDIA=1 swift test --package-path . --filter RealProjectTests
 ///
 /// Each import must validate with no errors and no failed steps, and is
 /// written to /private/tmp/claude-501/tandem-importer/<name>/<name>.tandem

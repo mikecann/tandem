@@ -10,7 +10,7 @@ import XCTest
 /// Renders the Text section of the Video tab offscreen, to look at:
 ///
 ///     TANDEM_TEXT_UI_OUT=~/dev/me/tandem-research/text-ui \
-///     swift test --package-path tools/tandem --filter TextInspectorSnapshots
+///     swift test --package-path . --filter TextInspectorSnapshots
 ///
 /// Without the variable it still renders each state once, so a view that
 /// can't be built fails here rather than in the app.

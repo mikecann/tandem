@@ -12,7 +12,7 @@ import TandemMedia
 /// Renders the shared library's views offscreen, to look at:
 ///
 ///     TANDEM_SEGMENT_UI_OUT=/private/tmp/segment-ui \
-///     swift test --package-path tools/tandem --filter SegmentUISnapshots
+///     swift test --package-path . --filter SegmentUISnapshots
 ///
 /// Without the variable it still renders each once, so a view that can't
 /// be built fails here rather than in the app.

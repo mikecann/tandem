@@ -537,6 +537,10 @@ final class AnalysisTests: TempFolderTestCase {
 
 final class TranscriptTests: TempFolderTestCase {
     func testSpokenWordsComeBackWithMediaTimes() async throws {
+        // SpeechAnalyzer may install a language model and needs the Mac's
+        // speech services. Keep that out of the default, offline CI suite.
+        try XCTSkipUnless(ProcessInfo.processInfo.environment["TANDEM_SPEECH_TESTS"] == "1",
+                          "set TANDEM_SPEECH_TESTS=1 to test speech services and allow model installation")
         guard #available(macOS 26, *) else { throw XCTSkip("SpeechAnalyzer needs macOS 26") }
         let url = file("source/said-camera.wav")
         let spoken = try await SyntheticMedia.writeSpeech("Convex keeps every word of the take in sync with the timeline.", to: url, leadIn: 1.5)

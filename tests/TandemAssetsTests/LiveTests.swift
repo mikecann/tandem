@@ -6,7 +6,7 @@ import TandemMedia
 
 /// Real APIs, real Keychain. Opt in with `TANDEM_LIVE_ASSETS=1`:
 ///
-///     TANDEM_LIVE_ASSETS=1 swift test --package-path tools/tandem --filter LiveProviderTests
+///     TANDEM_LIVE_ASSETS=1 swift test --package-path . --filter LiveProviderTests
 ///
 /// Providers without a key in the Keychain skip. Nothing here costs money;
 /// the paid ElevenLabs generations are in `PaidLiveTests`.

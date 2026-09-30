@@ -369,6 +369,6 @@ end. ElevenLabs music works; sound effects are refused with
 provider remembers and shows in its status. Pexels, Pixabay and Freesound
 have no keys on this Mac and are tested against fixtures.
 
-Tests: `swift test --package-path tools/tandem --filter TandemAssetsTests`.
+Tests: `swift test --package-path . --filter TandemAssetsTests`.
 `TANDEM_LIVE_ASSETS=1` adds the free live tests; `TANDEM_LIVE_ELEVENLABS=1`
 makes one paid sound effect and one paid music cue.

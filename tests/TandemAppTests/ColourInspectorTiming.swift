@@ -9,7 +9,7 @@ import XCTest
 /// hosts it (a real editor model, laid out and drawn in a window), with
 /// all its sections open and with one at a time:
 ///
-///     TANDEM_COLOUR_TIMING=1 swift test -c release --package-path tools/tandem --filter ColourInspectorTiming
+///     TANDEM_COLOUR_TIMING=1 swift test -c release --package-path . --filter ColourInspectorTiming
 ///
 /// `TANDEM_COLOUR_TIMING_ONLY=mixer` opens just those sections and
 /// `TANDEM_COLOUR_TIMING_STEPS=4000` runs long enough to `sample` it.

@@ -7,7 +7,7 @@ import XCTest
 /// Checks and timings on Mike's real footage (read only). Opt-in:
 ///
 ///     TANDEM_REAL_MEDIA=1 swift test -c release -Xswiftc -enable-testing \
-///       --package-path tools/tandem --filter RealMediaTests
+///       --package-path . --filter RealMediaTests
 ///
 /// Add TANDEM_REAL_MEDIA_FULL=1 for the whole-take transcript. Results and
 /// timings go to /private/tmp/claude-501/tandem-media/real/.

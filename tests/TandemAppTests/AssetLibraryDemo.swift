@@ -8,7 +8,7 @@ import XCTest
 ///
 ///     TANDEM_ASSET_DEMO_ROOT=/private/tmp/claude-501/tandem-app/assets-lib \
 ///     TANDEM_ASSET_DEMO_FOLDERS=/private/tmp/.../mike-music:/private/tmp/.../mike-sfx \
-///     swift test --package-path tools/tandem --filter AssetLibraryDemo
+///     swift test --package-path . --filter AssetLibraryDemo
 ///
 /// Then launch the app with `TANDEM_ASSETS_ROOT` set to the same folder.
 /// Skipped unless `TANDEM_ASSET_DEMO_ROOT` is set.

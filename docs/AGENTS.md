@@ -16,13 +16,13 @@ contract behind it.
 `build-app.sh` puts the command inside the app bundle:
 
 ```bash
-bash tools/tandem/build-app.sh
-ln -sf ~/Applications/Tandem.app/Contents/MacOS/tandem ~/.local/bin/tandem
+bash setup_mac.sh
+bash install.sh
 tandem --version
 ```
 
-While working on Tandem itself, `swift build --package-path tools/tandem`
-builds it at `tools/tandem/.build/debug/tandem`.
+While working on Tandem itself, `swift build --package-path .`
+builds it at `.build/debug/tandem`.
 
 Commands find the project from `--project <file.tandem or folder>`, then
 `$TANDEM_PROJECT`, then the single `.tandem` file in the current folder or

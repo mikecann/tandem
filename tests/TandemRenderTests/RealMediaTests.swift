@@ -8,7 +8,7 @@ import TandemMedia
 /// ideally in release:
 ///
 ///     TANDEM_REAL_MEDIA=1 swift test -c release -Xswiftc -enable-testing \
-///         --package-path tools/tandem --filter RealMediaTests
+///         --package-path . --filter RealMediaTests
 ///
 /// Reads ~/dev/convex/convex-videos/decision-models (never writes there) and
 /// writes to /private/tmp/claude-501/tandem-render/bench.

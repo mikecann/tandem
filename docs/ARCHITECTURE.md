@@ -513,4 +513,4 @@ the generic controls after them.
   inserted into another project, all on temporary folders.
 - Real footage: the decision-models project rebuilt from its EDL.
 
-Run everything with `swift test --package-path tools/tandem`.
+Run everything with `swift test --package-path .`.

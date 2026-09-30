@@ -69,7 +69,7 @@ fi
 if [[ "$SIGNING_IDENTITY" == "-" ]]; then
   BUNDLE_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP_DIR/Contents/Info.plist")"
   # Keep a stable designated requirement for ad-hoc signatures so macOS
-  # privacy permissions survive rebuilds (see tools/record-it/build-app.sh).
+  # privacy permissions survive rebuilds when the binary hash changes.
   SIGNING_REQUIREMENTS=(--requirements "=designated => identifier \"$BUNDLE_ID\"")
 fi
 

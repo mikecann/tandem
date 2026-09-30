@@ -12,7 +12,7 @@ import TandemRender
 /// offscreen, to look at:
 ///
 ///     TANDEM_CARD_UI_OUT=~/dev/me/tandem-research/title-cards/tandem/ui \
-///     swift test --package-path tools/tandem --filter SectionCardSnapshots
+///     swift test --package-path . --filter SectionCardSnapshots
 ///
 /// Without the variable it still renders them once, so a view that can't
 /// be built fails here rather than in the app.

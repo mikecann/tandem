@@ -13,7 +13,7 @@ import TandemRender
 /// project. To look at it:
 ///
 ///     TANDEM_EXPORT_UI_OUT=/private/tmp/claude-501/tandem-export/ui \
-///     swift test --package-path tools/tandem --filter ExportSheetTests
+///     swift test --package-path . --filter ExportSheetTests
 @MainActor
 final class ExportSheetTests: XCTestCase {
     func canvas(_ width: Int, _ height: Int, formats: [OutputFormat] = []) -> ProjectSettings {

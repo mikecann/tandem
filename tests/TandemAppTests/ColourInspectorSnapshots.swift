@@ -11,7 +11,7 @@ import XCTest
 /// Renders the Colour tab offscreen, to look at:
 ///
 ///     TANDEM_COLOUR_UI_OUT=~/dev/me/tandem-research/colour-ui \
-///     swift test --package-path tools/tandem --filter ColourInspectorSnapshots
+///     swift test --package-path . --filter ColourInspectorSnapshots
 ///
 /// Without the variable it still renders each state once, so a view that
 /// can't be built fails here rather than in the app.
