@@ -291,7 +291,8 @@ final class ColourOnScreenTests: XCTestCase {
             for (side, offset) in [(name, 0.0), ("still", 480.0)] {
                 var line = side.padding(toLength: 12, withPad: " ", startingAt: 0)
                 for p in 0..<Self.patches.count {
-                    let x = Int((offset + (Double(p) + 0.5) * 480 / Double(Self.patches.count)) * scale)
+                    let patchCentre: Double = (Double(p) + 0.5) * 480 / Double(Self.patches.count)
+                    let x = Int((offset + patchCentre) * scale)
                     let v = bitmap[x, y]
                     line += String(format: " %3d/%3d/%3d", v[0], v[1], v[2])
                 }

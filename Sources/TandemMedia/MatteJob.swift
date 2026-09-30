@@ -339,7 +339,11 @@ final class MatteBlender {
     /// Away from the subject, person mask values from 0.6 (half-sure desk
     /// and sofa) to 0.95 are stretched to 0...1, so only what Vision is sure
     /// of stays, like a hand held out.
-    static let confident: [UInt8] = (0..<256).map { UInt8(max(0, min(255, ($0 - 153) * 255 / 89))) }
+    static let confident: [UInt8] = (0..<256).map { (value: Int) -> UInt8 in
+        let stretched: Int = (value - 153) * 255 / 89
+        let clamped: Int = max(0, min(255, stretched))
+        return UInt8(clamped)
+    }
 
     init(width: Int, height: Int, quality: MatteQuality, mode: CutoutMode, props: MatteProps = .subject, stateless: Bool = false) {
         self.width = width

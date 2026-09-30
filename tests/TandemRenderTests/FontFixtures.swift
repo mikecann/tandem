@@ -62,8 +62,13 @@ enum FontFixtures {
         func checksum(_ bytes: Data) -> UInt32 {
             var padded = [UInt8](bytes)
             while padded.count % 4 != 0 { padded.append(0) }
-            return stride(from: 0, to: padded.count, by: 4).reduce(UInt32(0)) { sum, i in
-                sum &+ (UInt32(padded[i]) << 24 | UInt32(padded[i + 1]) << 16 | UInt32(padded[i + 2]) << 8 | UInt32(padded[i + 3]))
+            return stride(from: 0, to: padded.count, by: 4).reduce(UInt32(0)) { (sum: UInt32, i: Int) -> UInt32 in
+                let b0: UInt32 = UInt32(padded[i]) << 24
+                let b1: UInt32 = UInt32(padded[i + 1]) << 16
+                let b2: UInt32 = UInt32(padded[i + 2]) << 8
+                let b3: UInt32 = UInt32(padded[i + 3])
+                let word: UInt32 = b0 | b1 | b2 | b3
+                return sum &+ word
             }
         }
         var out = Data(data[0..<12])

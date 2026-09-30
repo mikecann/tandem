@@ -133,7 +133,12 @@ struct Levels {
     }
 
     var lumas: [Double] {
-        (0..<(width * height)).map { 0.2126 * rgb[$0 * 3] + 0.7152 * rgb[$0 * 3 + 1] + 0.0722 * rgb[$0 * 3 + 2] }
+        (0..<(width * height)).map { (i: Int) -> Double in
+            let r: Double = 0.2126 * rgb[i * 3]
+            let g: Double = 0.7152 * rgb[i * 3 + 1]
+            let b: Double = 0.0722 * rgb[i * 3 + 2]
+            return r + g + b
+        }
     }
 
     var summary: String {

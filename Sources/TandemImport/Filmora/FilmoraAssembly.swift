@@ -263,9 +263,15 @@ extension FilmoraRun {
         stats["filmora.duration"] = (wfp.duration * 1000).rounded() / 1000
         let main = wfp.mainTimeline!
         stats["filmora.clips"] = Double(main.tracks.reduce(0) { $0 + $1.clips.count })
-        stats["filmora.transitions"] = Double(main.tracks.reduce(0) { total, track in
-            total + track.clips.reduce(0) { $0 + ($1.preTransition == nil ? 0 : 1) + ($1.postTransition == nil ? 0 : 1) }
-        })
+        let filmoraTransitions: Int = main.tracks.reduce(0) { (total: Int, track) -> Int in
+            let inTrack: Int = track.clips.reduce(0) { (count: Int, clip) -> Int in
+                let pre: Int = clip.preTransition == nil ? 0 : 1
+                let post: Int = clip.postTransition == nil ? 0 : 1
+                return count + pre + post
+            }
+            return total + inTrack
+        }
+        stats["filmora.transitions"] = Double(filmoraTransitions)
         builder.report.stats = stats
         report = builder.report
         return result

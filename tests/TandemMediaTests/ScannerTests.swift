@@ -254,7 +254,10 @@ final class ProbeTests: TempFolderTestCase {
         XCTAssertEqual(FrameTiming.snap(framesPerSecond: 25.0001), FrameRate(25))
         XCTAssertEqual(FrameTiming.snap(framesPerSecond: 12.5), FrameRate(25, 2))
         // 600-based timescales alternate 20 and 21 ticks at 29.97.
-        let ntsc = (0..<300).map { Int64((Double($0) * 600 * 1001 / 30_000).rounded()) }
+        let ntsc = (0..<300).map { (frame: Int) -> Int64 in
+            let ticks: Double = Double(frame) * 600 * 1001 / 30_000
+            return Int64(ticks.rounded())
+        }
         XCTAssertEqual(FrameTiming(presentationTimes: ntsc, timescale: 600).rate, FrameRate(30_000, 1001))
     }
 
