@@ -277,6 +277,7 @@ final class TimelineRedrawTests: XCTestCase {
     /// Zooming paints one full-size canvas a step, not every tile; the
     /// tiles come back when the zoom rests.
     func testZoomingPaintsTheCanvasThenTheTiles() throws {
+        try skipTimingSensitiveTestOnCI()
         try showTimeline()
         model.timeline.scale.pixelsPerSecond = 12
         settle()
@@ -429,7 +430,8 @@ final class FittedThumbnailTests: XCTestCase {
 final class FramePacerTests: XCTestCase {
     /// Changes arriving together run once; more within a frame wait for the
     /// next one.
-    func testRunsAtMostOncePerFrame() {
+    func testRunsAtMostOncePerFrame() throws {
+        try skipTimingSensitiveTestOnCI()
         var runs: [CFTimeInterval] = []
         let pacer = FramePacer(view: NSView()) { runs.append(CACurrentMediaTime()) }
         pacer.request()

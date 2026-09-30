@@ -68,6 +68,9 @@ final class ProjectWindowFrameTests: XCTestCase {
     /// A restart to install a build put the editor back at the default size.
     func testTheWindowOpensWhereTheLastOneWas() throws {
         guard let screen = NSScreen.screens.first?.visibleFrame else { throw XCTSkip("no screen") }
+        let placed = NSRect(x: screen.minX + 40, y: screen.minY + 60, width: 1_100, height: 700)
+        // AppKit shrinks a window that doesn't fit, as on a CI runner's 1024 x 768 screen.
+        guard screen.contains(placed) else { throw XCTSkip("the screen is too small for a 1100 x 700 window") }
         let saved = UserDefaults.standard.string(forKey: WindowPlacement.key)
         defer { UserDefaults.standard.set(saved, forKey: WindowPlacement.key) }
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("tandem-frame-\(UUID().uuidString)", isDirectory: true)
@@ -87,7 +90,6 @@ final class ProjectWindowFrameTests: XCTestCase {
         }
 
         let first = try open()
-        let placed = NSRect(x: screen.minX + 40, y: screen.minY + 60, width: 1_100, height: 700)
         first.window?.setFrame(placed, display: false)
         XCTAssertEqual(WindowPlacement.saved(), placed, "moving the window remembers it")
         close(first)

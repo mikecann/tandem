@@ -17,6 +17,8 @@ this repo root. It requires macOS 15 or newer and Xcode 26 or newer with Swift 6
 - Keep private footage, API keys, generated apps, caches and build outputs
   out of git. Tests requiring footage, permission grants, live APIs or paid
   generation are opt-in through their existing `TANDEM_*` environment guards.
+- A few frame-timing and slow-Vision tests call `skipTimingSensitiveTestOnCI()`:
+  they run by default on a Mac and skip when `CI=true` unless `TANDEM_TIMING_TESTS=1`.
 - Preserve the bundle IDs and stable ad-hoc signing requirement in
   `build-app.sh`, so rebuilds retain macOS privacy permissions.
 - `setup_mac.sh` builds the release app. `install.sh` links the `tandem`

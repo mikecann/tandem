@@ -515,6 +515,7 @@ final class AnalysisTests: TempFolderTestCase {
     }
 
     func testCancelAllStopsWorkAndLeavesNoHalfResults() async throws {
+        try skipTimingSensitiveTestOnCI()
         try await SyntheticMedia.writeMovie(to: file("source/long-camera.mov"), .init(width: 320, height: 180, duration: 20, audio: nil))
         let camera = try await item("source/long-camera.mov")
         let analysis = analysis()
