@@ -85,7 +85,7 @@ public enum CommandText {
         case .addMedia(let item): return "Add \((item.path as NSString).lastPathComponent)"
         case .updateMedia: return "Update media"
         case .removeMedia: return "Remove media"
-        case .placeMedia(let ids, let at, _, _, _, _, _, _): return "Place \(count(ids.count, "file")) at \(at)"
+        case .placeMedia(let ids, let at, _, _, _, _, _, _, _, _): return "Place \(count(ids.count, "file")) at \(at)"
         case .insertClip(_, let clip, let mode): return mode == .insert ? "Insert clip at \(clip.start)" : "Add clip at \(clip.start)"
         case .removeClips(let ids, let ripple, _): return ripple == true ? "Ripple delete \(count(ids.count, "clip"))" : "Lift \(count(ids.count, "clip"))"
         case .rippleDeleteRange(let range, _): return "Ripple delete \(range.start)-\(range.end)"

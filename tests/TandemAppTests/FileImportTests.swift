@@ -144,7 +144,7 @@ final class FileImportTests: XCTestCase {
         }
         XCTAssertEqual(added, ["med_new", "med_png"], "the file already in the project isn't added twice")
         let placed = batch.commands.compactMap { command -> (String, Time)? in
-            if case .placeMedia(let ids, let at, _, _, _, _, _, _) = command { return (ids[0], at) }
+            if case .placeMedia(let ids, let at, _, _, _, _, _, _, _, _) = command { return (ids[0], at) }
             return nil
         }
         XCTAssertEqual(placed.map(\.0), ["med_new", "med_known", "med_png"])

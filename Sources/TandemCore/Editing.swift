@@ -32,11 +32,11 @@ public enum Editing {
             try updateMedia(&project, mediaID, patch)
         case .removeMedia(let mediaID):
             try removeMedia(&project, mediaID)
-        case .placeMedia(let mediaIDs, let at, let sourceStart, let duration, let mode, let videoTrackID, let audioTrackID, let includeAudio):
+        case .placeMedia(let mediaIDs, let at, let sourceStart, let duration, let mode, let videoTrackID, let audioTrackID, let includeAudio, let anchor, let pop):
             try placeMedia(
                 &project, mediaIDs: mediaIDs, at: at, sourceStart: sourceStart, duration: duration,
                 mode: mode ?? .place, videoTrackID: videoTrackID, audioTrackID: audioTrackID,
-                includeAudio: includeAudio, &context
+                includeAudio: includeAudio, anchor: anchor, pop: pop ?? false, &context
             )
         case .insertClip(let trackID, let clip, let mode):
             try insertClip(&project, trackID: trackID, clip: clip, mode: mode ?? .place, &context)
@@ -424,6 +424,8 @@ public enum Editing {
         videoTrackID: String?,
         audioTrackID: String?,
         includeAudio: Bool?,
+        anchor: StickerAnchor? = nil,
+        pop: Bool = false,
         _ context: inout EditContext
     ) throws {
         guard !mediaIDs.isEmpty else { throw EditError.invalid("placeMedia needs at least one media ID") }
@@ -477,6 +479,8 @@ public enum Editing {
                 )
                 if kind == .audio {
                     clip.audio = AudioLevels.placedAudio(role: item.role, on: p[location], settings: p.settings)
+                } else {
+                    place(&clip, item, anchor: anchor ?? (item.role == .sticker ? .bottom : nil), pop: pop, in: p)
                 }
                 planned.append((location, clip))
             }
@@ -502,6 +506,24 @@ public enum Editing {
         for (location, clip) in planned {
             p[location].add(clip)
             context.createdIDs.append(clip.id)
+        }
+    }
+
+    /// Puts a newly placed picture at its anchor (stickers go to the bottom
+    /// unless told otherwise; everything else fills the frame as before)
+    /// and pops it in and out if asked.
+    static func place(_ clip: inout Clip, _ item: MediaItem, anchor: StickerAnchor?, pop: Bool, in p: Project) {
+        var scale = 1.0
+        if let anchor {
+            let canvas = (width: Double(p.settings.width), height: Double(p.settings.height))
+            let size = item.width.flatMap { w in item.height.map { h in (width: Double(w), height: Double(h)) } } ?? canvas
+            let transform = anchor.transform(sourceWidth: size.width, sourceHeight: size.height, canvasWidth: canvas.width, canvasHeight: canvas.height)
+            clip.video = VideoProperties(transform: transform)
+            scale = transform.scale
+        }
+        if pop {
+            let keys = StickerAnchor.pop(scale: scale, duration: clip.duration)
+            if !keys.isEmpty { clip.keyframes["video.transform.scale"] = keys }
         }
     }
 

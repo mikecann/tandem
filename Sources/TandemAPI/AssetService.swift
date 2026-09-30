@@ -168,7 +168,7 @@ public final class AssetService: @unchecked Sendable {
         // app's folder watcher may add the copied file itself), so a stale
         // revision means read again and rebuild the edit.
         for attempt in 1...3 {
-            let (commands, mediaID) = Self.commands(for: placement, at: request.at, duration: request.duration, mode: request.mode, in: project)
+            let (commands, mediaID) = Self.commands(for: placement, at: request.at, duration: request.duration, mode: request.mode, anchor: request.anchor, pop: request.pop, in: project)
             result.mediaID = mediaID
             guard !commands.isEmpty else { return result }
             let label = request.label ?? (request.at.map { "Add \(asset.name) at \($0)" } ?? "Add \(asset.name) to media")
@@ -185,7 +185,7 @@ public final class AssetService: @unchecked Sendable {
     /// The edit that adds (and with `at`, places) an asset: the placement's
     /// own commands, reusing a media item that already has the copied file
     /// so it's never in the project twice.
-    static func commands(for placement: AssetPlacement, at time: Time?, duration: Time?, mode: InsertMode?, in project: Project) -> (commands: [EditCommand], mediaID: String?) {
+    static func commands(for placement: AssetPlacement, at time: Time?, duration: Time?, mode: InsertMode?, anchor: StickerAnchor? = nil, pop: Bool? = nil, in project: Project) -> (commands: [EditCommand], mediaID: String?) {
         guard var item = placement.mediaItem else { return ([], nil) }
         var placement = placement
         if project.media(item.id) == nil, let existing = project.media.first(where: { $0.path == item.path }) {
@@ -193,7 +193,7 @@ public final class AssetService: @unchecked Sendable {
             placement.mediaItem = item
         }
         if let time {
-            return (placement.editCommands(at: time, in: project, duration: duration, mode: mode), item.id)
+            return (placement.editCommands(at: time, in: project, duration: duration, mode: mode, anchor: anchor, pop: pop), item.id)
         }
         return (project.media(item.id) == nil ? [.addMedia(item: item)] : [], item.id)
     }

@@ -353,11 +353,11 @@ extension AssetPlacement {
     /// routes it to the track for its role and applies the music and SFX
     /// levels. Images last 5 s unless `duration` says otherwise. Fonts and
     /// LUTs need no edits.
-    public func editCommands(at time: Time, in project: Project, duration: Time? = nil, mode: InsertMode? = nil) -> [EditCommand] {
+    public func editCommands(at time: Time, in project: Project, duration: Time? = nil, mode: InsertMode? = nil, anchor: StickerAnchor? = nil, pop: Bool? = nil) -> [EditCommand] {
         guard let item = mediaItem else { return [] }
         var commands: [EditCommand] = []
         if project.media(item.id) == nil { commands.append(.addMedia(item: item)) }
-        commands.append(.placeMedia(mediaIDs: [item.id], at: time, duration: duration, mode: mode))
+        commands.append(.placeMedia(mediaIDs: [item.id], at: time, duration: duration, mode: mode, anchor: anchor, pop: pop))
         return commands
     }
 }

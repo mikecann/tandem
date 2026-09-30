@@ -60,7 +60,7 @@ tandem import edl [edl.json] --recipe decision-models [--out DIR]
 tandem import compare <a.tandem> <b.tandem>      how two cuts of one take differ
 tandem assets providers                          asset sources and what to fix
 tandem assets search "<text>" [--kind sfx] [--provider id] [--online] [--limit n]
-tandem assets use <id> [--at T] [--duration T]   copy into the project, add, place
+tandem assets use <id> [--at T] [--duration T] [--anchor A] [--pop]   copy into the project, add, place
 tandem assets fetch <id>    tandem assets credits [--optional]
 tandem assets generate sfx|music "<prompt>" [--duration s]    tandem assets install-starter
 tandem segments list                             saved segments in the shared library
@@ -438,7 +438,9 @@ changed files are read), so a file dropped in is found straight away.
   `referencedInPlace`), records the use and adds it to the project's media. With `--at 1:23` it's also
   placed on the track for its kind: sound effects on SFX at -15 dB, music on
   Music at -31 dB with a 2 s fade out, stickers, icons and logos on
-  Graphics, stock video on B-roll. The edit goes through the app when the app
+  Graphics, stock video on B-roll. Stickers sit at the bottom of the frame
+  (see `placeMedia`); `--anchor topRight` puts a picture somewhere else and
+  `--pop` pops it in and out. The edit goes through the app when the app
   has the project open, as one undo step under your name. Fonts are
   installed instead of placed, into the project's `assets/font/` (a shared
   library font stays in the library, where every render finds it, until
@@ -587,6 +589,19 @@ Voice) is normalised to the project's speech level with no gain, music gets
 
 ```json
 {"placeMedia": {"mediaIDs": ["med_camera", "med_screen"], "at": 0}}
+```
+
+Stickers don't fill the frame. They sit at the bottom centre, at most 40%
+of the frame's width and 30% of its height (never more than twice their own
+pixels), 5% of the height in from the edge. `anchor` puts one somewhere else,
+or anchors any other picture (a logo, an image) the same way: `bottom`,
+`bottomLeft`, `bottomRight`, `top`, `topLeft`, `topRight`, `centre` or
+`lowerThird` (bottom left, inside the title-safe area). `pop` adds scale
+keyframes that pop it in over the first quarter second and out over the
+last.
+
+```json
+{"placeMedia": {"mediaIDs": ["med_comment"], "at": 371.2, "anchor": "bottomRight", "pop": true}}
 ```
 
 #### insertClip

@@ -117,7 +117,7 @@ final class AssetBrowsingTests: XCTestCase {
         var project = Project.standard(name: "Assets")
         let fresh = AssetPlacing.commands(for: placement, at: t(12), in: project)
         XCTAssertEqual(fresh.count, 2, "adds the media, then places it")
-        guard case .addMedia(let added) = fresh[0], case .placeMedia(let ids, let at, _, _, let mode, _, _, _) = fresh[1] else {
+        guard case .addMedia(let added) = fresh[0], case .placeMedia(let ids, let at, _, _, let mode, _, _, _, _, _) = fresh[1] else {
             return XCTFail("expected addMedia then placeMedia, got \(fresh)")
         }
         XCTAssertEqual(added.id, item.id)
@@ -129,7 +129,7 @@ final class AssetBrowsingTests: XCTestCase {
         project.media = [MediaItem(id: "med_scanned", path: item.path, kind: .video, role: .sticker, duration: t(3), hasVideo: true)]
         let again = AssetPlacing.commands(for: placement, at: t(20), in: project)
         XCTAssertEqual(again.count, 1)
-        guard case .placeMedia(let reused, _, _, _, _, _, _, _) = again[0] else { return XCTFail("expected placeMedia") }
+        guard case .placeMedia(let reused, _, _, _, _, _, _, _, _, _) = again[0] else { return XCTFail("expected placeMedia") }
         XCTAssertEqual(reused, ["med_scanned"])
 
         // Fonts and LUTs have nothing to place.

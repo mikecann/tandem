@@ -17,7 +17,7 @@ struct AssetsCommand {
         "providers": [],
         "search": ["kind", "provider", "online", "limit"],
         "fetch": [],
-        "use": ["at", "duration", "label"],
+        "use": ["at", "duration", "anchor", "pop", "label"],
         "credits": ["optional"],
         "generate": ["duration", "variations"],
         "install-starter": []
@@ -54,7 +54,19 @@ struct AssetsCommand {
         case "use":
             try args.expectPositionals(atMost: 2, command: "assets use")
             let id = try args.positional(1, "an asset ID from a search, like tandem assets use noto:1f680 --at 1:23", command: "assets use")
-            let request = AssetUseRequest(id: id, at: try time(args, "at"), duration: try time(args, "duration"), label: args.options["label"])
+            var anchor: StickerAnchor?
+            if let name = args.options["anchor"] {
+                guard let parsed = StickerAnchor(rawValue: name) else {
+                    let names = StickerAnchor.allCases.map(\.rawValue)
+                    let hint = Arguments.closest(name, in: names).map { " Did you mean \($0)?" } ?? ""
+                    throw UsageError(message: "--anchor is one of \(names.joined(separator: ", ")), not \(name).\(hint)")
+                }
+                anchor = parsed
+            }
+            let request = AssetUseRequest(
+                id: id, at: try time(args, "at"), duration: try time(args, "duration"),
+                anchor: anchor, pop: args.has("pop") ? true : nil, label: args.options["label"]
+            )
             let client = ProjectClient(projectURL: try project(), author: author)
             return show(try await assets.use(request, project: client), json: json)
         case "credits":

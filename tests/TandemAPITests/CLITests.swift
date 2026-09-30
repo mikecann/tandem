@@ -403,6 +403,10 @@ final class AssetsCLITests: XCTestCase {
         let wrongOption = try cli.tandem("assets", "search", "x", "--at", "3", in: video, env: env)
         XCTAssertEqual(wrongOption.status, 2)
         XCTAssertTrue(wrongOption.stderr.contains("`tandem assets search` doesn't take --at"), wrongOption.stderr)
+        let wrongAnchor = try cli.tandem("assets", "use", "stock:whoosh-deep", "--at", "1", "--anchor", "bottomright", in: video, env: env)
+        XCTAssertEqual(wrongAnchor.status, 2)
+        XCTAssertTrue(wrongAnchor.stderr.contains("--anchor is one of bottom, bottomLeft"), wrongAnchor.stderr)
+        XCTAssertTrue(wrongAnchor.stderr.contains("Did you mean bottomRight?"), wrongAnchor.stderr)
     }
 }
 
@@ -563,8 +567,8 @@ final class UndecodableStickerCLITests: XCTestCase {
         let batch = """
         {"commands": [
           {"placeMedia": {"mediaIDs": ["\(try id("source/take1-screen.mp4"))"], "at": 0}},
-          {"placeMedia": {"mediaIDs": ["\(try id("stickers/disc-qtrle.mov"))"], "at": 0, "videoTrackID": "\(graphics)"}},
-          {"placeMedia": {"mediaIDs": ["\(try id("stickers/disc-png.mov"))"], "at": 2, "videoTrackID": "\(graphics)"}}
+          {"placeMedia": {"mediaIDs": ["\(try id("stickers/disc-qtrle.mov"))"], "at": 0, "videoTrackID": "\(graphics)", "anchor": "centre"}},
+          {"placeMedia": {"mediaIDs": ["\(try id("stickers/disc-png.mov"))"], "at": 2, "videoTrackID": "\(graphics)", "anchor": "centre"}}
         ]}
         """
         let applied = try cli.tandem("apply", "-", in: folder.url, stdin: batch)

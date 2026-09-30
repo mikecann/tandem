@@ -37,6 +37,9 @@ public enum EditCommand: Codable, Equatable, Sendable {
     /// "Voice" as a linked clip. Files from one take are placed in sync and
     /// linked. `sourceStart` is measured from the start of the take (or the
     /// file), and `duration` defaults to all the media that's left.
+    /// Stickers sit at the bottom of the frame at a sensible size instead of
+    /// filling it; `anchor` puts one (or any other picture) at another edge
+    /// or corner, and `pop` pops it in and out.
     case placeMedia(
         mediaIDs: [String],
         at: Time,
@@ -45,7 +48,9 @@ public enum EditCommand: Codable, Equatable, Sendable {
         mode: InsertMode? = nil,
         videoTrackID: String? = nil,
         audioTrackID: String? = nil,
-        includeAudio: Bool? = nil
+        includeAudio: Bool? = nil,
+        anchor: StickerAnchor? = nil,
+        pop: Bool? = nil
     )
     /// `.place` (the default) fails if the range is occupied, `.overwrite`
     /// replaces what's there, `.insert` pushes later clips right.

@@ -80,14 +80,14 @@ enum Help {
                     Speech (the camera's sound, the Voice tracks) is normalised to the project's speech level, -20 LUFS, with no gain. --keep-levels keeps Filmora's own levels instead: Auto Normalization becomes normalise to -24 LUFS plus the clip's gain.
                     Built-in EDL recipes: decision-models. Exit code 1 if anything failed to import.
                     """),
-        CommandHelp(name: "assets", usage: "tandem assets providers | search \"<text>\" [--kind sfx|music|sticker|...] [--provider <id>] [--online] [--limit <n>] | fetch <id> | use <id> [--at <time>] [--duration <time>] | credits [--optional] | generate sfx|music \"<prompt>\" [--duration <s>] [--variations <n>] | install-starter",
+        CommandHelp(name: "assets", usage: "tandem assets providers | search \"<text>\" [--kind sfx|music|sticker|...] [--provider <id>] [--online] [--limit <n>] | fetch <id> | use <id> [--at <time>] [--duration <time>] [--anchor bottom|bottomLeft|bottomRight|top|topLeft|topRight|centre|lowerThird] [--pop] | credits [--optional] | generate sfx|music \"<prompt>\" [--duration <s>] [--variations <n>] | install-starter",
                     summary: "The asset library: find, fetch, generate and use music, sound effects, stickers, icons and logos, and build the description credits.",
-                    options: ["kind", "provider", "online", "limit", "at", "duration", "label", "optional", "variations"],
+                    options: ["kind", "provider", "online", "limit", "at", "duration", "anchor", "pop", "label", "optional", "variations"],
                     details: """
                     providers        which sources work now, and what to fix (a key, a permission)
                     search           the library's catalogue; --online asks the providers too
                     fetch <id>       download and normalise an asset
-                    use <id>         copy it into the project and add it to the media; --at places it on its track. Shared library assets (shared:...) are used where they are, not copied
+                    use <id>         copy it into the project and add it to the media; --at places it on its track. Shared library assets (shared:...) are used where they are, not copied. Stickers sit at the bottom of the frame (at most 40% of its width, 30% of its height); --anchor puts a picture at another edge or corner, and --pop pops it in and out
                     credits          the credits block for the video description, and anything to sort out first
                     generate         make a sound effect or music cue with ElevenLabs (paid, one request per take)
                     install-starter  add the starter emoji, icons and logos to the catalogue

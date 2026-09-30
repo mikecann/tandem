@@ -206,14 +206,20 @@ public struct AssetUseRequest: AssetCall {
     /// `place` (default) fails if the track is taken there, `overwrite`
     /// replaces what's there, `insert` pushes later clips right.
     public var mode: InsertMode?
+    /// Where a picture sits in the frame. Stickers default to the bottom.
+    public var anchor: StickerAnchor?
+    /// Pops the picture in and out.
+    public var pop: Bool?
     public var label: String?
     public var author: String?
 
-    public init(id: String, at: Time? = nil, duration: Time? = nil, mode: InsertMode? = nil, label: String? = nil, author: String? = nil) {
+    public init(id: String, at: Time? = nil, duration: Time? = nil, mode: InsertMode? = nil, anchor: StickerAnchor? = nil, pop: Bool? = nil, label: String? = nil, author: String? = nil) {
         self.id = id
         self.at = at
         self.duration = duration
         self.mode = mode
+        self.anchor = anchor
+        self.pop = pop
         self.label = label
         self.author = author
     }
@@ -224,6 +230,8 @@ public struct AssetUseRequest: AssetCall {
         at = try c.decodeTime(.at)
         duration = try c.decodeTime(.duration)
         mode = try c.decodeIfPresent(InsertMode.self, forKey: .mode)
+        anchor = try c.decodeIfPresent(StickerAnchor.self, forKey: .anchor)
+        pop = try c.decodeIfPresent(Bool.self, forKey: .pop)
         label = try c.decodeIfPresent(String.self, forKey: .label)
         author = try c.decodeIfPresent(String.self, forKey: .author)
     }

@@ -182,6 +182,11 @@ final class AssetServiceTests: XCTestCase {
         let use = try ServiceJSON.decodeRequest(AssetUseRequest.self, from: Data(#"{"id": "stock:whoosh-deep", "at": "1:02.5", "duration": 0.4}"#.utf8))
         XCTAssertEqual(use.at, t(62.5))
         XCTAssertEqual(use.duration, t(0.4))
+        XCTAssertNil(use.anchor)
+        let anchored = try ServiceJSON.decodeRequest(AssetUseRequest.self, from: Data(#"{"id": "shared:Stickers/Comment below.mov", "at": 3, "anchor": "bottomRight", "pop": true}"#.utf8))
+        XCTAssertEqual(anchored.anchor, .bottomRight)
+        XCTAssertEqual(anchored.pop, true)
+        XCTAssertThrowsError(try ServiceJSON.decodeRequest(AssetUseRequest.self, from: Data(#"{"id": "x", "anchor": "sideways"}"#.utf8)))
         XCTAssertThrowsError(try ServiceJSON.decodeRequest(AssetSearchRequest.self, from: Data(#"{"kind": "podcast"}"#.utf8)))
         XCTAssertThrowsError(try ServiceJSON.decodeRequest(AssetGenerateRequest.self, from: Data(#"{"kind": "sticker", "prompt": "x"}"#.utf8)))
     }

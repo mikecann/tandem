@@ -546,7 +546,9 @@ extension CommandSchema {
                 "mode": insertMode,
                 "videoTrackID": S.string("Force the video track (single file only)."),
                 "audioTrackID": S.string("Force the audio track (single file only)."),
-                "includeAudio": S.boolean("Place the file's sound too. Default depends on the role (camera, music, sfx: yes).")
+                "includeAudio": S.boolean("Place the file's sound too. Default depends on the role (camera, music, sfx: yes)."),
+                "anchor": S.enumeration(StickerAnchor.allCases.map(\.rawValue), "Put the picture at this edge or corner, fitted to 40% of the frame's width and 30% of its height. Stickers default to bottom; other files fill the frame."),
+                "pop": S.boolean("Pop it in at the start and out at the end (scale keyframes).")
             ], required: ["mediaIDs", "at"]),
             example: #"{"placeMedia": {"mediaIDs": ["med_camera", "med_screen"], "at": 0}}"#
         ),
