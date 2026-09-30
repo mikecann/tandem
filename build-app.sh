@@ -5,7 +5,18 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BUILD_CONFIGURATION="${TANDEM_BUILD_CONFIGURATION:-release}"
 APP_NAME="Tandem"
-APP_DIR="${TANDEM_APP_DIR:-$HOME/Applications/$APP_NAME.app}"
+FINAL_DIR="${TANDEM_APP_DIR:-$HOME/Applications/$APP_NAME.app}"
+# The bundle is built beside the installed one and swapped in at the end, so
+# a `tandem` command run meanwhile (an agent's, mid-install) never finds the
+# app missing, half copied or half signed.
+APP_DIR="$(dirname "$FINAL_DIR")/.$(basename "$FINAL_DIR").staging.$$"
+OLD_DIR="$(dirname "$FINAL_DIR")/.$(basename "$FINAL_DIR").old.$$"
+cleanup() {
+  # A swap cut short puts the old bundle back.
+  if [[ ! -e "$FINAL_DIR" && -e "$OLD_DIR" ]]; then mv "$OLD_DIR" "$FINAL_DIR"; fi
+  rm -rf "$APP_DIR" "$OLD_DIR"
+}
+trap cleanup EXIT
 APP_BIN="$APP_DIR/Contents/MacOS/tandem-app"
 CLI_BIN="$APP_DIR/Contents/MacOS/tandem"
 ICON_SOURCE="$SCRIPT_DIR/icons/tandem.png"
@@ -28,8 +39,9 @@ for binary in tandem-app tandem; do
   fi
 done
 
-echo "Staging $APP_DIR..."
+echo "Staging $FINAL_DIR..."
 rm -rf "$APP_DIR"
+mkdir -p "$(dirname "$FINAL_DIR")"
 mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources"
 cp "$BIN_DIR/tandem-app" "$APP_BIN"
 cp "$BIN_DIR/tandem" "$CLI_BIN"
@@ -78,4 +90,8 @@ codesign --force --timestamp=none --sign "$SIGNING_IDENTITY" \
 codesign --force --timestamp=none --sign "$SIGNING_IDENTITY" \
   ${SIGNING_REQUIREMENTS[@]+"${SIGNING_REQUIREMENTS[@]}"} "$APP_DIR" >/dev/null
 
-echo "Built $APP_DIR"
+# Two renames: the old bundle is gone for an instant, never half there.
+if [[ -e "$FINAL_DIR" ]]; then mv "$FINAL_DIR" "$OLD_DIR"; fi
+mv "$APP_DIR" "$FINAL_DIR"
+rm -rf "$OLD_DIR"
+echo "Built $FINAL_DIR"

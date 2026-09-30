@@ -26,6 +26,22 @@ CLI
 chmod +x "$APP/Contents/MacOS/tandem"
 [[ "$(TANDEM_APP_DIR="$APP" "$BIN/tandem" 'two words' --json)" == $'two words\n--json' ]]
 
+# While an install swaps the app in, the launcher waits for it instead of
+# starting a build of its own. A copy of it with a fake setup shows which.
+LAUNCHER="$SCRATCH/launcher"
+mkdir -p "$LAUNCHER"
+cp "$SCRIPT_DIR/tandem" "$LAUNCHER/tandem"
+cat > "$LAUNCHER/setup_mac.sh" <<'SETUP'
+#!/usr/bin/env bash
+touch "$(dirname "$0")/setup-ran"
+exit 1
+SETUP
+SWAPPING="$SCRATCH/swapping/Tandem.app"
+( sleep 1; mkdir -p "$SWAPPING/Contents/MacOS"; cp "$APP/Contents/MacOS/tandem" "$SWAPPING/Contents/MacOS/tandem" ) &
+[[ "$(TANDEM_APP_DIR="$SWAPPING" bash "$LAUNCHER/tandem" waited)" == "waited" ]]
+wait
+[[ ! -e "$LAUNCHER/setup-ran" ]]
+
 # A regular executable or directory with the same name belongs to the user.
 rm "$BIN/tandem"
 printf 'keep me\n' > "$BIN/tandem"

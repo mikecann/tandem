@@ -221,7 +221,8 @@ in). When it quits, calls it's already running finish and answer first.
 Commands sent while it's closing or opening the project again wait for it,
 up to 90 seconds, and say so on stderr after a couple of seconds. While it's
 closed they edit the file directly. `tandem watch`, with or without
-`--once`, carries on through the restart.
+`--once`, carries on through the restart. A new build is swapped in whole,
+so `tandem` never runs a half-installed copy.
 
 **Undo.** `undo` reverts the last batch, whoever made it, so pass
 `expectedRevision` to undo only if nothing happened since your edit. With
