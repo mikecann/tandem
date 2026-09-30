@@ -10,7 +10,7 @@ import XCTest
 /// at:
 ///
 ///     TANDEM_TRANSITION_UI_OUT=~/dev/me/tandem-research/transitions/ui \
-///     swift test --package-path tools/tandem --filter TransitionSnapshots
+///     swift test --filter TransitionSnapshots
 ///
 /// Without the variable it still draws them, so a timeline that can't be
 /// drawn fails here rather than in the app.

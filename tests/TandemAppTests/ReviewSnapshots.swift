@@ -11,7 +11,7 @@ import XCTest
 /// waiting for review, to look at:
 ///
 ///     TANDEM_REVIEW_UI_OUT=/private/tmp/review-ui \
-///     swift test --package-path tools/tandem --filter ReviewSnapshots
+///     swift test --filter ReviewSnapshots
 ///
 /// Without the variable it still renders once, so a view that can't be
 /// built fails here rather than in the app.
