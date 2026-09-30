@@ -39,6 +39,8 @@ struct CLI {
         // Titles can use the shared library's fonts wherever this process
         // draws them (an export, a frame, tandem serve).
         ProjectFonts.libraryFolders = [SharedLibrary.locate(environment: environment).url(.fonts)]
+        // On stderr, so --json output (and MCP's stdout) stays clean.
+        ProjectClient.waitNotice = { FileHandle.standardError.write(Data(($0 + "\n").utf8)) }
         if name == "help" {
             if let topic = parsed.positionals.first {
                 guard let command = Help.command(topic) else { return usage("There's no `\(topic)` command.", command: nil) }

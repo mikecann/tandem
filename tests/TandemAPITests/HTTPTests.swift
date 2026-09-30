@@ -367,6 +367,136 @@ final class ProjectClientTests: XCTestCase {
         XCTAssertFalse(quiet.changed)
     }
 
+    // MARK: - Restarts
+
+    /// Holds a project's lock the way another process's app would, so a
+    /// client here goes looking for it.
+    private func holdAsApp(_ url: URL, port: Int? = nil, token: String? = nil) throws -> LockHandle {
+        let lockURL = ProjectSession.lockURL(for: url)
+        try FileManager.default.createDirectory(at: lockURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let owner = ProjectSession.Lock(pid: 1, owner: .app, started: Date(), port: port, token: token)
+        guard case .acquired(let lock) = try LockHandle.acquire(lockURL, lock: owner) else {
+            throw ServiceError(.locked, "couldn't take the lock")
+        }
+        return lock
+    }
+
+    func testStoppingLetsACallAlreadyRunningAnswer() async throws {
+        // Tandem quits (a new build going in) just as an agent's edit
+        // arrives: the edit still gets its reply.
+        let served = try await HTTPTests.Served()
+        defer { served.harness.close() }
+        let arrived = DispatchSemaphore(value: 0)
+        served.harness.service.onCall = { operation, _ in
+            guard operation == "apply" else { return }
+            arrived.signal()
+            Thread.sleep(forTimeInterval: 0.3)
+        }
+        let edit = Task { try await served.client().call(ApplyRequest(commands: [.blade(at: t(10))])) }
+        let stopped = await withCheckedContinuation { continuation in
+            DispatchQueue.global().async {
+                arrived.wait()
+                let start = Date()
+                served.server.stop(finishing: 2)
+                continuation.resume(returning: Date().timeIntervalSince(start))
+            }
+        }
+        let applied = try await edit.value
+        XCTAssertEqual(applied.revision, 2)
+        XCTAssertLessThan(stopped, 1.5, "stopped once the call answered, not at the deadline")
+        let refused = await served.client().isAlive()
+        XCTAssertFalse(refused, "new calls are refused once it's stopping")
+    }
+
+    func testACallWaitsForTheAppToFinishOpening() async throws {
+        let folder = TempFolder()
+        let url = try APIFixture.write(to: folder.url)
+        // The app has the project but hasn't started its API yet.
+        let lock = try holdAsApp(url)
+        defer { lock.release() }
+        let client = ProjectClient(projectURL: url, author: "claude")
+        client.lockWait = 0.2
+        client.noticeAfter = 0.1
+        let notices = Notices()
+        ProjectClient.waitNotice = { notices.add($0) }
+        defer { ProjectClient.waitNotice = nil }
+
+        let status = Task { try await client.call(StatusRequest()) }
+        try await Task.sleep(nanoseconds: 600_000_000)
+        let app = try await HTTPTests.Served()
+        defer { app.stop() }
+        try lock.write(ProjectSession.Lock(pid: 1, owner: .app, started: Date(), port: app.port, token: app.server.token))
+        let result = try await status.value
+        XCTAssertFalse(result.headless, "answered by the app once it was serving")
+        XCTAssertEqual(notices.all.count, 1)
+        XCTAssertTrue(notices.all.first?.contains("isn't answering yet") == true, "\(notices.all)")
+    }
+
+    func testAnotherCommandsLockStillTimesOutSoon() async throws {
+        let folder = TempFolder()
+        let url = try APIFixture.write(to: folder.url)
+        let lockURL = ProjectSession.lockURL(for: url)
+        try FileManager.default.createDirectory(at: lockURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        guard case .acquired(let lock) = try LockHandle.acquire(lockURL, lock: ProjectSession.Lock(pid: 1, owner: .cli, started: Date())) else {
+            return XCTFail("couldn't take the lock")
+        }
+        defer { lock.release() }
+        let client = ProjectClient(projectURL: url, author: "claude")
+        client.lockWait = 0.2
+        let start = Date()
+        do {
+            _ = try await client.call(StatusRequest())
+            XCTFail("a project another command has stays busy")
+        } catch let error as ServiceError {
+            XCTAssertEqual(error.code, "locked")
+        }
+        XCTAssertLessThan(Date().timeIntervalSince(start), 2, "only the app gets the long wait")
+    }
+
+    func testWatchCarriesOnWhenTheAppQuits() async throws {
+        let folder = TempFolder()
+        let url = try APIFixture.write(to: folder.url)
+        let app = try await HTTPTests.Served()
+        defer { app.stop() }
+        let lock = try holdAsApp(url, port: app.port, token: app.server.token)
+        let client = ProjectClient(projectURL: url, author: "claude")
+        let waiter = Task { try await client.call(WatchRequest(revision: 1, timeout: 10)) }
+        try await Task.sleep(nanoseconds: 300_000_000)
+        // The app quits, then another command edits the file.
+        app.server.stop()
+        lock.release()
+        try headless(url) { _ = try $0.apply(ApplyRequest(commands: [.blade(at: t(10))]), context: CallContext()) }
+        let result = try await waiter.value
+        XCTAssertTrue(result.changed)
+        XCTAssertEqual(result.revision, 2)
+    }
+
+    func testEventsCarryOnWhenTheAppQuits() async throws {
+        let folder = TempFolder()
+        let url = try APIFixture.write(to: folder.url)
+        let app = try await HTTPTests.Served()
+        defer { app.stop() }
+        let lock = try holdAsApp(url, port: app.port, token: app.server.token)
+        let client = ProjectClient(projectURL: url, author: "claude")
+        let events = client.events()
+        let reader = Task { () -> ServiceEvent? in
+            for try await event in events where event.kind == .reload { return event }
+            return nil
+        }
+        try await Task.sleep(nanoseconds: 300_000_000)
+        app.server.stop()
+        lock.release()
+        try await Task.sleep(nanoseconds: 800_000_000)
+        try headless(url) { _ = try $0.apply(ApplyRequest(commands: [.blade(at: t(10))]), context: CallContext()) }
+        let watchdog = Task {
+            try await Task.sleep(nanoseconds: 5_000_000_000)
+            reader.cancel()
+        }
+        defer { watchdog.cancel() }
+        let event = try await reader.value
+        XCTAssertEqual(event?.revision, 2, "the stream outlived the app and saw the file change")
+    }
+
     func testLocatorFindsTheProject() throws {
         let folder = TempFolder()
         let url = try APIFixture.write(to: folder.url)
@@ -380,5 +510,19 @@ final class ProjectClientTests: XCTestCase {
             XCTAssertTrue("\(error)".contains("has 2 projects"), "\(error)")
         }
         XCTAssertThrowsError(try ProjectLocator.find("missing.tandem", in: folder.url, environment: [:]))
+    }
+}
+
+/// Wait notices a client gave, from whichever thread gave them.
+private final class Notices: @unchecked Sendable {
+    private let lock = NSLock()
+    private var items: [String] = []
+
+    func add(_ text: String) {
+        lock.withLock { items.append(text) }
+    }
+
+    var all: [String] {
+        lock.withLock { items }
     }
 }

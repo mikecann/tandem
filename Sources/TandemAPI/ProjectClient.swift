@@ -88,10 +88,13 @@ public final class TandemAPIHost: @unchecked Sendable {
     }
 
     /// Stops serving. The project stays open; close the session separately.
-    public func stop() {
+    /// Calls already running get up to `grace` seconds to answer; new ones
+    /// wait for the project (the lock no longer names a port) and then go
+    /// wherever it's open next.
+    public func stop(finishing grace: TimeInterval = 2) {
         session.stopWatching()
         try? session.stopAdvertising()
-        server.stop()
+        server.stop(finishing: grace)
         service.shutdown()
     }
 }
@@ -172,6 +175,16 @@ public final class ProjectClient: @unchecked Sendable {
     var fontInstaller: FontInstalling? = LibraryFontInstaller.shared
     /// How long to wait for a project another command is busy with.
     var lockWait: TimeInterval = 15
+    /// How long to wait for the app when it has the project but isn't
+    /// answering: it's opening it (after a restart, or a new build going
+    /// in) or closing it. A big project can take a while to open.
+    var appWait: TimeInterval = 90
+    /// Told once when a call has been waiting a couple of seconds for the
+    /// app, so whoever's at the terminal knows why nothing's happening. The
+    /// CLI prints it to stderr.
+    public static var waitNotice: ((String) -> Void)?
+    /// How long a call waits for the app before saying so.
+    var noticeAfter: TimeInterval = 2
 
     public init(projectURL: URL, author: String) {
         // One spelling per file (/tmp and /private/tmp are the same folder),
@@ -197,10 +210,13 @@ public final class ProjectClient: @unchecked Sendable {
         if let watch = call as? WatchRequest {
             return try await self.watch(watch) as! C.Result
         }
-        let deadline = Date().addingTimeInterval(lockWait)
+        let started = Date()
+        var noticed = false
         var delay: UInt64 = 20_000_000
         while true {
-            if let lock = ProjectSession.liveLock(for: projectURL) {
+            let lock = ProjectSession.liveLock(for: projectURL)
+            let deadline = started.addingTimeInterval(lock?.owner == .app ? appWait : lockWait)
+            if let lock {
                 if let port = lock.port, let token = lock.token {
                     do {
                         return try await TandemHTTPClient(port: port, token: token, author: author).call(call)
@@ -209,6 +225,9 @@ public final class ProjectClient: @unchecked Sendable {
                     }
                 } else if Date() >= deadline {
                     throw ServiceError(.locked, Self.busyMessage(lock, projectURL))
+                } else if lock.owner == .app, !noticed, Date().timeIntervalSince(started) >= noticeAfter {
+                    noticed = true
+                    Self.waitNotice?("Tandem has \(projectURL.lastPathComponent) open but isn't answering yet (it's opening or closing it). Waiting for it…")
                 }
             } else {
                 do {
@@ -272,8 +291,15 @@ public final class ProjectClient: @unchecked Sendable {
         while true {
             if let lock = ProjectSession.liveLock(for: projectURL), let port = lock.port, let token = lock.token {
                 let remaining = max(0, deadline.timeIntervalSinceNow)
-                return try await TandemHTTPClient(port: port, token: token, author: author)
-                    .call(WatchRequest(revision: start, timeout: remaining))
+                do {
+                    return try await TandemHTTPClient(port: port, token: token, author: author)
+                        .call(WatchRequest(revision: start, timeout: remaining))
+                } catch let error as ServiceError where Self.mayRetry(request, after: error) && Date() < deadline {
+                    // The app quit mid-wait (a restart, a new build going
+                    // in): keep waiting wherever the project is now.
+                    try await Task.sleep(nanoseconds: 100_000_000)
+                    continue
+                }
             }
             let revision = try Self.fileRevision(projectURL)
             if start == nil { start = revision }
@@ -294,17 +320,35 @@ public final class ProjectClient: @unchecked Sendable {
     }
 
     /// Server-sent events from the owner, or file changes polled once a
-    /// second when nothing serves the project.
+    /// second when nothing serves the project. Runs until the consumer
+    /// stops: when the app quits and opens again (a new build going in), it
+    /// watches the file in between and then picks up the app's events.
     public func events() -> AsyncThrowingStream<ServiceEvent, Error> {
-        if let lock = ProjectSession.liveLock(for: projectURL), let port = lock.port, let token = lock.token {
-            return TandemHTTPClient(port: port, token: token, author: author).events()
-        }
         let url = projectURL
+        let author = author
         return AsyncThrowingStream { continuation in
             let task = Task {
                 var last = (try? Self.fileRevision(url)) ?? 0
                 var seq = 0
                 while !Task.isCancelled {
+                    if let lock = ProjectSession.liveLock(for: url), let port = lock.port, let token = lock.token {
+                        do {
+                            for try await event in TandemHTTPClient(port: port, token: token, author: author).events() {
+                                continuation.yield(event)
+                            }
+                        } catch let error as ServiceError where error.knownCode == .unavailable || error.knownCode == .interrupted {
+                            // The owner went away; look again.
+                        } catch is CancellationError {
+                            break
+                        } catch {
+                            continuation.finish(throwing: error)
+                            return
+                        }
+                        // The owner saves as it closes, which isn't news.
+                        try? await Task.sleep(nanoseconds: 500_000_000)
+                        last = (try? Self.fileRevision(url)) ?? last
+                        continue
+                    }
                     try? await Task.sleep(nanoseconds: 1_000_000_000)
                     guard let revision = try? Self.fileRevision(url), revision != last else { continue }
                     last = revision

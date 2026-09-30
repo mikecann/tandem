@@ -216,6 +216,13 @@ error means the app went away (quit or crashed) after it got the call but
 before it answered, so an edit may have been applied: check `tandem
 history` before sending it again.
 
+**Restarts.** You can keep working while Tandem restarts (a new build going
+in). When it quits, calls it's already running finish and answer first.
+Commands sent while it's closing or opening the project again wait for it,
+up to 90 seconds, and say so on stderr after a couple of seconds. While it's
+closed they edit the file directly. `tandem watch`, with or without
+`--once`, carries on through the restart.
+
 **Undo.** `undo` reverts the last batch, whoever made it, so pass
 `expectedRevision` to undo only if nothing happened since your edit. With
 the app closed, undo history for CLI and MCP edits is kept in
@@ -1655,7 +1662,8 @@ when it's open).
 ## Troubleshooting
 
 - **"is open in the Tandem app, but the app isn't serving its API"**: the
-  app has the project open but no API. Restart or update the app.
+  app has had the project open for 90 seconds without answering. Restart or
+  update the app.
 - **"busy in another tandem command"**: another command has the project
   open right now. Commands wait up to 15 seconds for it before giving up.
 - **"isn't built yet, so this doesn't work in this version of Tandem"**:

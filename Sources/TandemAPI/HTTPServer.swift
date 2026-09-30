@@ -79,13 +79,36 @@ public final class TandemHTTPServer: @unchecked Sendable {
 
     /// Stops listening and closes every connection, including event streams.
     public func stop() {
+        stop(finishing: 0)
+    }
+
+    /// Stops listening, then gives calls already running up to `grace`
+    /// seconds to answer before closing every connection. The app stops
+    /// this way when it quits (a new build going in): an edit that arrived
+    /// just before still gets its reply, instead of the agent being told
+    /// it may or may not have happened. Calls that arrive now are refused,
+    /// and `ProjectClient` sends them again once the project is free.
+    public func stop(finishing grace: TimeInterval) {
         listener?.cancel()
         listener = nil
+        let deadline = Date().addingTimeInterval(grace)
+        while Date() < deadline && isAnswering {
+            Thread.sleep(forTimeInterval: 0.005)
+        }
         lock.lock()
         let open = Array(connections.values)
         connections.removeAll()
         lock.unlock()
         for connection in open { connection.close() }
+    }
+
+    /// True while a call is running or its reply is still being sent. Event
+    /// streams don't count: they run until they're closed.
+    var isAnswering: Bool {
+        lock.lock()
+        let open = Array(connections.values)
+        lock.unlock()
+        return open.contains(where: \.isAnswering)
     }
 
     private func accept(_ nw: NWConnection) {
@@ -253,6 +276,13 @@ final class HTTPConnection: @unchecked Sendable {
 
     /// How long a client gets to send a whole request.
     static let requestTimeout: TimeInterval = 30
+
+    /// A whole request has arrived and isn't an event stream, and the
+    /// connection hasn't closed: the call is running or its reply is going
+    /// out.
+    var isAnswering: Bool {
+        lock.withLock { !isClosed && request.map { $0.path != "/v1/watch" } == true }
+    }
 
     func start(on queue: DispatchQueue) {
         connection.stateUpdateHandler = { [weak self] state in

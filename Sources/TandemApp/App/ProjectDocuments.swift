@@ -52,12 +52,15 @@ final class ProjectDocuments: NSObject, NSMenuDelegate {
     }
 
     /// A CLI command has the project for a moment, or `tandem serve` has
-    /// it open: wait a few seconds, asking the server to hand it over.
+    /// it open: wait, asking the server to hand it over. Agents keep
+    /// working while Tandem restarts, so a slow command (a media refresh,
+    /// captions) may have it when Tandem opens again; the wait is long
+    /// enough for that, and ends the moment the project is free.
     private func openWhenFree(_ url: URL, frame: NSRect?) {
         guard opening.insert(url).inserted else { return }
         Task { @MainActor in
             do {
-                let session = try await ProjectSession.open(url, owner: .app, waitingUpTo: 5)
+                let session = try await ProjectSession.open(url, owner: .app, waitingUpTo: 30)
                 self.opening.remove(url)
                 self.opened(session, url: url, frame: frame)
             } catch {
