@@ -9,7 +9,9 @@ import TandemCore
 final class ProjectWindowController: NSWindowController, NSWindowDelegate, NSMenuItemValidation, EditorCommandHandling {
     let model: EditorModel
     let actions: EditorActions
-    private let router: KeyboardRouter
+    let router: KeyboardRouter
+    /// The keys its buttons show while ⌘ is held.
+    let hintBoard = HintBoard()
     /// Called once the window has closed and the session is released.
     var onClose: ((ProjectWindowController) -> Void)?
     /// File > Archive project…, while its sheet is up.
@@ -51,7 +53,7 @@ final class ProjectWindowController: NSWindowController, NSWindowDelegate, NSMen
         restoreTimeline()
         // The editor, with the keys the buttons show while ⌘ is held drawn
         // over all of it.
-        let board = HintBoard()
+        let board = hintBoard
         let root = EditorRootView(model: model, actions: actions).environment(board)
         let hosting = NSHostingView(rootView: root)
         hosting.sizingOptions = []

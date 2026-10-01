@@ -35,14 +35,16 @@ enum LibraryTab: String, CaseIterable, Identifiable {
 enum InspectorTabs {
     /// A sound clip (a whoosh on SFX, music, the voice) has nothing on the
     /// Video or Colour tabs, so it turns to Audio; a picture with no sound
-    /// (a title, a graphic, a still) turns from Audio to Video. Otherwise
-    /// the tab stays: a camera clip is at home on any of them.
+    /// on the timeline (a title, a graphic, a still, B-roll placed without
+    /// its sound) turns from Audio to Video, where the Audio tab would only
+    /// say there's nothing to hear. Otherwise the tab stays: a camera clip
+    /// is at home on any of them.
     static func fitting(_ current: InspectorTab, clip clipID: String, in project: Project) -> InspectorTab {
-        guard let location = project.location(ofClip: clipID), let clip = project.clip(clipID) else { return current }
+        guard let location = project.location(ofClip: clipID) else { return current }
         if location.track.kind == .audio {
             return current == .video || current == .colour ? .audio : current
         }
-        let hasSound = clip.mediaID.flatMap { project.media($0) }?.hasAudio ?? false
+        let hasSound = project.linkedClipIDs(of: clipID).contains { project.location(ofClip: $0)?.track.kind == .audio }
         return current == .audio && !hasSound ? .video : current
     }
 }
