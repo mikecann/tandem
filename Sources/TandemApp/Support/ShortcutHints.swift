@@ -5,10 +5,10 @@ import SwiftUI
 /// Holding ⌘ shows each button's key on the button, so the keys can be
 /// learned at a glance instead of by hovering one tooltip at a time.
 ///
-/// The keys show once ⌘ has been held on its own for half a second, and go
-/// the moment it's let go. ⌘ that's used for something (a shortcut, a
-/// ⌘-click, a ⌘-scroll to zoom) was for that, so nothing shows until it's
-/// pressed again.
+/// The keys show the moment ⌘ goes down on its own (Mike wanted them
+/// straight away, not after a hold), and go the moment it's let go or used:
+/// a shortcut, a ⌘-click or a ⌘-scroll to zoom hides them, and they don't
+/// come back until ⌘ is pressed again.
 @MainActor
 @Observable
 final class ShortcutHints {
@@ -17,12 +17,10 @@ final class ShortcutHints {
     /// True while the keys are on the buttons.
     private(set) var showing = false
 
-    @ObservationIgnored var delay: TimeInterval = 0.5
     /// Overridable for tests: the app is frontmost, a mouse button is down.
     @ObservationIgnored var isAppActive: () -> Bool = { NSApp?.isActive ?? false }
     @ObservationIgnored var isMouseDown: () -> Bool = { NSEvent.pressedMouseButtons != 0 }
 
-    @ObservationIgnored private var pending: DispatchWorkItem?
     /// ⌘ was used for something since it went down.
     @ObservationIgnored private var spent = false
     @ObservationIgnored private var monitor: Any?
@@ -48,7 +46,7 @@ final class ShortcutHints {
             if !flags.contains(.command) {
                 reset()
             } else if flags == .command {
-                if !spent && pending == nil && !showing { arm() }
+                if !spent && !showing && isAppActive() && !isMouseDown() { showing = true }
             } else {
                 // ⌘ with Shift or Option: a chord on its way.
                 spent = true
@@ -90,22 +88,7 @@ final class ShortcutHints {
         hide()
     }
 
-    private func arm() {
-        let work = DispatchWorkItem { [weak self] in
-            MainActor.assumeIsolated {
-                guard let self else { return }
-                self.pending = nil
-                guard !self.spent, self.isAppActive(), !self.isMouseDown() else { return }
-                withAnimation(.easeOut(duration: 0.12)) { self.showing = true }
-            }
-        }
-        pending = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
-    }
-
     private func hide() {
-        pending?.cancel()
-        pending = nil
         if showing { showing = false }
     }
 }

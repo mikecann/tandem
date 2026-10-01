@@ -7,7 +7,6 @@ import XCTest
 final class ShortcutHintsTests: XCTestCase {
     private func hints() -> ShortcutHints {
         let hints = ShortcutHints()
-        hints.delay = 0.05
         hints.isAppActive = { true }
         hints.isMouseDown = { false }
         return hints
@@ -32,12 +31,10 @@ final class ShortcutHintsTests: XCTestCase {
                            eventNumber: 0, clickCount: 1, pressure: 1)!
     }
 
-    func testHoldingCommandShowsTheKeysAndLettingGoHidesThem() {
+    func testPressingCommandShowsTheKeysAtOnceAndLettingGoHidesThem() {
         let h = hints()
         h.handle(flags(.command))
-        XCTAssertFalse(h.showing, "not straight away: ⌘ may be on its way to a shortcut")
-        wait()
-        XCTAssertTrue(h.showing)
+        XCTAssertTrue(h.showing, "straight away")
         h.handle(flags([]))
         XCTAssertFalse(h.showing)
     }
@@ -46,7 +43,6 @@ final class ShortcutHintsTests: XCTestCase {
         let h = hints()
         h.handle(flags(.command))
         h.handle(key("z", .command))
-        wait()
         XCTAssertFalse(h.showing, "⌘Z was an undo, not a look")
         // ⌘⇧Z, then Shift let go with ⌘ still down.
         h.handle(flags([.command, .shift]))

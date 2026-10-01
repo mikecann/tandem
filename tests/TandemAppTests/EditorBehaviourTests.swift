@@ -131,11 +131,9 @@ final class EditorBehaviourTests: XCTestCase {
 
     // MARK: - Keys on the buttons
 
-    func testHoldingCommandShowsTheButtonsKeys() throws {
-        // Half a second's hold, timed on the main thread.
-        try skipTimingSensitiveTestOnCI()
-        ShortcutHints.shared.simulatePress(.command, for: 1.2)
-        editor.settle(0.9)
+    func testHoldingCommandShowsTheButtonsKeys() {
+        ShortcutHints.shared.simulatePress(.command, for: 0.8)
+        editor.settle(0.3)
         let badges = editor.controller.hintBoard.badges.values
         let symbols = Set(badges.map(\.symbol))
         for expected in ["C", "V", "S", "Space", "⌘E"] {
@@ -145,7 +143,7 @@ final class EditorBehaviourTests: XCTestCase {
         for badge in badges {
             XCTAssertTrue(bounds.contains(CGPoint(x: badge.frame.midX, y: badge.frame.midY)), "\(badge.symbol) at \(badge.frame)")
         }
-        editor.settle(0.6)
+        editor.settle(0.8)
         XCTAssertFalse(ShortcutHints.shared.showing, "gone when ⌘ is let go")
     }
 
