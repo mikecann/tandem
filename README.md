@@ -44,6 +44,13 @@ tandem app
 custom bin directory. Add that directory to your PATH if it isn't there yet.
 Keep the clone in place, and rerun `install.sh` if you move it.
 
+`install.sh` also links [the Tandem skill](skills/tandem/SKILL.md) into
+`~/.claude/skills` and `~/.agents/skills`, so Claude Code and Codex know how
+to edit with Tandem whenever they're in a folder with a `.tandem` project:
+the loop of editing, checking and handing back for review, and the rules.
+Set `TANDEM_SKILL_DIRS` to other folders, or to nothing to skip it. Agents
+that use MCP instead (`tandem mcp`) get the same guidance from the server.
+
 Tandem doesn't read `.env` files or need API keys to edit local media.
 Optional asset providers use macOS Keychain. `tandem assets providers` tells
 you what's missing, and [the asset guide](docs/ASSETS.md) covers setup.

@@ -5,10 +5,29 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SCRATCH="$(mktemp -d)"
 trap 'rm -rf "$SCRATCH"' EXIT
 BIN="$SCRATCH/bin with spaces"
+# The skill goes under HOME; keep it out of the real one.
+export HOME="$SCRATCH/home dir"
 
 bash "$SCRIPT_DIR/install.sh" "$BIN"
 [[ -L "$BIN/tandem" && "$(readlink "$BIN/tandem")" == "$SCRIPT_DIR/tandem" ]]
 bash "$SCRIPT_DIR/install.sh" "$BIN"
+
+# The agent skill is linked where Claude Code and Codex look.
+for dir in "$HOME/.claude/skills" "$HOME/.agents/skills"; do
+  [[ -L "$dir/tandem" && "$(readlink "$dir/tandem")" == "$SCRIPT_DIR/skills/tandem" ]]
+done
+[[ -f "$HOME/.claude/skills/tandem/SKILL.md" ]]
+# Someone's own skill called tandem is left alone, and that's not an error.
+rm "$HOME/.agents/skills/tandem"
+mkdir "$HOME/.agents/skills/tandem"
+bash "$SCRIPT_DIR/install.sh" "$BIN" 2>/dev/null
+[[ -d "$HOME/.agents/skills/tandem" && ! -L "$HOME/.agents/skills/tandem" ]]
+# TANDEM_SKILL_DIRS chooses the folders, or skips the skill when empty.
+TANDEM_SKILL_DIRS="$SCRATCH/elsewhere" bash "$SCRIPT_DIR/install.sh" "$BIN" >/dev/null
+[[ -L "$SCRATCH/elsewhere/tandem" ]]
+rm "$HOME/.claude/skills/tandem"
+TANDEM_SKILL_DIRS="" bash "$SCRIPT_DIR/install.sh" "$BIN" >/dev/null
+[[ ! -e "$HOME/.claude/skills/tandem" ]]
 
 # Moving from an older clone should replace its dangling symlink.
 ln -sfn "$SCRATCH/old-clone/tandem" "$BIN/tandem"
