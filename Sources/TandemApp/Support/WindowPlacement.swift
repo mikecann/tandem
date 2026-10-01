@@ -26,6 +26,14 @@ enum WindowPlacement {
         store.set(frames, forKey: projectsKey)
     }
 
+    /// A renamed project's window opens where it was.
+    static func move(from old: URL, to new: URL, in store: UserDefaults = AppDefaults.store) {
+        guard var frames = store.dictionary(forKey: projectsKey) as? [String: String],
+              let frame = frames.removeValue(forKey: old.standardizedFileURL.path) else { return }
+        frames[new.standardizedFileURL.path] = frame
+        store.set(frames, forKey: projectsKey)
+    }
+
     static func saved(for project: URL? = nil, in store: UserDefaults = AppDefaults.store) -> NSRect? {
         let own = project.flatMap { (store.dictionary(forKey: projectsKey) as? [String: String])?[$0.standardizedFileURL.path] }
         guard let text = own ?? store.string(forKey: key) else { return nil }

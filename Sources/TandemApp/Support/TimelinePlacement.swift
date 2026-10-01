@@ -24,6 +24,14 @@ enum TimelinePlacement {
         store.set(all, forKey: key)
     }
 
+    /// A renamed project's timeline comes back where it was.
+    static func move(from old: URL, to new: URL, in store: UserDefaults = AppDefaults.store) {
+        guard var all = store.dictionary(forKey: key) as? [String: [String: Double]],
+              let saved = all.removeValue(forKey: old.standardizedFileURL.path) else { return }
+        all[new.standardizedFileURL.path] = saved
+        store.set(all, forKey: key)
+    }
+
     /// What was saved for `project`, or nil when nothing was or it doesn't
     /// make sense (a zoom of zero, say).
     static func saved(for project: URL, in store: UserDefaults = AppDefaults.store) -> Saved? {

@@ -10,12 +10,11 @@ final class WelcomeMenuTests: XCTestCase {
         let controller = WelcomeWindowController(documents: ProjectDocuments.shared)
         let window = try XCTUnwrap(controller.window)
         defer { window.orderOut(nil) }
-        window.setFrame(NSRect(x: -30_000, y: -30_000, width: 760, height: 480), display: false)
+        EditorHarness.placeOffscreen(window, size: CGSize(width: 760, height: 480))
         controller.state.recent = [
             URL(fileURLWithPath: "/videos/eslint/ESLint.tandem"),
             URL(fileURLWithPath: "/videos/decision-models/Decision Models.tandem")
         ]
-        window.orderBack(nil)
         for _ in 0..<10 {
             RunLoop.main.run(until: Date().addingTimeInterval(0.02))
             window.contentView?.layoutSubtreeIfNeeded()
@@ -26,7 +25,7 @@ final class WelcomeMenuTests: XCTestCase {
         // The first project's row, in the list on the right.
         InputSimulator.run(InputSimulator.Gesture(kind: .menu(out: out.path), at: CGPoint(x: 480, y: 100), modifiers: []), in: window)
         let menu = try String(contentsOf: out, encoding: .utf8)
-        for item in ["Open", "Duplicate…", "Show in Finder", "Remove from Recent"] {
+        for item in ["Open", "Rename…", "Duplicate…", "Show in Finder", "Remove from Recent"] {
             XCTAssertTrue(menu.contains(item), "\(item) in:\n\(menu)")
         }
     }
@@ -44,5 +43,28 @@ final class WelcomeMenuTests: XCTestCase {
         view.items = { [MenuAction(title: "Open") {}, .separator, MenuAction(title: "Show in Finder") {}] }
         let event = NSEvent.mouseEvent(with: .rightMouseDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!
         XCTAssertEqual(view.menu(for: event)?.items.map(\.isSeparatorItem), [false, true, false])
+    }
+
+    /// A renamed project keeps its place in the list, and its timeline and
+    /// window come back where they were.
+    func testARenamedProjectKeepsItsPlace() throws {
+        var recent = RecentProjects(paths: ["/v/a/A.tandem", "/v/b/B.tandem", "/v/c/C.tandem"])
+        recent.replace("/v/b/B.tandem", with: "/v/b/Better.tandem")
+        XCTAssertEqual(recent.paths, ["/v/a/A.tandem", "/v/b/Better.tandem", "/v/c/C.tandem"])
+        recent.replace("/v/x/Gone.tandem", with: "/v/x/New.tandem")
+        XCTAssertEqual(recent.paths.first, "/v/x/New.tandem", "one that wasn't listed goes on top")
+
+        let name = "tandem-rename-\(UUID().uuidString)"
+        let store = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { store.removePersistentDomain(forName: name) }
+        let old = URL(fileURLWithPath: "/v/b/B.tandem")
+        let new = URL(fileURLWithPath: "/v/b/Better.tandem")
+        TimelinePlacement.save(TimelinePlacement.Saved(playhead: 42, pixelsPerSecond: 20, scrollSeconds: 30, verticalOffset: 0), for: old, to: store)
+        WindowPlacement.save(NSRect(x: 10, y: 10, width: 1_200, height: 800), for: old, to: store)
+        TimelinePlacement.move(from: old, to: new, in: store)
+        WindowPlacement.move(from: old, to: new, in: store)
+        XCTAssertEqual(TimelinePlacement.saved(for: new, in: store)?.playhead, 42)
+        XCTAssertNil(TimelinePlacement.saved(for: old, in: store))
+        XCTAssertEqual(WindowPlacement.saved(for: new, in: store), NSRect(x: 10, y: 10, width: 1_200, height: 800))
     }
 }

@@ -40,17 +40,37 @@ final class EditorHarness {
         // The buttons' tooltips and ⌘ hints read the app's keymap.
         previousKeymap = ProjectDocuments.shared.keymap
         ProjectDocuments.shared.keymap = keymap
+        EditorWindow.staysWhereItsPut = true
         controller = ProjectWindowController(model: model, keymap: keymap, frame: NSRect(x: -30_000, y: -30_000, width: 1_600, height: 1_000))
-        controller.window?.setFrame(NSRect(x: -30_000, y: -30_000, width: 1_600, height: 1_000), display: false)
-        controller.window?.orderBack(nil)
+        EditorHarness.placeOffscreen(controller.window!, size: CGSize(width: 1_600, height: 1_000))
         model.timeline.fitPending = false
         model.timeline.scale = TimelineScale(pixelsPerSecond: 20, scrollSeconds: 0)
         settle()
     }
 
+    /// AppKit puts a titled window back on a screen when it's ordered in,
+    /// shrunk to fit: on a laptop screen the timeline lost its lower tracks
+    /// and clicks on them missed. Ordered in unseen first, then moved, it
+    /// stays offscreen at the size the tests expect.
+    static func placeOffscreen(_ window: NSWindow, size: CGSize) {
+        window.alphaValue = 0
+        window.orderBack(nil)
+        window.setFrame(NSRect(origin: CGPoint(x: -30_000, y: -30_000), size: size), display: false)
+    }
+
     func close() {
         ProjectDocuments.shared.keymap = previousKeymap
+        // Where its window and timeline were isn't worth remembering.
+        let path = model.fileURL.standardizedFileURL.path
+        let store = AppDefaults.store
+        if var frames = store.dictionary(forKey: WindowPlacement.projectsKey) as? [String: String], frames.removeValue(forKey: path) != nil {
+            store.set(frames, forKey: WindowPlacement.projectsKey)
+        }
+        if var timelines = store.dictionary(forKey: TimelinePlacement.key) as? [String: [String: Double]], timelines.removeValue(forKey: path) != nil {
+            store.set(timelines, forKey: TimelinePlacement.key)
+        }
         window.orderOut(nil)
+        EditorWindow.staysWhereItsPut = false
         model.tearDown()
         _ = model.session.close()
         try? FileManager.default.removeItem(at: folder)

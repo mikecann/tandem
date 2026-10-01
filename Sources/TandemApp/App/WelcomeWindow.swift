@@ -174,8 +174,9 @@ enum RecentMenu {
     static func items(for url: URL, documents: ProjectDocuments?) -> [MenuAction] {
         [
             MenuAction(title: "Open") { documents?.open(url) },
-            // After the menu has gone, so the folder panel isn't run from
-            // inside it.
+            // After the menu has gone, so the panels aren't run from inside
+            // it.
+            MenuAction(title: "Rename…") { DispatchQueue.main.async { documents?.renameProject(url) } },
             MenuAction(title: "Duplicate…") { DispatchQueue.main.async { documents?.duplicateProject(url) } },
             .separator,
             MenuAction(title: "Show in Finder") { documents?.showInFinder(url) },

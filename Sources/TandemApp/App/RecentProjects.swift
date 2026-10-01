@@ -21,6 +21,16 @@ struct RecentProjects: Equatable {
         if paths.count > Self.limit { paths.removeLast(paths.count - Self.limit) }
     }
 
+    /// A project that moved (renamed) keeps its place in the list.
+    mutating func replace(_ old: String, with new: String) {
+        let from = URL(fileURLWithPath: old).standardizedFileURL.path
+        let to = URL(fileURLWithPath: new).standardizedFileURL.path
+        guard let index = paths.firstIndex(of: from) else { return add(to) }
+        paths.removeAll { $0 == to }
+        paths.insert(to, at: min(index, paths.count))
+        paths.removeAll { $0 == from }
+    }
+
     mutating func remove(_ path: String) {
         let standard = URL(fileURLWithPath: path).standardizedFileURL.path
         paths.removeAll { $0 == standard }

@@ -282,6 +282,16 @@ final class ProjectWindowController: NSWindowController, NSWindowDelegate, NSMen
 /// The project window. Its titlebar is as tall as the top bar, with the
 /// traffic lights centred in it.
 final class EditorWindow: NSWindow {
+    /// For behaviour tests, which drive an editor window offscreen at a
+    /// fixed size: AppKit otherwise pulls a titled window onto a screen and
+    /// shrinks it to fit, and on a laptop screen the lower tracks fell
+    /// outside the window.
+    static var staysWhereItsPut = false
+
+    override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect {
+        Self.staysWhereItsPut ? frameRect : super.constrainFrameRect(frameRect, to: screen)
+    }
+
     func layoutTrafficLights() {
         guard !styleMask.contains(.fullScreen),
               let close = standardWindowButton(.closeButton),

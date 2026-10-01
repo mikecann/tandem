@@ -236,6 +236,40 @@ final class ProjectDocuments: NSObject, NSMenuDelegate {
         }
     }
 
+    /// Rename on the project list: the file and the name Tandem shows
+    /// (`ProjectRenamer`), keeping its place in the list and where its
+    /// timeline and window were.
+    func renameProject(_ url: URL) {
+        let current = url.deletingPathExtension().lastPathComponent
+        let prompt = NSAlert()
+        prompt.messageText = "Rename \(current)"
+        prompt.informativeText = "The project file and the name Tandem shows both change. Its media and exports stay as they are."
+        let field = NSTextField(string: current)
+        field.frame = NSRect(x: 0, y: 0, width: 300, height: 24)
+        prompt.accessoryView = field
+        prompt.addButton(withTitle: "Rename")
+        prompt.addButton(withTitle: "Cancel")
+        prompt.window.initialFirstResponder = field
+        guard prompt.runModal() == .alertFirstButtonReturn else { return }
+        let name = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard name != current else { return }
+        do {
+            let renamed = try ProjectRenamer.rename(url, to: name)
+            noteRenamed(url, to: renamed)
+        } catch {
+            alert("Couldn't rename \(current)", EditorModel.describe(error))
+        }
+    }
+
+    /// Everything the app keeps by a project's path follows it.
+    func noteRenamed(_ old: URL, to new: URL) {
+        recent.replace(old.path, with: new.path)
+        recent.save()
+        TimelinePlacement.move(from: old, to: new)
+        WindowPlacement.move(from: old, to: new)
+        welcome?.refresh()
+    }
+
     func showInFinder(_ url: URL) {
         NSWorkspace.shared.activateFileViewerSelecting([url])
     }
