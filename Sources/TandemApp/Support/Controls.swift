@@ -256,6 +256,8 @@ struct GraphiteSegmented<Option: Hashable>: View {
     var icon: ((Option) -> String)? = nil
     var help: ((Option) -> String)? = nil
     var marked: ((Option) -> Bool)? = nil
+    /// Each option's key, shown on it while ⌘ is held.
+    var shortcut: ((Option) -> EditorCommand?)? = nil
     let action: (Option) -> Void
 
     var body: some View {
@@ -287,6 +289,7 @@ struct GraphiteSegmented<Option: Hashable>: View {
                 }
                 .buttonStyle(.plain)
                 .tip(help?(option) ?? "")
+                .shortcutHint(shortcut?(option))
             }
         }
         .padding(3)

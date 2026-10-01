@@ -215,6 +215,7 @@ private struct ExportButton: View {
         .buttonStyle(.plain)
         .pointerHover { hovering = $0 }
         .tip(Shortcuts.help("Export the video", .export))
+        .shortcutHint(.export)
     }
 }
 

@@ -26,6 +26,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, EditorCommandHandling 
         launched = true
         quitCleanlyOnSIGTERM()
         MainThreadMeter.install()
+        ShortcutHints.shared.install()
         // Opens the asset library in the background, adding the starter
         // emoji, icons and logos the first time.
         AssetLibraryHost.shared.open()

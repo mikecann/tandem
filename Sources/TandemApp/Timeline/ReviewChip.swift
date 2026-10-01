@@ -12,7 +12,7 @@ struct ReviewChip: View {
         let review = model.review
         if !review.isEmpty {
             HStack(spacing: 0) {
-                StepButton(icon: "chevron.left", help: Shortcuts.help("Previous agent change", .previousAgentChange)) {
+                StepButton(icon: "chevron.left", help: Shortcuts.help("Previous agent change", .previousAgentChange), shortcut: .previousAgentChange) {
                     actions.perform(.previousAgentChange)
                 }
                 Text(review.chipTitle)
@@ -20,7 +20,7 @@ struct ReviewChip: View {
                     .foregroundStyle(Theme.agent.color)
                     .padding(.horizontal, 2)
                     .tip(summary)
-                StepButton(icon: "chevron.right", help: Shortcuts.help("Next agent change", .nextAgentChange)) {
+                StepButton(icon: "chevron.right", help: Shortcuts.help("Next agent change", .nextAgentChange), shortcut: .nextAgentChange) {
                     actions.perform(.nextAgentChange)
                 }
                 Rectangle()
@@ -38,6 +38,7 @@ struct ReviewChip: View {
                 }
                 .buttonStyle(.plain)
                 .tip(Shortcuts.help("Mark reviewed: clear the agent edits highlighted on the timeline", .markAgentChangesReviewed))
+                .shortcutHint(.markAgentChangesReviewed)
             }
             .frame(height: 24)
             .background(RoundedRectangle(cornerRadius: 6).fill(Theme.agent.opacity(0.12).color))
@@ -59,6 +60,7 @@ struct ReviewChip: View {
 private struct StepButton: View {
     let icon: String
     let help: String
+    var shortcut: EditorCommand? = nil
     let action: () -> Void
 
     var body: some View {
@@ -71,5 +73,6 @@ private struct StepButton: View {
         }
         .buttonStyle(.plain)
         .tip(help)
+        .shortcutHint(shortcut)
     }
 }

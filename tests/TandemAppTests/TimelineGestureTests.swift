@@ -93,6 +93,16 @@ final class SimulatedGestureTests: XCTestCase {
         XCTAssertNil(InputSimulator.parse(["drag": "1,2,3,4", "interval": "5000"]), "a step can't wait more than a second")
     }
 
+    func testPressHoldsModifiersOnTheirOwn() {
+        XCTAssertEqual(
+            AppURLCommand.parse(URL(string: "tandem://simulate?press=cmd&for=1.5")!),
+            .simulate(InputSimulator.Gesture(kind: .press(seconds: 1.5), at: .zero, modifiers: .command))
+        )
+        XCTAssertEqual(InputSimulator.parse(["press": "cmd"])?.kind, .press(seconds: 2), "two seconds unless told")
+        XCTAssertNil(InputSimulator.parse(["press": "cmd", "for": "90"]), "at most 30 seconds")
+        XCTAssertNil(InputSimulator.parse(["press": "nothing"]), "a press needs a modifier")
+    }
+
     func testHoverCanHoldAKey() {
         // Z held over the viewer shows the zoom cursor, so a hover can hold it too.
         XCTAssertEqual(InputSimulator.parse(["hover": "600,400", "hold": "z"]), InputSimulator.Gesture(kind: .hover, at: CGPoint(x: 600, y: 400), modifiers: [], heldKey: "z"))

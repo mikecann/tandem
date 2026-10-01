@@ -251,11 +251,20 @@ struct VideoInspector: View {
                 icon: Icons.layout,
                 help: { preset in
                     switch preset {
-                    case .full: return "Full: the picture fills the frame (1)"
-                    case .pipRight: return "Picture in picture, bottom right, with the cutout (2)"
-                    case .pipLeft: return "Picture in picture, bottom left, with the cutout (3)"
-                    case .split: return "Split: side by side (4)"
+                    case .full: return Shortcuts.help("Full: the picture fills the frame", .layoutFull)
+                    case .pipRight: return Shortcuts.help("Picture in picture, bottom right, with the cutout", .layoutPipRight)
+                    case .pipLeft: return Shortcuts.help("Picture in picture, bottom left, with the cutout", .layoutPipLeft)
+                    case .split: return Shortcuts.help("Split: side by side", .layoutSplit)
                     case .fill: return "Fill: scaled up to fill the frame, edges cropped"
+                    }
+                },
+                shortcut: { preset in
+                    switch preset {
+                    case .full: return .layoutFull
+                    case .pipRight: return .layoutPipRight
+                    case .pipLeft: return .layoutPipLeft
+                    case .split: return .layoutSplit
+                    case .fill: return nil
                     }
                 },
                 action: { preset in

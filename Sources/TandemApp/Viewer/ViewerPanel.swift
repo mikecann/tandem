@@ -62,7 +62,7 @@ struct TransportBar: View {
             .frame(maxWidth: .infinity, alignment: .leading)
 
             HStack(spacing: 18) {
-                TransportIcon(name: "backward.end.fill", help: Shortcuts.help("Previous edit", .previousEdit)) { actions.perform(.previousEdit) }
+                TransportIcon(name: "backward.end.fill", help: Shortcuts.help("Previous edit", .previousEdit), shortcut: .previousEdit) { actions.perform(.previousEdit) }
                 Button {
                     actions.perform(.playPause)
                 } label: {
@@ -75,7 +75,8 @@ struct TransportBar: View {
                 }
                 .buttonStyle(.plain)
                 .tip(Shortcuts.help("Play or pause", .playPause) + ". J, K and L shuttle backwards, stop and forwards.")
-                TransportIcon(name: "forward.end.fill", help: Shortcuts.help("Next edit", .nextEdit)) { actions.perform(.nextEdit) }
+                .shortcutHint(.playPause, edge: .top)
+                TransportIcon(name: "forward.end.fill", help: Shortcuts.help("Next edit", .nextEdit), shortcut: .nextEdit) { actions.perform(.nextEdit) }
             }
 
             HStack(spacing: 12) {
@@ -88,7 +89,8 @@ struct TransportBar: View {
                 }
                 .buttonStyle(.plain)
                 .tip(Shortcuts.help("Safe margins: show the title-safe and action-safe areas", .toggleSafeMargins))
-                ToggleText(title: "Proxy", on: playback.useProxies, help: Shortcuts.help("Proxies: play from 1080p copies where they're ready; off plays the original files", .toggleProxy)) {
+                .shortcutHint(.toggleSafeMargins, edge: .top)
+                ToggleText(title: "Proxy", on: playback.useProxies, help: Shortcuts.help("Proxies: play from 1080p copies where they're ready; off plays the original files", .toggleProxy), shortcut: .toggleProxy, hintEdge: .top) {
                     playback.useProxies.toggle()
                 }
                 Menu {
@@ -122,6 +124,7 @@ struct TransportBar: View {
 private struct TransportIcon: View {
     let name: String
     let help: String
+    var shortcut: EditorCommand? = nil
     let action: () -> Void
 
     var body: some View {
@@ -135,5 +138,7 @@ private struct TransportIcon: View {
         }
         .buttonStyle(.plain)
         .tip(help)
+        // Over the button: under it is the timeline's own toolbar.
+        .shortcutHint(shortcut, edge: .top)
     }
 }

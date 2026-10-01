@@ -49,10 +49,23 @@ final class ProjectWindowController: NSWindowController, NSWindowDelegate, NSMen
         window.delegate = self
         actions.controller = self
         restoreTimeline()
-        let root = EditorRootView(model: model, actions: actions)
+        // The editor, with the keys the buttons show while ⌘ is held drawn
+        // over all of it.
+        let board = HintBoard()
+        let root = EditorRootView(model: model, actions: actions).environment(board)
         let hosting = NSHostingView(rootView: root)
         hosting.sizingOptions = []
-        window.contentView = hosting
+        let hints = ShortcutHintsHostingView(rootView: ShortcutHintsOverlay(board: board))
+        hints.sizingOptions = []
+        let content = NSView()
+        for view in [hosting, hints] as [NSView] {
+            view.frame = content.bounds
+            view.autoresizingMask = [.width, .height]
+            content.addSubview(view)
+        }
+        window.contentView = content
+        hosting.frame = content.bounds
+        hints.frame = content.bounds
         router.install(on: window)
         router.perform = { [weak self] command in self?.actions.perform(command) ?? false }
         router.step = { [weak self] frames in self?.model.playback.step(frames: frames) }

@@ -17,6 +17,7 @@ extension NSHostingView: NSHostingViewMarker {}
 ///     open -g "tandem://simulate?scroll=900,1100,-12,0&steps=90&interval=16"
 ///     open -g "tandem://simulate?dragover=tandem-title:label&at=600,700&to=900,700&steps=60&interval=16"
 ///     open -g "tandem://simulate?hover=900,400&hold=z"   (then tandem://debug says which cursor it set)
+///     open -g "tandem://simulate?press=cmd&for=2"   (⌘ held for 2 s: the buttons show their keys)
 ///
 /// A drop hands a library payload (see `LibraryDrag`) to the drop target
 /// under the point, as if it had been dragged there from a library tab. A
@@ -53,6 +54,9 @@ enum InputSimulator {
             case hover
             /// Types into whatever has the keys; a newline presses Return.
             case type(String)
+            /// Holds `modifiers` down on their own for a while, then lets
+            /// them go, as `ShortcutHints` sees it.
+            case press(seconds: TimeInterval)
         }
         var kind: Kind
         var at: CGPoint
@@ -75,7 +79,7 @@ enum InputSimulator {
             (text ?? "").split(separator: ",").compactMap { Double($0.trimmingCharacters(in: .whitespaces)).map { CGFloat($0) } }
         }
         var flags: NSEvent.ModifierFlags = []
-        for name in (query["mods"] ?? "").split(separator: ",") {
+        for name in (query["mods"] ?? query["press"] ?? "").split(separator: ",") {
             switch name {
             case "cmd", "command": flags.insert(.command)
             case "shift": flags.insert(.shift)
@@ -125,6 +129,11 @@ enum InputSimulator {
         if let text = query["type"], !text.isEmpty {
             return Gesture(kind: .type(text), at: .zero, modifiers: flags)
         }
+        if query["press"] != nil, !flags.isEmpty {
+            let seconds = Double(query["for"] ?? "") ?? 2
+            guard (0...30).contains(seconds) else { return nil }
+            return Gesture(kind: .press(seconds: seconds), at: .zero, modifiers: flags)
+        }
         let hover = numbers(query["hover"])
         if hover.count == 2 {
             return Gesture(kind: .hover, at: CGPoint(x: hover[0], y: hover[1]), modifiers: flags, heldKey: query["hold"])
@@ -162,6 +171,10 @@ enum InputSimulator {
         defer { isReplaying = false }
         func windowPoint(_ point: CGPoint) -> NSPoint {
             NSPoint(x: point.x, y: frame.bounds.height - point.y)
+        }
+        if case .press(let seconds) = gesture.kind {
+            ShortcutHints.shared.simulatePress(gesture.modifiers, for: seconds)
+            return
         }
         if case .type(let text) = gesture.kind {
             // Typing goes to the first responder, not the view under a point.
@@ -265,7 +278,7 @@ enum InputSimulator {
                 if current is NSHostingViewMarker { break }
                 view = current.superview
             }
-        case .type:
+        case .type, .press:
             break
         case .dragOver(let payload, let to, let steps, let stay):
             var view: NSView? = target
