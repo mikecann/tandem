@@ -619,6 +619,19 @@ enum MCPTools {
             operation: .validate, properties: [:], readOnly: true, idempotent: true
         ),
         Tool(
+            name: "check", title: "Check for problems",
+            description: "Looks for what Mike would otherwise catch in review: black frames and gaps, one-frame flickers, green screens that didn't key, white blocks that come and go, and pictures zoomed past their own pixels. Renders the frames small, so a minute takes seconds. Run it with changed: true on what you changed before handing back. ok is false when it finds anything.",
+            operation: .check,
+            properties: [
+                "from": time("Start. Default 0."),
+                "to": time("End. Default the end of the timeline."),
+                "changed": S.boolean("Only the stretches agents changed that are waiting for Mike's review."),
+                "quick": S.boolean("Only the checks that need no rendering: gaps and pictures zoomed past their own pixels."),
+                "width": S.integer("How wide frames are rendered for the scan. Default 384.")
+            ],
+            readOnly: true, idempotent: true
+        ),
+        Tool(
             name: "frame", title: "Look at a frame",
             description: "Renders the timeline at a time and returns the picture. Default 1280 px wide; pass output to save a PNG instead.",
             operation: .frame,

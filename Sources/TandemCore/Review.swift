@@ -247,6 +247,93 @@ public struct ReviewLog: Codable, Equatable, Sendable {
     }
 }
 
+// MARK: - Where the changes are
+
+extension ReviewLog {
+    /// One thing an agent changed, where it is on the timeline now.
+    public struct Change: Equatable, Sendable {
+        public enum Subject: Equatable, Sendable {
+            case clip(String)
+            case transition(String)
+            /// Where it took something out of a track.
+            case removal(trackID: String)
+        }
+
+        public var subject: Subject
+        public var start: Time
+        public var end: Time
+        public var entry: ReviewEntry
+    }
+
+    /// The changes still waiting for review, where they are now, entry by
+    /// entry: each entry's clips, then its transitions, then its removals.
+    /// Clips and transitions that have gone since don't count.
+    public func changes(in project: Project) -> [Change] {
+        guard !isEmpty else { return [] }
+        var clips: [String: Clip] = [:]
+        var transitions: [String: Transition] = [:]
+        for track in project.allTracks {
+            for clip in track.clips { clips[clip.id] = clip }
+            for transition in track.transitions { transitions[transition.id] = transition }
+        }
+        var found: [Change] = []
+        for entry in entries {
+            for id in entry.clipIDs {
+                guard let clip = clips[id] else { continue }
+                found.append(Change(subject: .clip(id), start: clip.start, end: clip.end, entry: entry))
+            }
+            for id in entry.transitions {
+                guard let transition = transitions[id], let span = Self.span(of: transition, clips: clips) else { continue }
+                found.append(Change(subject: .transition(id), start: span.start, end: span.end, entry: entry))
+            }
+            for removal in entry.removals {
+                let time: Time
+                if let anchor = removal.anchorClipID.flatMap({ clips[$0] }) {
+                    time = (removal.anchorEdge == .end ? anchor.end : anchor.start) + removal.offset
+                } else {
+                    time = removal.time
+                }
+                found.append(Change(subject: .removal(trackID: removal.trackID), start: time, end: time, entry: entry))
+            }
+        }
+        return found
+    }
+
+    /// The stretches with changes in them, by start, merged where they're
+    /// closer than `mergeGap`: the ruler's violet band, and what
+    /// `tandem check --changed` looks at.
+    public func changedRegions(in project: Project, mergeGap: Time = Time(seconds: 2)) -> [TimeRange] {
+        let spans = changes(in: project).map { (start: $0.start, end: $0.end) }.sorted { ($0.start, $0.end) < ($1.start, $1.end) }
+        var regions: [TimeRange] = []
+        for span in spans {
+            if let last = regions.last, span.start <= last.end + mergeGap {
+                regions[regions.count - 1] = TimeRange(start: last.start, end: max(last.end, span.end))
+            } else {
+                regions.append(TimeRange(start: span.start, end: span.end))
+            }
+        }
+        return regions
+    }
+
+    /// The time a transition plays over: centred on its cut, or at the
+    /// head or tail it fades.
+    static func span(of transition: Transition, clips: [String: Clip]) -> (start: Time, end: Time)? {
+        let from = transition.fromClipID.flatMap { clips[$0] }
+        let to = transition.toClipID.flatMap { clips[$0] }
+        switch (from, to) {
+        case let (from?, _?):
+            let start = from.end - Time(flicks: transition.duration.flicks / 2)
+            return (start, start + transition.duration)
+        case let (from?, nil):
+            return (from.end - transition.duration, from.end)
+        case let (nil, to?):
+            return (to.start, to.start + transition.duration)
+        case (nil, nil):
+            return nil
+        }
+    }
+}
+
 // MARK: - Reading and writing
 
 extension ReviewLog {

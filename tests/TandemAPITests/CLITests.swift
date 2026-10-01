@@ -157,6 +157,16 @@ final class CLITests: XCTestCase {
         XCTAssertEqual(invalid.status, 1, "the media files don't exist")
         XCTAssertTrue(invalid.stdout.contains("source/t1-camera.mov is missing"), invalid.stdout)
 
+        // The take covers the timeline, so the checks that need no
+        // rendering find nothing.
+        let check = try tandem("check", "--quick", in: folder.url)
+        XCTAssertEqual(check.status, 0, check.stdout + check.stderr)
+        XCTAssertTrue(check.stdout.hasPrefix("Checked 00:00.000-"), check.stdout)
+        XCTAssertTrue(check.stdout.contains("(quick: no frames rendered)") && check.stdout.contains("no problems."), check.stdout)
+        let backwards = try tandem("check", "--from", "20", "--to", "10", in: folder.url)
+        XCTAssertEqual(backwards.status, 1)
+        XCTAssertTrue(backwards.stderr.contains("Nothing to check between"), backwards.stderr)
+
         let bad = try tandem("apply", "-", "--json", in: folder.url, stdin: #"{"trim": {"clipID": "x", "edge": "end", "to": 5, "rippel": true}}"#)
         XCTAssertEqual(bad.status, 1)
         let envelope = try ServiceJSON.decoder().decode(ErrorEnvelope.self, from: Data(bad.stdout.utf8))

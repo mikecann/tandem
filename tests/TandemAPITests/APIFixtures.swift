@@ -174,6 +174,23 @@ struct FakeRenderer: RenderBackend {
     static let png = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=")!
 
     var warnings: [String] = []
+    /// What a scan measures, frame by frame; nil makes plain grey frames
+    /// over every range.
+    var scanned: [FrameStats]?
+
+    func scan(context: RenderContext, ranges: [TimeRange], width: Int) async throws -> [FrameStats] {
+        if let scanned { return scanned }
+        let step = context.project.settings.frameRate.frameDuration
+        var frames: [FrameStats] = []
+        for range in ranges {
+            var time = range.start
+            while time < range.end {
+                frames.append(FrameStats(time: time, luma: 0.5, brightestTile: 0.5, flatGreen: 0, flatWhite: 0, thumbnail: [UInt8](repeating: 128, count: 4)))
+                time += step
+            }
+        }
+        return frames
+    }
 
     func frame(context: RenderContext, at time: Time, maxSize: CGSize?) async throws -> RenderedFrame {
         RenderedFrame(png: Self.png, warnings: warnings)

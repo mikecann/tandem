@@ -63,37 +63,18 @@ struct TimelineReview: Equatable {
 
     static func make(log: ReviewLog, project: Project) -> TimelineReview {
         guard !log.isEmpty else { return .empty }
-        var clips: [String: Clip] = [:]
-        var transitions: [String: Transition] = [:]
-        for track in project.allTracks {
-            for clip in track.clips { clips[clip.id] = clip }
-            for transition in track.transitions { transitions[transition.id] = transition }
-        }
         var review = TimelineReview()
         review.editCount = log.entries.count
         var spans: [Span] = []
-        for entry in log.entries {
+        for change in log.changes(in: project) {
+            let entry = change.entry
             let edit = Edit(revision: entry.revision, author: entry.author, label: entry.label, date: entry.date)
-            for id in entry.clipIDs {
-                guard let clip = clips[id] else { continue }
-                review.clipIDs.insert(id)
-                spans.append(Span(start: clip.start, end: clip.end, edit: edit))
+            switch change.subject {
+            case .clip(let id): review.clipIDs.insert(id)
+            case .transition(let id): review.transitionIDs.insert(id)
+            case .removal(let trackID): review.removals.append(Removal(trackID: trackID, time: change.start))
             }
-            for id in entry.transitions {
-                guard let transition = transitions[id], let span = span(of: transition, clips: clips) else { continue }
-                review.transitionIDs.insert(id)
-                spans.append(Span(start: span.start, end: span.end, edit: edit))
-            }
-            for removal in entry.removals {
-                let time: Time
-                if let anchor = removal.anchorClipID.flatMap({ clips[$0] }) {
-                    time = (removal.anchorEdge == .end ? anchor.end : anchor.start) + removal.offset
-                } else {
-                    time = removal.time
-                }
-                review.removals.append(Removal(trackID: removal.trackID, time: time))
-                spans.append(Span(start: time, end: time, edit: edit))
-            }
+            spans.append(Span(start: change.start, end: change.end, edit: edit))
         }
         review.spans = spans.sorted { ($0.start, $0.end, $0.edit.revision) < ($1.start, $1.end, $1.edit.revision) }
         for span in review.spans {
@@ -114,24 +95,6 @@ struct TimelineReview: Equatable {
             review.stops[index].edits.sort { ($0.date, $0.revision) < ($1.date, $1.revision) }
         }
         return review
-    }
-
-    /// The time a transition plays over: centred on its cut, or at the
-    /// head or tail it fades.
-    private static func span(of transition: Transition, clips: [String: Clip]) -> (start: Time, end: Time)? {
-        let from = transition.fromClipID.flatMap { clips[$0] }
-        let to = transition.toClipID.flatMap { clips[$0] }
-        switch (from, to) {
-        case let (from?, _?):
-            let start = from.end - Time(flicks: transition.duration.flicks / 2)
-            return (start, start + transition.duration)
-        case let (from?, nil):
-            return (from.end - transition.duration, from.end)
-        case let (nil, to?):
-            return (to.start, to.start + transition.duration)
-        case (nil, nil):
-            return nil
-        }
     }
 
     // MARK: - Stepping

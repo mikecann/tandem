@@ -194,6 +194,17 @@ extension TandemService {
         }
     }
 
+    /// The same for a check, whose frames are rendered too.
+    func withPresetFonts(_ render: @escaping @Sendable () async throws -> CheckResult) -> @Sendable () async throws -> CheckResult {
+        let install = presetFontsStep()
+        return {
+            let failures = await install()
+            var result = try await render()
+            result.warnings = failures + result.warnings
+            return result
+        }
+    }
+
     /// Worked out while the project is open, and run with the render,
     /// which for a CLI command is after the project is closed again.
     private func presetFontsStep() -> @Sendable () async -> [String] {

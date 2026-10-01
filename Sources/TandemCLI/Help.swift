@@ -32,6 +32,12 @@ enum Help {
         CommandHelp(name: "redo", usage: "tandem redo [--expect <revision>]", summary: "Redo the last undone edit.", options: ["expect"]),
         CommandHelp(name: "history", usage: "tandem history [--limit <n>]", summary: "What undo would undo, newest first, and recent changes.", options: ["limit"]),
         CommandHelp(name: "validate", usage: "tandem validate", summary: "Check the project for problems (exit code 1 if it has errors).", options: []),
+        CommandHelp(name: "check", usage: "tandem check [--changed | --from <time> --to <time>] [--quick] [--width <pixels>]", summary: "Look for what Mike would catch in review: black frames, flickers, green screens that didn't key, white blocks, gaps and soft zooms (exit code 1 if it finds any).", options: ["from", "to", "changed", "quick", "width"],
+                    details: """
+                    Renders every frame of the stretch small (384 wide, from proxies where they're ready) and measures it, so a minute of 4K takes seconds.
+                    --changed checks only what agents changed that's waiting for Mike's review, half a second either side: run it before handing back.
+                    --quick skips rendering: just the gaps and pictures zoomed past their own pixels.
+                    """),
         CommandHelp(name: "transcript", usage: "tandem transcript [<clip or media id>] [--from <time>] [--to <time>]", summary: "Word timings for a clip (timeline times), a file (file times) or the whole timeline.", options: ["from", "to"]),
         CommandHelp(name: "search", usage: "tandem search \"<phrase>\" [--limit <n>]", summary: "Find where a phrase is said, as timeline times and clip IDs.", options: ["limit"]),
         CommandHelp(name: "pauses", usage: "tandem pauses [--min 0.6] [--from <time>] [--to <time>]", summary: "Silences between words, in timeline time.", options: ["min", "from", "to"]),

@@ -49,6 +49,7 @@ tandem short [--apply]             lay out a 9:16 short from the same edit
 tandem cards [--insert] [--no-sounds] [--apply]   a section card at every section marker
 tandem apply <batch.json | - | '<json>'>   [--dry-run] [--expect N] [--label L] [--key K]
 tandem undo [--expect N]    tandem redo    tandem history    tandem validate
+tandem check [--changed | --from T --to T] [--quick]   what Mike would catch: black, flickers, keys
 tandem frame <time> [-o out.png]   tandem clip <start> <end> [-o out.mp4]
 tandem export [--preset <name>] [-o out.mp4] [--from T] [--to T] [--format <id>]
 tandem loudness    tandem effects    tandem schema    tandem watch [--once]
@@ -394,6 +395,26 @@ clips in the range).
   project, like `Warning: No cutout matte for ...-camera.mov yet, showing the
   full frame.` while the matte is still being made; only lines about what
   plays in the part rendered are shown.
+- `check` looks for what Mike would otherwise catch in review, so his
+  rounds go on the edit itself. It renders every frame of the stretch small
+  (384 wide, from proxies where they're ready: a minute of 4K in a few
+  seconds) and reports, with the clips on screen there:
+  - black frames, and gaps with nothing on any video track;
+  - flickers: one to three frames unlike the frames either side, like a
+    stale still or a frame of the wrong shot;
+  - green screen that didn't key, and flat white blocks that come and go
+    (a key or matte that failed);
+  - as notes that don't fail it, pictures zoomed past three times their own
+    pixels (1080p past 150% on a 4K frame), which look soft.
+
+  Run `tandem check --changed` before handing an edit back: it checks only
+  what agents changed that's waiting for Mike's review, half a second either
+  side. It exits 1 when it finds a problem. `--quick` skips rendering.
+
+  ```
+  Checked 05:40.000-06:11.000 (930 frames) in 4.1 s: 1 problem:
+    05:56.900-05:57.167  White block: a flat white patch over 13% of the frame comes and goes in 8 frames (a key or matte that failed?).  On: clip_w2fkvxg9 m-outro1
+  ```
 - Titles in a font this Mac doesn't have are drawn in SF Pro, and never
   quietly: `frame`, `clip`, `export`, `captions`, `status` and `validate`
   all say so with the fix, like `Tilt Warp, the caption preset's font, isn't
@@ -1661,6 +1682,7 @@ still when it's beside it. It's one undo step.
 | undo, redo | `tandem undo`, `tandem redo` | `POST /v1/undo`, `/v1/redo` | `undo`, `redo` |
 | history | `tandem history` | `POST /v1/history` | `history` |
 | validate | `tandem validate` | `POST /v1/validate` | `validate` |
+| check | `tandem check [--changed]` | `POST /v1/check {"from", "to", "changed", "quick"}` | `check` |
 | frame | `tandem frame <time> -o out.png` | `POST /v1/frame {"time", "output"}` | `frame` (image) |
 | screenshot | | `POST /v1/screenshot` | `screenshot` (app only) |
 | clip | `tandem clip <start> <end> -o out.mp4` | `POST /v1/clip {"start", "end"}` | `clip` |

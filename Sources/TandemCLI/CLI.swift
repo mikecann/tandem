@@ -143,6 +143,15 @@ struct CLI {
             let result = try await client().call(ValidateRequest())
             _ = show(result, json: json)
             return result.ok ? 0 : 1
+        case "check":
+            try args.expectPositionals(atMost: 0, command: name)
+            let request = CheckRequest(
+                from: try time(args, "from"), to: try time(args, "to"),
+                changed: args.has("changed") ? true : nil, quick: args.has("quick") ? true : nil, width: try args.integer("width")
+            )
+            let result = try await client().call(request)
+            _ = show(result, json: json)
+            return result.ok ? 0 : 1
         case "transcript":
             try args.expectPositionals(atMost: 1, command: name)
             let request = TranscriptRequest(id: args.positionals.first, from: try time(args, "from"), to: try time(args, "to"))

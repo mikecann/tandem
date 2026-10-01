@@ -134,7 +134,7 @@ public final class TandemHTTPClient: @unchecked Sendable {
         switch operation {
         case .export, .clip, .archive: return 24 * 3600
         case .watch: return ((call as? WatchRequest)?.timeout ?? 30) + 30
-        case .media, .relink: return 1800
+        case .media, .relink, .check: return 1800
         default: return 600
         }
     }
