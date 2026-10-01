@@ -5,7 +5,7 @@ import SwiftUI
 /// resized, and opens at the size it was left at.
 @MainActor
 final class WelcomeWindowController: NSWindowController, NSWindowDelegate {
-    private let state = WelcomeState()
+    let state = WelcomeState()
 
     init(documents: ProjectDocuments) {
         let visible = NSScreen.main?.visibleFrame.size ?? CGSize(width: 1_440, height: 900)
@@ -129,6 +129,7 @@ struct WelcomeView: View {
                         LazyVStack(alignment: .leading, spacing: 2) {
                             ForEach(state.recent, id: \.self) { url in
                                 RecentRow(url: url, iconWidth: iconWidth) { state.documents?.open(url) }
+                                    .rightClickMenu { RecentMenu.items(for: url, documents: state.documents) }
                             }
                         }
                     }
@@ -164,6 +165,22 @@ private struct WelcomeButton: View {
             .background(RoundedRectangle(cornerRadius: 8).fill(primary ? Theme.amber.color : Theme.field.color))
         }
         .buttonStyle(.plain)
+    }
+}
+
+/// Right-clicking a project on the list.
+@MainActor
+enum RecentMenu {
+    static func items(for url: URL, documents: ProjectDocuments?) -> [MenuAction] {
+        [
+            MenuAction(title: "Open") { documents?.open(url) },
+            // After the menu has gone, so the folder panel isn't run from
+            // inside it.
+            MenuAction(title: "Duplicate…") { DispatchQueue.main.async { documents?.duplicateProject(url) } },
+            .separator,
+            MenuAction(title: "Show in Finder") { documents?.showInFinder(url) },
+            MenuAction(title: "Remove from Recent") { documents?.removeFromRecent(url) }
+        ]
     }
 }
 

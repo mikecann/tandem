@@ -160,6 +160,9 @@ enum InputSimulator {
     /// True while a gesture is being replayed, for views that would hand
     /// a real mouse to the window server (window drags).
     static private(set) var isReplaying = false
+    /// True while a `menu` or `choose` gesture finds its view, for views
+    /// that take only the clicks that open menus (`RightClickMenuView`).
+    static private(set) var isOpeningMenu = false
 
     /// Replays `gesture`, then calls `done`: straight away, or after the
     /// last step of a paced drag.
@@ -186,7 +189,13 @@ enum InputSimulator {
             return
         }
         let start = windowPoint(gesture.at)
-        guard let target = frame.hitTest(frame.convert(start, from: nil)) else { return }
+        switch gesture.kind {
+        case .menu, .choose: isOpeningMenu = true
+        default: break
+        }
+        let hit = frame.hitTest(frame.convert(start, from: nil))
+        isOpeningMenu = false
+        guard let target = hit else { return }
         func mouse(_ type: NSEvent.EventType, _ point: NSPoint, clicks: Int = 1) -> NSEvent? {
             NSEvent.mouseEvent(
                 with: type, location: point, modifierFlags: gesture.modifiers, timestamp: ProcessInfo.processInfo.systemUptime,

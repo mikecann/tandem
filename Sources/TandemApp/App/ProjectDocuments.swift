@@ -209,6 +209,44 @@ final class ProjectDocuments: NSObject, NSMenuDelegate {
         return controller
     }
 
+    // MARK: - The project list's menu
+
+    /// Duplicate on the project list: pick a folder, copy the project there
+    /// (`ProjectDuplicator`: it plays the same media from where it is) and
+    /// open the copy.
+    func duplicateProject(_ url: URL) {
+        let name = url.deletingPathExtension().lastPathComponent
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        panel.prompt = "Duplicate here"
+        panel.message = "Choose a folder for the copy of \(name). It plays the same media files, from where they are now."
+        // The folder the video's folder is in, so its neighbours show.
+        panel.directoryURL = url.deletingLastPathComponent().deletingLastPathComponent()
+        guard panel.runModal() == .OK, let folder = panel.url else { return }
+        Task { @MainActor in
+            do {
+                let copy = try await ProjectArchiver.onBackgroundThread { try ProjectDuplicator.duplicate(url, into: folder) }
+                self.noteRecent(copy)
+                self.open(copy)
+            } catch {
+                self.alert("Couldn't duplicate \(name)", EditorModel.describe(error))
+            }
+        }
+    }
+
+    func showInFinder(_ url: URL) {
+        NSWorkspace.shared.activateFileViewerSelecting([url])
+    }
+
+    /// Takes a project off the list. The project itself stays where it is.
+    func removeFromRecent(_ url: URL) {
+        recent.remove(url.path)
+        recent.save()
+        welcome?.refresh()
+    }
+
     // MARK: - Recent projects
 
     private func noteRecent(_ url: URL) {
