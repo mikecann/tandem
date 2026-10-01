@@ -34,7 +34,7 @@ enum Help {
         CommandHelp(name: "validate", usage: "tandem validate", summary: "Check the project for problems (exit code 1 if it has errors).", options: []),
         CommandHelp(name: "check", usage: "tandem check [--changed | --from <time> --to <time>] [--quick] [--width <pixels>]", summary: "Look for what Mike would catch in review: black frames, flickers, green screens that didn't key, white blocks, gaps and soft zooms (exit code 1 if it finds any).", options: ["from", "to", "changed", "quick", "width"],
                     details: """
-                    Renders every frame of the stretch small (384 wide, from proxies where they're ready) and measures it, so a minute of 4K takes seconds.
+                    Renders every frame of the stretch small (384 wide, from proxies where they're ready) and measures it: about a thousand frames a second.
                     --changed checks only what agents changed that's waiting for Mike's review, half a second either side: run it before handing back.
                     --quick skips rendering: just the gaps and pictures zoomed past their own pixels.
                     """),

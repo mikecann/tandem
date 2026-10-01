@@ -397,8 +397,9 @@ clips in the range).
   plays in the part rendered are shown.
 - `check` looks for what Mike would otherwise catch in review, so his
   rounds go on the edit itself. It renders every frame of the stretch small
-  (384 wide, from proxies where they're ready: a minute of 4K in a few
-  seconds) and reports, with the clips on screen there:
+  (384 wide, from proxies where they're ready: about a thousand frames a
+  second, so the whole six-minute ESLint video in 12 s) and reports, with
+  the clips on screen there:
   - black frames, and gaps with nothing on any video track;
   - flickers: one to three frames unlike the frames either side, like a
     stale still or a frame of the wrong shot;
@@ -412,7 +413,7 @@ clips in the range).
   side. It exits 1 when it finds a problem. `--quick` skips rendering.
 
   ```
-  Checked 05:40.000-06:11.000 (930 frames) in 4.1 s: 1 problem:
+  Checked 05:40.000-06:11.000 (930 frames) in 0.9 s: 1 problem:
     05:56.900-05:57.167  White block: a flat white patch over 13% of the frame comes and goes in 8 frames (a key or matte that failed?).  On: clip_w2fkvxg9 m-outro1
   ```
 - Titles in a font this Mac doesn't have are drawn in SF Pro, and never
