@@ -26,6 +26,15 @@ enum TimelineHit: Equatable {
         return nil
     }
 
+    /// Nothing there to pick: an empty stretch of a track, the transcript
+    /// lane or the space below the tracks.
+    var isEmptySpace: Bool {
+        switch self {
+        case .emptyTrack, .transcript, .nothing: return true
+        case .clip, .transition, .transitionEdge: return false
+        }
+    }
+
     var trackID: String? {
         switch self {
         case .clip(_, let track, _), .transition(_, let track), .transitionEdge(_, let track, _), .emptyTrack(let track, _): return track

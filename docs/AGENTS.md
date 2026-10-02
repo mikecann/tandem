@@ -1102,9 +1102,10 @@ tandem apply '{"label": "Cut the umm before \"so\" (your comment at 08:40)", "co
 tandem comments resolve mk_7hd2p4xa          # one you did in an edit without removing it
 ```
 
-While he reviews, Mike leaves comments at the playhead (Add comment,
-Shift-C in the app): notes like "cut the umm here" or "this B-roll is
-wrong", shown as blue notes on the ruler. They're markers of kind
+While he reviews, Mike leaves comments at moments on the timeline (Add
+comment, Shift-C, or a double-click on an empty stretch in the app): notes
+like "cut the umm here" or "this B-roll is wrong", shown as blue notes on
+the ruler. They're markers of kind
 `comment`. When he asks you to look at them, do each one, label the edit
 with what you did (he reads the labels beside your highlighted changes),
 and remove the comment in the same batch, so one undo puts both back.

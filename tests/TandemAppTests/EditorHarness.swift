@@ -137,6 +137,17 @@ final class EditorHarness {
         return CGPoint(x: inWindow.x, y: frameHeight - inWindow.y)
     }
 
+    /// A point on the track named `track` at `seconds`, in window points
+    /// from the top left: on an empty stretch, nothing's there.
+    func point(onTrack track: String, at seconds: Double) -> CGPoint {
+        guard let lanes = view(TimelineLanesView.self), let container = view(TimelineContainerView.self),
+              let id = project.track(named: track)?.id,
+              let lane = container.layoutCache.lanes.first(where: { $0.trackID == id }) else { return .zero }
+        let inView = CGPoint(x: CGFloat(model.timeline.scale.x(t(seconds))), y: lane.y + lane.height / 2 - model.timeline.verticalOffset)
+        let inWindow = lanes.convert(inView, to: nil)
+        return CGPoint(x: inWindow.x, y: frameHeight - inWindow.y)
+    }
+
     /// A point on the ruler just right of `seconds`, where a marker or
     /// comment there is drawn, in window points from the top left.
     func rulerPoint(at seconds: Double) -> CGPoint {

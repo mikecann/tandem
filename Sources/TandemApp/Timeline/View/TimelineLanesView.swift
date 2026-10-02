@@ -38,6 +38,9 @@ final class TimelineLanesView: TimelineChildView {
     private var pressSeconds: Double = 0
     private var pressHit: TimelineHit = .nothing
     private var pressModifiers = SelectionRules.Modifiers()
+    /// Where a double-click on empty space asked for a comment, until the
+    /// button comes up and the box opens.
+    private var commentAt: Time?
     /// A selected clip Cmd-pressed: deselected on mouse up unless dragged.
     private var pendingCommandToggle: String?
     /// A selection box being dragged. It and the clips it picks up are
@@ -636,6 +639,7 @@ final class TimelineLanesView: TimelineChildView {
         pressModifiers = mods
         session = nil
         keyframeDrag = nil
+        commentAt = nil
 
         if event.clickCount == 1, model.tool != .blade, let found = tester.keyframe(at: point), let clip = model.project.clip(found.clipID),
            let lane = container?.layoutCache.lane(forTrack: found.trackID) {
@@ -661,6 +665,14 @@ final class TimelineLanesView: TimelineChildView {
             } else if model.inspectorTab == .activity || model.inspectorTab == .info {
                 model.inspectorTab = .video
             }
+            return
+        }
+
+        // A double-click on empty space: a comment there for the next round
+        // of agent edits. The first click has moved the playhead there; the
+        // box opens as the button comes up.
+        if event.clickCount == 2, !(mods.shift || mods.command), hit.isEmptySpace {
+            commentAt = model.timeline.scale.time(atX: point.x, rate: model.frameRate)
             return
         }
 
@@ -845,6 +857,12 @@ final class TimelineLanesView: TimelineChildView {
         autoscrollTimer?.invalidate()
         autoscrollTimer = nil
         guard let model, let container else { return }
+        if let time = commentAt {
+            commentAt = nil
+            model.playback.seek(to: time)
+            model.beginComment(at: time)
+            return
+        }
         if let drag = keyframeDrag {
             keyframeDrag = nil
             if let batch = drag.batch, model.apply(batch) != nil {

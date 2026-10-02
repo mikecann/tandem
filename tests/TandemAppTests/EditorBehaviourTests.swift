@@ -134,6 +134,32 @@ final class EditorBehaviourTests: XCTestCase {
         XCTAssertEqual(editor.project.comments.map(\.name), ["Louder here"], "Escape drops it")
     }
 
+    func testADoubleClickOnAnEmptyStretchOpensACommentThere() throws {
+        XCTAssertTrue(editor.clips("Graphics").isEmpty, "the fixture's Graphics track is empty")
+        let ruler = try XCTUnwrap(editor.view(TimelineRulerView.self))
+        editor.click(editor.point(onTrack: "Graphics", at: 14), count: 2)
+        let box = try XCTUnwrap(ruler.commentBox, "a double-click on an empty stretch opens the box")
+        XCTAssertEqual(box.request.time.seconds, 14, accuracy: 0.05)
+        XCTAssertEqual(editor.model.playback.time.seconds, 14, accuracy: 0.05, "the playhead goes there too")
+        XCTAssertEqual(box.popover?.isShown, true)
+        box.field.stringValue = "Something on screen here"
+        box.save()
+        XCTAssertEqual(editor.project.comments.map(\.name), ["Something on screen here"])
+
+        // On the ruler, away from the markers, the same.
+        editor.click(editor.rulerPoint(at: 40), count: 2)
+        let second = try XCTUnwrap(ruler.commentBox)
+        XCTAssertFalse(second === box)
+        XCTAssertEqual(second.request.time.seconds, 40, accuracy: 0.5, "rulerPoint aims a little right of the time")
+        XCTAssertNil(second.request.comment)
+        second.cancel()
+
+        // A double-click on a clip still picks it, with no box.
+        editor.click(editor.point(of: editor.clip("Camera").id, at: 30), count: 2)
+        XCTAssertTrue(ruler.commentBox === second, "no new box")
+        XCTAssertTrue(editor.model.selection.contains(editor.clip("Camera").id))
+    }
+
     func testACommentOnTheRulerCanBeChangedAndDeleted() throws {
         editor.model.apply(try XCTUnwrap(CommentEdits.add("B-roll here", at: t(25), id: "mk_note")))
         editor.settle()

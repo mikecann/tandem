@@ -14,6 +14,9 @@ final class TimelineRulerView: TimelineChildView {
     private var trackingArea: NSTrackingArea?
     /// The comment box while it's open.
     private(set) var commentBox: CommentBox?
+    /// Where a double-click away from the markers asked for a comment,
+    /// until the button comes up and the box opens.
+    private var commentAt: Time?
 
     /// A comment's words run this far at most; the tooltip has the rest.
     static let commentLabelWidth: CGFloat = 260
@@ -204,6 +207,7 @@ final class TimelineRulerView: TimelineChildView {
     override func mouseDown(with event: NSEvent) {
         // Clicking here takes the keys back from any text field.
         window?.makeFirstResponder(self)
+        commentAt = nil
         guard let model else { return }
         let point = convert(event.locationInWindow, from: nil)
         if let marker = marker(at: point) {
@@ -221,6 +225,12 @@ final class TimelineRulerView: TimelineChildView {
             return
         }
         model.playback.pause()
+        // A double-click away from the markers: a comment there, as on an
+        // empty stretch of the tracks.
+        if event.clickCount == 2 {
+            commentAt = model.timeline.scale.time(atX: point.x, rate: model.frameRate)
+            return
+        }
         scrub(to: point, event: event)
     }
 
@@ -242,6 +252,12 @@ final class TimelineRulerView: TimelineChildView {
     override func mouseUp(with event: NSEvent) {
         defer { updateCursor(event) }
         guard let model else { return }
+        if let time = commentAt {
+            commentAt = nil
+            model.playback.seek(to: time)
+            model.beginComment(at: time)
+            return
+        }
         if let drag = draggingMarker, let time = markerPreview,
            let marker = model.project.markers.first(where: { $0.id == drag.id }), marker.time != time {
             model.apply(EditBatch(label: marker.kind == .comment ? "Move comment" : "Move marker", commands: [.updateMarker(markerID: drag.id, patch: .object(["time": .number(time.seconds)]))]))
