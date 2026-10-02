@@ -205,8 +205,22 @@ enum DragPlanner {
                 snapped = nil
             }
             var destination: String?
-            if let anchorTrack = project.track(containingClip: anchorID),
-               Set(clips.compactMap { project.track(containingClip: $0.id)?.id }).count == 1,
+            let anchorTrack = project.track(containingClip: anchorID)
+            let oneTrack = Set(clips.compactMap { project.track(containingClip: $0.id)?.id }).count == 1
+            if let anchorTrack, oneTrack, let kind = newTrackKind(for: anchorTrack.kind, pointerY: pointer.y, layout: context.layout) {
+                // Past the outermost track of its kind (above the top video
+                // track, below the bottom audio one): a new track there,
+                // made by the same edit, as Filmora does. The preview shows
+                // it while the drag is out there.
+                let trackID = IDs.make("trk")
+                let add = TrackEdits.add(kind, in: project, id: trackID)
+                guard let move = TimelineEdits.move(project, clipIDs: ids, delta: delta, toTrackID: trackID, insert: pointer.insert) else {
+                    return DragPlan(batch: nil, snappedTo: snapped, delta: delta)
+                }
+                let label = "\(move.label) to a new \(kind == .video ? "video" : "audio") track"
+                return DragPlan(batch: EditBatch(label: label, commands: add.commands + move.commands), snappedTo: snapped, delta: delta, destinationTrackID: trackID)
+            }
+            if let anchorTrack, oneTrack,
                let lane = context.layout.nearestTrackLane(toY: pointer.y, kind: anchorTrack.kind),
                let trackID = lane.trackID, trackID != anchorTrack.id,
                project.track(trackID)?.locked == false {
@@ -287,6 +301,18 @@ enum DragPlanner {
             let clamped = min(max(delta, limits.lowerBound), limits.upperBound)
             if clamped != delta { snapped = nil }
             return DragPlan(batch: TimelineEdits.slide(clipID: id, delta: clamped), snappedTo: snapped, delta: clamped)
+        }
+    }
+
+    /// The kind of track a move dragged to `pointerY` makes, if it's past
+    /// the outermost track of the clip's kind: above the top video track
+    /// for picture, below the bottom audio track for sound. The same
+    /// places a library drop makes a new track (`DropTarget`).
+    static func newTrackKind(for kind: TrackKind, pointerY: CGFloat, layout: TimelineLayout) -> TrackKind? {
+        switch (DropTarget.at(y: pointerY, in: layout), kind) {
+        case (.newVideoTrackOnTop, .video): return .video
+        case (.newAudioTrackAtBottom, .audio): return .audio
+        default: return nil
         }
     }
 

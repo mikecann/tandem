@@ -73,6 +73,28 @@ final class EditorBehaviourTests: XCTestCase {
         XCTAssertEqual(editor.clip("B-roll").start.seconds, 23, accuracy: 0.1)
     }
 
+    func testDraggingAClipAboveTheTopTrackPutsItOnANewOne() throws {
+        let tracks = editor.project.videoTracks.count
+        let broll = editor.clip("B-roll")
+        let from = editor.point(of: broll.id)
+        // Up past the top track, onto the ruler.
+        editor.drag(from, to: CGPoint(x: from.x, y: from.y - 260))
+        XCTAssertEqual(editor.project.videoTracks.count, tracks + 1)
+        XCTAssertEqual(editor.project.videoTracks.last?.clips.map(\.id), [broll.id], "on a new top track")
+        editor.press("cmd+z")
+        XCTAssertEqual(editor.project.videoTracks.count, tracks, "one undo takes the track away too")
+        XCTAssertEqual(editor.clip("B-roll").id, broll.id)
+    }
+
+    func testDraggingSoundBelowTheBottomTrackPutsItOnANewOne() throws {
+        let tracks = editor.project.audioTracks.count
+        let music = editor.clip("Music")
+        let from = editor.point(of: music.id, at: 10)
+        editor.drag(from, to: CGPoint(x: from.x, y: from.y + 120))
+        XCTAssertEqual(editor.project.audioTracks.count, tracks + 1)
+        XCTAssertEqual(editor.project.audioTracks.last?.clips.map(\.id), [music.id], "on a new bottom track")
+    }
+
     // MARK: - Transitions
 
     func testATransitionDroppedOnACutGoesBetweenTheTwoClips() throws {

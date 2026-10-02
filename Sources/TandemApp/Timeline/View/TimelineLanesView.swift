@@ -780,6 +780,8 @@ final class TimelineLanesView: TimelineChildView {
                 let sign = delta < .zero ? "−" : "+"
                 var text = sign + Timecode.string(Time(flicks: abs(delta.flicks)), rate: model.frameRate)
                 if case .move = session.kind, flags.contains(.command) { text += "  insert" }
+                // Past the outermost track, as library drops say.
+                if case .move = session.kind, let id = session.plan.destinationTrackID, model.project.track(id) == nil { text = "New track · " + text }
                 if case .transitionLength(let id, _) = session.kind, let length = session.plan.length {
                     text = TransitionTips.dragLabel(id, length: length, in: model.project)
                 }

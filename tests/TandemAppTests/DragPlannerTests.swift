@@ -108,6 +108,45 @@ final class DragPlannerTests: XCTestCase {
         XCTAssertEqual(plan.destinationTrackID, f.track("Screen").id, "the nearest video track")
     }
 
+    func testDraggingAboveTheTopTrackMakesANewOne() throws {
+        let f = try AppFixture()
+        let broll = f.clip("B-roll")
+        let layout = TimelineLayout.make(project: f.project, showTranscript: true)
+        let top = try XCTUnwrap(layout.lanes.first { $0.kind == .video && $0.trackID != nil })
+        let videoTracks = f.project.videoTracks.count
+        let plan = DragPlanner.plan(.move(clipIDs: [broll.id], anchorClipID: broll.id), pointer: DragPointer(deltaX: 0, y: top.y - 4), context: context(f))
+        XCTAssertEqual(plan.batch?.label, "Move clip to a new video track")
+        try f.apply(plan.batch)
+        XCTAssertEqual(f.project.videoTracks.count, videoTracks + 1)
+        let made = try XCTUnwrap(f.project.videoTracks.last, "on top")
+        XCTAssertEqual(made.id, plan.destinationTrackID)
+        XCTAssertEqual(made.clips.map(\.id), [broll.id])
+        XCTAssertEqual(made.rippleMode, .follow, "like a track added from the headers")
+        XCTAssertTrue(f.clips("B-roll").isEmpty)
+    }
+
+    func testDraggingSoundBelowTheBottomTrackMakesANewOne() throws {
+        let f = try AppFixture()
+        let music = f.clip("Music")
+        let layout = TimelineLayout.make(project: f.project, showTranscript: true)
+        let bottom = try XCTUnwrap(layout.lanes.last { $0.trackID != nil })
+        let plan = DragPlanner.plan(.move(clipIDs: [music.id], anchorClipID: music.id), pointer: DragPointer(deltaX: 0, y: bottom.maxY + 10), context: context(f))
+        try f.apply(plan.batch)
+        let made = try XCTUnwrap(f.project.audioTracks.last, "at the bottom")
+        XCTAssertEqual(made.clips.map(\.id), [music.id])
+        XCTAssertTrue(f.clips("Music").isEmpty)
+    }
+
+    func testPictureDraggedBelowEverythingStaysOnAVideoTrack() throws {
+        let f = try AppFixture()
+        let broll = f.clip("B-roll")
+        let layout = TimelineLayout.make(project: f.project, showTranscript: true)
+        let bottom = try XCTUnwrap(layout.lanes.last { $0.trackID != nil })
+        let plan = DragPlanner.plan(.move(clipIDs: [broll.id], anchorClipID: broll.id), pointer: DragPointer(deltaX: 0, y: bottom.maxY + 10), context: context(f))
+        XCTAssertEqual(plan.destinationTrackID, f.track("Screen").id, "no video track goes under the sound")
+        XCTAssertEqual(f.project.videoTracks.count, try AppFixture().project.videoTracks.count)
+    }
+
     func testCommandDragInserts() throws {
         let f = try AppFixture()
         let broll = f.clip("B-roll")
