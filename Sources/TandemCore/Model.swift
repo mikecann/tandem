@@ -900,6 +900,16 @@ public struct GraphicContent: Codable, Equatable, Sendable {
 
 public enum MarkerKind: String, Codable, Sendable {
     case marker, section, chapter, todo
+    /// A note Mike left at a moment for the next round of agent edits. The
+    /// agent that does what it asks removes it.
+    case comment
+
+    /// A kind from a newer Tandem reads as a plain marker rather than
+    /// stopping the project opening.
+    public init(from decoder: Decoder) throws {
+        let raw = try decoder.singleValueContainer().decode(String.self)
+        self = MarkerKind(rawValue: raw) ?? .marker
+    }
 }
 
 public struct Marker: Codable, Equatable, Identifiable, Sendable {

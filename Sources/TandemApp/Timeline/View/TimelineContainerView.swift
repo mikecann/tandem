@@ -52,6 +52,9 @@ final class TimelineContainerView: NSView {
         reviewOverlay.container = self
         addSubview(reviewOverlay)
         addSubview(playheadView)
+        model.timeline.showCommentBox = { [weak self] request in
+            self?.ruler.showCommentBox(request)
+        }
         model.timeline.playheadX = { [weak self] in
             guard let self else { return nil }
             return self.model.timeline.scale.x(self.model.playback.time)

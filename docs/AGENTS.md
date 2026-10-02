@@ -1051,7 +1051,8 @@ keyframes stay; locked tracks are left alone with a warning.
 
 #### addMarker
 
-Adds a marker. `kind` is `marker`, `section`, `chapter` or `todo`; a
+Adds a marker. `kind` is `marker`, `section`, `chapter`, `todo` or
+`comment` (a note Mike left for the next round; see `tandem comments`); a
 `duration` makes it a range.
 
 ```json
@@ -1077,6 +1078,26 @@ Removes a marker.
 ## Recipes
 
 Each recipe shows the CLI; the MCP tools take the same arguments.
+
+### Do Mike's comments
+
+```bash
+tandem comments                              # what he asked, where, with what's said and playing there
+tandem apply '{"label": "Cut the umm before \"so\" (your comment at 08:40)", "commands": [
+  {"rippleDeleteRange": {"start": 520.1, "end": 520.7}},
+  {"removeMarker": {"markerID": "mk_k3f9x2mq"}}]}'
+tandem comments resolve mk_7hd2p4xa          # one you did in an edit without removing it
+```
+
+While he reviews, Mike leaves comments at the playhead (Add comment,
+Shift-C in the app): notes like "cut the umm here" or "this B-roll is
+wrong", shown as blue notes on the ruler. They're markers of kind
+`comment`. When he asks you to look at them, do each one, label the edit
+with what you did (he reads the labels beside your highlighted changes),
+and remove the comment in the same batch, so one undo puts both back.
+Comments move with ripple edits like any marker, so list them again after
+one rather than reusing the times you read first. Leave a comment you
+couldn't do, or weren't sure about, and say why when you hand back.
 
 ### Tighten pauses
 

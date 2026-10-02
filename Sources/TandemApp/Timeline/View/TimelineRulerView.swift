@@ -2,15 +2,21 @@ import AppKit
 import QuartzCore
 import TandemCore
 
-/// Time labels, ticks, markers, the in and out range and the band over
-/// agent changes waiting for review. Click or drag to move the playhead;
-/// drag a marker to move it; double-click one to rename.
+/// Time labels, ticks, markers, Mike's comments, the in and out range and
+/// the band over agent changes waiting for review. Click or drag to move
+/// the playhead; drag a marker or comment to move it; double-click one to
+/// rename it or change what it says.
 @MainActor
 final class TimelineRulerView: TimelineChildView {
     private var model: EditorModel? { container?.model }
     private var draggingMarker: (id: String, offset: Double)?
     private var markerPreview: Time?
     private var trackingArea: NSTrackingArea?
+    /// The comment box while it's open.
+    private(set) var commentBox: CommentBox?
+
+    /// A comment's words run this far at most; the tooltip has the rest.
+    static let commentLabelWidth: CGFloat = 260
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
@@ -33,7 +39,14 @@ final class TimelineRulerView: TimelineChildView {
 
     private func updateCursor(_ event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
-        (marker(at: point) != nil ? CursorKind.grab : .arrow).set()
+        let hovered = marker(at: point)
+        (hovered != nil ? CursorKind.grab : .arrow).set()
+        if let hovered, hovered.kind == .comment {
+            // The whole comment, which the ruler may have cut short.
+            let tip = "\(hovered.name)\n\nDouble-click to change it. Right-click to delete it."
+            if toolTip != tip { toolTip = tip }
+            return
+        }
         updateReviewToolTip(at: point)
     }
 
@@ -90,7 +103,7 @@ final class TimelineRulerView: TimelineChildView {
         for (index, (marker, time)) in placed.enumerated() {
             let x = scale.x(time)
             guard x > -300, x < bounds.width + 10 else { continue }
-            var width = (marker.name as NSString).size(withAttributes: [.font: markerFont]).width + 16
+            var width = Self.labelWidth(of: marker, font: markerFont) + 16
             // Labels stop short of the next marker rather than overlapping it.
             if index + 1 < placed.count {
                 width = min(width, scale.x(placed[index + 1].1) - x - 4)
@@ -126,25 +139,37 @@ final class TimelineRulerView: TimelineChildView {
         context.strokePath()
 
         for (rect, marker, _) in markerDrawings {
-            let colour: Swatch = marker.kind == .todo ? Theme.red : Theme.amber
+            let isComment = marker.kind == .comment
+            let colour: Swatch = isComment ? Theme.comment : marker.kind == .todo ? Theme.red : Theme.amber
             let centre = CGPoint(x: rect.minX + 4, y: 11)
-            let diamond = CGMutablePath()
-            diamond.move(to: CGPoint(x: centre.x, y: centre.y - 4))
-            diamond.addLine(to: CGPoint(x: centre.x + 4, y: centre.y))
-            diamond.addLine(to: CGPoint(x: centre.x, y: centre.y + 4))
-            diamond.addLine(to: CGPoint(x: centre.x - 4, y: centre.y))
-            diamond.closeSubpath()
-            context.addPath(diamond)
+            if isComment {
+                // A speech bubble, its tail on the comment's time.
+                let bubble = CGMutablePath()
+                bubble.addRoundedRect(in: CGRect(x: centre.x - 1, y: centre.y - 5, width: 10, height: 7.5), cornerWidth: 2, cornerHeight: 2)
+                bubble.move(to: CGPoint(x: centre.x - 1, y: centre.y))
+                bubble.addLine(to: CGPoint(x: centre.x - 1, y: centre.y + 5))
+                bubble.addLine(to: CGPoint(x: centre.x + 3.5, y: centre.y + 2))
+                bubble.closeSubpath()
+                context.addPath(bubble)
+            } else {
+                let diamond = CGMutablePath()
+                diamond.move(to: CGPoint(x: centre.x, y: centre.y - 4))
+                diamond.addLine(to: CGPoint(x: centre.x + 4, y: centre.y))
+                diamond.addLine(to: CGPoint(x: centre.x, y: centre.y + 4))
+                diamond.addLine(to: CGPoint(x: centre.x - 4, y: centre.y))
+                diamond.closeSubpath()
+                context.addPath(diamond)
+            }
             context.setFillColor(colour.cg)
             context.fillPath()
             let paragraph = NSMutableParagraphStyle()
             paragraph.lineBreakMode = .byTruncatingTail
-            let labelWidth = rect.width - 12
+            let labelWidth = rect.width - (isComment ? 17 : 12)
             if labelWidth > 8 {
-                (marker.name as NSString).draw(
-                    with: CGRect(x: rect.minX + 11, y: 4, width: labelWidth, height: 14),
+                (Self.label(of: marker) as NSString).draw(
+                    with: CGRect(x: rect.minX + (isComment ? 16 : 11), y: 4, width: labelWidth, height: 14),
                     options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine],
-                    attributes: [.font: markerFont, .foregroundColor: Theme.textStrong.ns, .paragraphStyle: paragraph]
+                    attributes: [.font: markerFont, .foregroundColor: (isComment ? Theme.comment : Theme.textStrong).ns, .paragraphStyle: paragraph]
                 )
             }
         }
@@ -155,12 +180,23 @@ final class TimelineRulerView: TimelineChildView {
 
     // MARK: - Mouse
 
+    /// What the ruler writes by a marker: its name, or a comment's words
+    /// on one line.
+    static func label(of marker: Marker) -> String {
+        marker.kind == .comment ? CommentEdits.oneLine(marker.name) : marker.name
+    }
+
+    static func labelWidth(of marker: Marker, font: NSFont) -> CGFloat {
+        let width = (label(of: marker) as NSString).size(withAttributes: [.font: font]).width
+        return marker.kind == .comment ? min(width + 5, commentLabelWidth) : width
+    }
+
     private func marker(at point: CGPoint) -> Marker? {
         guard let model else { return nil }
         let font = Theme.Fonts.ui(10.5, .semibold)
         return model.project.markers.last { marker in
             let x = model.timeline.scale.x(marker.time)
-            let width = (marker.name as NSString).size(withAttributes: [.font: font]).width
+            let width = Self.labelWidth(of: marker, font: font)
             return CGRect(x: x - 6, y: 0, width: width + 18, height: 18).contains(point)
         }
     }
@@ -172,7 +208,11 @@ final class TimelineRulerView: TimelineChildView {
         let point = convert(event.locationInWindow, from: nil)
         if let marker = marker(at: point) {
             if event.clickCount == 2 {
-                rename(marker)
+                if marker.kind == .comment {
+                    model.editComment(marker)
+                } else {
+                    rename(marker)
+                }
                 return
             }
             draggingMarker = (marker.id, model.timeline.scale.seconds(atX: point.x) - marker.time.seconds)
@@ -204,7 +244,7 @@ final class TimelineRulerView: TimelineChildView {
         guard let model else { return }
         if let drag = draggingMarker, let time = markerPreview,
            let marker = model.project.markers.first(where: { $0.id == drag.id }), marker.time != time {
-            model.apply(EditBatch(label: "Move marker", commands: [.updateMarker(markerID: drag.id, patch: .object(["time": .number(time.seconds)]))]))
+            model.apply(EditBatch(label: marker.kind == .comment ? "Move comment" : "Move marker", commands: [.updateMarker(markerID: drag.id, patch: .object(["time": .number(time.seconds)]))]))
         }
         draggingMarker = nil
         markerPreview = nil
@@ -227,7 +267,11 @@ final class TimelineRulerView: TimelineChildView {
         let point = convert(event.locationInWindow, from: nil)
         let time = model.timeline.scale.time(atX: point.x, rate: model.frameRate)
         let menu = NSMenu()
-        if let marker = marker(at: point) {
+        if let marker = marker(at: point), marker.kind == .comment {
+            menu.add("Change comment…") { model.editComment(marker) }
+            menu.add("Delete comment") { model.deleteComment(marker) }
+            menu.addItem(.separator())
+        } else if let marker = marker(at: point) {
             menu.add("Rename marker…") { [weak self] in self?.rename(marker) }
             menu.addSubmenu("Kind") { sub in
                 for kind in [MarkerKind.marker, .section, .chapter, .todo] {
@@ -242,6 +286,7 @@ final class TimelineRulerView: TimelineChildView {
             menu.addItem(.separator())
         }
         menu.add("Add marker here") { model.apply(TimelineEdits.addMarker(model.project, at: time)) }
+        menu.add("Add comment here…") { model.beginComment(at: time) }
         menu.add("Mark in here") { model.inPoint = time }
         menu.add("Mark out here") { model.outPoint = time }
         menu.add("Clear in and out", enabled: model.inPoint != nil || model.outPoint != nil) {
@@ -249,6 +294,21 @@ final class TimelineRulerView: TimelineChildView {
             model.outPoint = nil
         }
         return menu
+    }
+
+    // MARK: - Comments
+
+    /// Opens the comment box under the ruler at the request's time (or the
+    /// nearest edge, when that's scrolled out of sight). One box at a time.
+    func showCommentBox(_ request: CommentBoxRequest) {
+        guard let model, window != nil else { return }
+        commentBox?.cancel()
+        let x = min(max(model.timeline.scale.x(request.time), 8), max(8, bounds.width - 8))
+        let box = CommentBox(request: request, rate: model.frameRate) { [weak model] text in
+            model?.saveComment(text, for: request)
+        }
+        commentBox = box
+        box.show(pointingAt: CGRect(x: x - 1, y: 0, width: 2, height: bounds.height), in: self)
     }
 
     private func rename(_ marker: Marker) {

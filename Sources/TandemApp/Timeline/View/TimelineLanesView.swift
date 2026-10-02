@@ -934,6 +934,7 @@ final class TimelineLanesView: TimelineChildView {
                 model.apply(EditBatch(label: "Close gap", commands: [.closeGap(trackID: trackID, at: at)]))
             }
             menu.add("Add marker here", icon: "bookmark") { model.apply(TimelineEdits.addMarker(model.project, at: at)) }
+            menu.add("Add comment here…", icon: "text.bubble") { model.beginComment(at: at) }
             menu.add("Move playhead here", icon: "arrow.down.to.line") { model.playback.seek(to: at) }
         case .transcript(let at):
             menu.add("Move playhead here", icon: "arrow.down.to.line") { model.playback.seek(to: at) }

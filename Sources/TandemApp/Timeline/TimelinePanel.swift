@@ -51,6 +51,22 @@ struct TimelineToolbar: View {
                     .foregroundStyle(Theme.amber.color)
             }
             Spacer(minLength: 8)
+            Button {
+                actions.perform(.addComment)
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "text.bubble")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(Theme.comment.color)
+                    Text("Comment")
+                        .font(.ui(11.5))
+                        .foregroundStyle(Theme.textMuted.color)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .tip(Shortcuts.help("Add comment: a note at the playhead for the next round of agent edits", .addComment))
+            .shortcutHint(.addComment)
             ReviewChip(model: model, actions: actions)
             Button {
                 showTighten = true

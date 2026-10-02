@@ -37,6 +37,7 @@ public enum ServiceOperation: String, CaseIterable, Codable, Sendable {
     case archive
     case relink
     case check
+    case comments
 
     /// The request type that carries this operation's parameters.
     public var callType: any ServiceCall.Type {
@@ -66,6 +67,7 @@ public enum ServiceOperation: String, CaseIterable, Codable, Sendable {
         case .archive: return ArchiveRequest.self
         case .relink: return RelinkRequest.self
         case .check: return CheckRequest.self
+        case .comments: return CommentsRequest.self
         }
     }
 

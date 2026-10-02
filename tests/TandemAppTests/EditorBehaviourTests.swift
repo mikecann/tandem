@@ -95,6 +95,66 @@ final class EditorBehaviourTests: XCTestCase {
         XCTAssertEqual(editor.project.audioTracks.last?.clips.map(\.id), [music.id], "on a new bottom track")
     }
 
+    // MARK: - Comments
+
+    func testShiftCOpensACommentAtThePlayheadAndReturnKeepsIt() throws {
+        editor.model.playback.seek(to: t(12))
+        editor.press("shift+c")
+        let ruler = try XCTUnwrap(editor.view(TimelineRulerView.self))
+        let box = try XCTUnwrap(ruler.commentBox, "the box opens on the ruler")
+        XCTAssertEqual(box.request.time, t(12))
+        XCTAssertNil(box.request.comment)
+        XCTAssertEqual(box.popover?.isShown, true)
+        XCTAssertTrue(box.field.window?.firstResponder === box.field.currentEditor(), "ready to type")
+        box.field.stringValue = "  Cut the umm "
+        box.save()
+        XCTAssertEqual(box.popover?.isShown, false)
+        XCTAssertEqual(editor.project.comments.map(\.name), ["Cut the umm"])
+        XCTAssertEqual(editor.project.comments.first?.time, t(12))
+        XCTAssertEqual(editor.model.undoLabel, "Add comment")
+        editor.press("cmd+z")
+        XCTAssertTrue(editor.project.comments.isEmpty, "one undo takes it away")
+    }
+
+    func testClickingAwayKeepsWhatsWrittenAndEscapeDoesnt() throws {
+        editor.model.playback.seek(to: t(8))
+        editor.press("shift+c")
+        let ruler = try XCTUnwrap(editor.view(TimelineRulerView.self))
+        let kept = try XCTUnwrap(ruler.commentBox)
+        kept.field.stringValue = "Louder here"
+        kept.popover?.close()
+        XCTAssertEqual(editor.project.comments.map(\.name), ["Louder here"], "a stray click doesn't lose it")
+
+        editor.model.playback.seek(to: t(20))
+        editor.press("shift+c")
+        let dropped = try XCTUnwrap(ruler.commentBox)
+        XCTAssertFalse(dropped === kept)
+        dropped.field.stringValue = "Never mind"
+        _ = dropped.control(dropped.field, textView: NSTextView(), doCommandBy: #selector(NSResponder.cancelOperation(_:)))
+        XCTAssertEqual(editor.project.comments.map(\.name), ["Louder here"], "Escape drops it")
+    }
+
+    func testACommentOnTheRulerCanBeChangedAndDeleted() throws {
+        editor.model.apply(try XCTUnwrap(CommentEdits.add("B-roll here", at: t(25), id: "mk_note")))
+        editor.settle()
+        let point = editor.rulerPoint(at: 25)
+        editor.click(point, count: 2)
+        let ruler = try XCTUnwrap(editor.view(TimelineRulerView.self))
+        let box = try XCTUnwrap(ruler.commentBox, "a double-click opens it")
+        XCTAssertEqual(box.request.comment?.id, "mk_note")
+        XCTAssertEqual(box.field.stringValue, "B-roll here")
+        box.field.stringValue = "The servers B-roll here"
+        box.save()
+        XCTAssertEqual(editor.project.comments.map(\.name), ["The servers B-roll here"])
+        XCTAssertEqual(editor.project.comments.count, 1, "changed, not added")
+
+        let menu = try editor.menu(at: point)
+        XCTAssertTrue(menu.contains("Change comment…") && menu.contains("Delete comment"), menu)
+        XCTAssertFalse(menu.contains("Rename marker"), menu)
+        editor.model.deleteComment(try XCTUnwrap(editor.project.comments.first))
+        XCTAssertTrue(editor.project.comments.isEmpty)
+    }
+
     // MARK: - Transitions
 
     func testATransitionDroppedOnACutGoesBetweenTheTwoClips() throws {

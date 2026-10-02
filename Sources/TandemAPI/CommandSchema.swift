@@ -394,7 +394,7 @@ extension CommandSchema {
         "time": S.time(),
         "duration": S.time(),
         "name": S.string(),
-        "kind": S.enumeration(["marker", "section", "chapter", "todo"]),
+        "kind": S.enumeration(["marker", "section", "chapter", "todo", "comment"]),
         "note": S.string()
     ], required: ["time"])
 
@@ -783,7 +783,7 @@ extension CommandSchema {
         ),
         Entry(
             command: .addMarker,
-            summary: "Adds a marker (marker, section, chapter or todo).",
+            summary: "Adds a marker (marker, section, chapter, todo, or comment: a note Mike left for the next round).",
             arguments: S.object(["marker": S.ref("Marker")], required: ["marker"]),
             example: #"{"addMarker": {"marker": {"time": 95, "name": "Section 2", "kind": "section"}}}"#
         ),

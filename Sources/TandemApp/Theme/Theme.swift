@@ -54,6 +54,9 @@ enum Theme {
     /// Agent edits waiting for review: a soft violet, clear of the amber
     /// that selection and markers use.
     static let agent = Swatch(0xA78BFA)
+    /// Mike's comments for the next round of agent edits: a sky blue, clear
+    /// of the amber markers and the violet agent edits.
+    static let comment = Swatch(0x5EB1EF)
     static let red = Swatch(0xE5484D)
     static let sliderTrack = Swatch(0x2A2E33)
     static let sliderFill = Swatch(0xAEB3B9)

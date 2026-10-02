@@ -154,6 +154,7 @@ enum Icons {
         case .nudgeRight, .nudgeRightFive: return "arrow.right"
         case .link: return "link"
         case .addMarker: return "bookmark"
+        case .addComment: return "text.bubble"
         case .addTransition: return transition
         case .addSectionCards: return "rectangle.stack.badge.plus"
         case .toggleKeyframe: return animation

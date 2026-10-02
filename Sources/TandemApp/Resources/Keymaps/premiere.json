@@ -46,6 +46,7 @@
     "option+right": "nudgeRight",
     "cmd+l": "link",
     "m": "addMarker",
+    "shift+c": "addComment",
     "option+m": "addSectionCards",
     "cmd+d": "addTransition",
     "1": "layoutFull",

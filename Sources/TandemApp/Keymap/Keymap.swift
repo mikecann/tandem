@@ -14,7 +14,7 @@ enum EditorCommand: String, CaseIterable, Codable {
     case bladeAtPlayhead, rippleTrimStart, rippleTrimEnd
     case lift, rippleDelete
     case nudgeLeft, nudgeRight, nudgeLeftFive, nudgeRightFive
-    case link, addMarker, addTransition, addSectionCards
+    case link, addMarker, addComment, addTransition, addSectionCards
     case toggleKeyframe, previousKeyframe, nextKeyframe
     case addVideoTrack, addAudioTrack
     case layoutFull, layoutPipRight, layoutPipLeft, layoutSplit
@@ -68,6 +68,7 @@ enum EditorCommand: String, CaseIterable, Codable {
         case .nudgeRightFive: return "Nudge right five frames"
         case .link: return "Link or unlink"
         case .addMarker: return "Add marker"
+        case .addComment: return "Add comment…"
         case .addTransition: return "Add dissolve"
         case .addSectionCards: return "Add section cards at section markers"
         case .toggleKeyframe: return "Add or remove keyframe"

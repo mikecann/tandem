@@ -1,6 +1,6 @@
 ---
 name: tandem
-description: Edit Mike's videos in Tandem, his Mac video editor, through the `tandem` command. Use when a video folder has a .tandem project, or when asked to cut, trim, tighten, place B-roll, add titles, section cards, transitions, captions, stickers, music or sound effects, look at frames, render a review clip, check an edit, or export a video in Tandem.
+description: Edit Mike's videos in Tandem, his Mac video editor, through the `tandem` command. Use when a video folder has a .tandem project, or when asked to cut, trim, tighten, place B-roll, add titles, section cards, transitions, captions, stickers, music or sound effects, look at frames, render a review clip, check an edit, do Mike's comments on the timeline, or export a video in Tandem.
 ---
 
 # Tandem
@@ -37,17 +37,47 @@ gives a command's options. Read the parts you need before editing.
    what you changed and finds black frames, flickers, green screen that
    didn't key and white blocks. Fix every problem it reports. Its notes
    (soft zooms) are judgement calls.
-5. **Hand back.** Tell Mike in a few lines what you changed and why. Your
-   edits stay highlighted on his timeline until he marks them reviewed;
-   that's his to do.
+5. **Hand back.** Open the project in the app for Mike with
+   `open "<video folder>/<name>.tandem"` (skip it if `tandem status` says
+   the app already has it open), rather than asking him to open it. Then
+   tell him in a few lines what you changed and why. Your edits stay
+   highlighted on his timeline until he marks them reviewed; that's his
+   to do.
+
+## Mike's comments
+
+While he reviews, Mike leaves comments at moments on the timeline ("cut
+the umm here"). When he asks you to look at them, `tandem comments` lists
+each one's ID, time and words, with what's said and playing there. Do
+each, label the edit with what you did, and put
+`{"removeMarker": {"markerID": "<id>"}}` in the same batch so the comment
+goes with the fix (or `tandem comments resolve <id>` after). Comments move
+with ripple edits, so list them again after one. Leave any you couldn't
+do, and say why when you hand back.
+
+## How Mike likes a take cut
+
+- **Pauses between sentences: 0.4 s.** Tighten with
+  `tandem tighten --min 0.5 --keep 0.4`. It's the feel of his old Filmora
+  silence detection (0.4 s softening buffer, 0.5 s minimum, 25% volume
+  threshold). 0.2 s sounds rushed, as if the sentences are jammed together.
+  A cut that removes a retake or a stumble should leave about 0.4 s of real
+  silence across the join too, not trim right up to the words.
+- **Longer gaps where they earn it:** the end of a paragraph, letting a
+  point land, or while the screen shows something happening (a build
+  finishing, a result appearing). In demos, keep about a second there and
+  0.4 s everywhere else.
+- **The ending:** run on about 5 s after the sign-off, fade to black, and
+  fade the music out with it.
 
 ## Rules
 
 - Change the project only through `tandem` (apply, undo, and tools run
   with `--apply`). Never edit `.tandem` files or anything in a `.tandem/`
   folder by hand or with scripts.
-- Never run `open tandem://...`, and never install, quit, launch or restart
-  the Tandem app. While it restarts, commands wait for it (up to 90 s).
+- Never run `open tandem://...`, and never install, quit or restart the
+  Tandem app, or launch it for anything except opening the project at
+  hand-back. While it restarts, commands wait for it (up to 90 s).
 - Mike may be editing at the same time: keep batches small, label them, and
   always pass `--expect`.
 - Undo only your own edits: `tandem undo --expect <revision>`.

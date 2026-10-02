@@ -152,6 +152,13 @@ struct CLI {
             let result = try await client().call(request)
             _ = show(result, json: json)
             return result.ok ? 0 : 1
+        case "comments":
+            guard args.positionals.first == "resolve" else {
+                try args.expectPositionals(atMost: 0, command: name)
+                if args.has("all") { throw UsageError(message: "--all goes with resolve: tandem comments resolve --all.") }
+                return show(try await client().call(CommentsRequest()), json: json)
+            }
+            return try await resolveComments(Array(args.positionals.dropFirst()), all: args.has("all"), label: args.options["label"], client: try client(), json: json)
         case "transcript":
             try args.expectPositionals(atMost: 1, command: name)
             let request = TranscriptRequest(id: args.positionals.first, from: try time(args, "from"), to: try time(args, "to"))
@@ -442,6 +449,26 @@ struct CLI {
         if let key = args.options["key"] { request.idempotencyKey = key }
         if args.has("dry-run") { request.dryRun = true }
         return request
+    }
+
+    /// Clears comments an agent has done: one undoable edit, credited to it.
+    private func resolveComments(_ ids: [String], all: Bool, label: String?, client: ProjectClient, json: Bool) async throws -> Int32 {
+        guard all != !ids.isEmpty else {
+            throw UsageError(message: all ? "Give comment IDs or --all, not both." : "`tandem comments resolve` needs the IDs of the comments you've done (from tandem comments), or --all.")
+        }
+        let listed = try await client.call(CommentsRequest())
+        let known = Set(listed.comments.map(\.id))
+        if let stranger = ids.first(where: { !known.contains($0) }) {
+            throw UsageError(message: "\(stranger) isn't one of Mike's comments. tandem comments lists them.")
+        }
+        let chosen = all ? listed.comments.map(\.id) : ids
+        guard !chosen.isEmpty else {
+            print("No comments to resolve.")
+            return 0
+        }
+        let batch = CommentEdits.remove(chosen, label: label ?? (chosen.count == 1 ? "Resolve comment" : "Resolve \(chosen.count) comments"))
+        let request = ApplyRequest(label: batch.label, commands: batch.commands, expectedRevision: listed.revision)
+        return show(try await client.call(request), json: json)
     }
 
     private func show<R: Encodable & ReadableResult>(_ result: R, json: Bool) -> Int32 {

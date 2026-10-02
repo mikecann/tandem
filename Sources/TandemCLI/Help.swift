@@ -38,6 +38,11 @@ enum Help {
                     --changed checks only what agents changed that's waiting for Mike's review, half a second either side: run it before handing back.
                     --quick skips rendering: just the gaps and pictures zoomed past their own pixels.
                     """),
+        CommandHelp(name: "comments", usage: "tandem comments [resolve <id>... | resolve --all]", summary: "The comments Mike left on the timeline for you, with what's said and playing at each; resolve clears the ones you've done.", options: ["all", "label"],
+                    details: """
+                    Mike adds comments in Tandem at the playhead (Add comment, Shift-C) while he reviews: notes like "cut the umm here" for the next round. Each shows its ID, time and words, what's said a few seconds either side (| marks the comment) and the clips playing there.
+                    Do what each asks and label the edit with what you did. Then remove the comment: in the same apply batch with {"removeMarker": {"markerID": "<id>"}}, or afterwards with tandem comments resolve <id>. Comments move with ripple edits, so list them again after one.
+                    """),
         CommandHelp(name: "transcript", usage: "tandem transcript [<clip or media id>] [--from <time>] [--to <time>]", summary: "Word timings for a clip (timeline times), a file (file times) or the whole timeline.", options: ["from", "to"]),
         CommandHelp(name: "search", usage: "tandem search \"<phrase>\" [--limit <n>]", summary: "Find where a phrase is said, as timeline times and clip IDs.", options: ["limit"]),
         CommandHelp(name: "pauses", usage: "tandem pauses [--min 0.6] [--from <time>] [--to <time>]", summary: "Silences between words, in timeline time.", options: ["min", "from", "to"]),

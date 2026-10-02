@@ -264,7 +264,9 @@ public final class MCPServer: @unchecked Sendable {
     reverts your last edit; only undo your own. `search` finds a phrase's timeline time, `pauses` lists silences and `tighten` shortens them \
     (a dry run unless apply: true). Look at your work with `frame` and `clip` (a review MP4), and before handing back run `check` with \
     changed: true and fix what it finds (black frames, flickers, green screen that didn't key). Mike's saved segments (his intro, outro and \
-    calls to action) are in `segments_list` and go in with `segments_insert`. Only change the project through these tools, and never quit \
+    calls to action) are in `segments_list` and go in with `segments_insert`. Mike leaves comments on the timeline for the next round \
+    ("cut the umm here"): when he asks you to look at them, `comments` lists them; do each, then remove it with removeMarker in the same \
+    batch. Only change the project through these tools, and never quit \
     or restart the app. Times are seconds or mm:ss.mmm. Pass `project` (a .tandem path) when the server wasn't started in the video's folder.
     """
 
@@ -633,6 +635,11 @@ enum MCPTools {
                 "width": S.integer("How wide frames are rendered for the scan. Default 384.")
             ],
             readOnly: true, idempotent: true
+        ),
+        Tool(
+            name: "comments", title: "Mike's comments",
+            description: "The comments Mike left on the timeline for you, earliest first: each one's ID, time and what he asked, with what's said a few seconds either side and the clips playing there. Do what each asks, label the edit with what you did, and remove the comment in the same apply batch with {\"removeMarker\": {\"markerID\": \"<id>\"}}. Comments move with ripple edits, so read them again after one.",
+            operation: .comments, properties: [:], readOnly: true, idempotent: true
         ),
         Tool(
             name: "frame", title: "Look at a frame",

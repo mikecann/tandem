@@ -130,6 +130,8 @@ final class EditorActions {
             return apply(TimelineEdits.toggleLink(project, selection: model.selection), otherwise: "Select two or more clips to link.")
         case .addMarker:
             return apply(TimelineEdits.addMarker(project, at: playhead), otherwise: "")
+        case .addComment:
+            return model.beginComment()
         case .addSectionCards:
             SectionCardActions.addAtMarkers(in: model)
         case .addTransition:

@@ -137,8 +137,24 @@ final class EditorHarness {
         return CGPoint(x: inWindow.x, y: frameHeight - inWindow.y)
     }
 
-    func click(_ point: CGPoint, modifiers: NSEvent.ModifierFlags = []) {
-        run(InputSimulator.Gesture(kind: .click(count: 1), at: point, modifiers: modifiers))
+    /// A point on the ruler just right of `seconds`, where a marker or
+    /// comment there is drawn, in window points from the top left.
+    func rulerPoint(at seconds: Double) -> CGPoint {
+        guard let ruler = view(TimelineRulerView.self) else { return .zero }
+        let inWindow = ruler.convert(CGPoint(x: CGFloat(model.timeline.scale.x(t(seconds))) + 6, y: 10), to: nil)
+        return CGPoint(x: inWindow.x, y: frameHeight - inWindow.y)
+    }
+
+    func click(_ point: CGPoint, count: Int = 1, modifiers: NSEvent.ModifierFlags = []) {
+        run(InputSimulator.Gesture(kind: .click(count: count), at: point, modifiers: modifiers))
+    }
+
+    /// The titles of the right-click menu at `point`.
+    func menu(at point: CGPoint) throws -> String {
+        let out = FileManager.default.temporaryDirectory.appendingPathComponent("tandem-menu-\(UUID().uuidString).txt")
+        defer { try? FileManager.default.removeItem(at: out) }
+        run(InputSimulator.Gesture(kind: .menu(out: out.path), at: point, modifiers: []))
+        return try String(contentsOf: out, encoding: .utf8)
     }
 
     func drag(_ from: CGPoint, to: CGPoint, modifiers: NSEvent.ModifierFlags = []) {
