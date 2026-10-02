@@ -136,7 +136,9 @@ public struct CardsRequest: ServiceCall {
     public var kicker: String?
     /// The video track for the cards. Default Graphics.
     public var track: String?
-    /// Make room at each marker, so the card is a pause (the whole take moves).
+    /// Make room at each marker, so the card is a pause (the whole take
+    /// moves). The take is cut in the pause before the section's first
+    /// word, not on a marker that sits on it (`TranscriptTools.sectionCut`).
     public var insert: Bool?
     /// The whooshes from the asset library. Default true.
     public var sounds: Bool?
@@ -193,6 +195,9 @@ public struct PlannedCard: Codable, Equatable, Sendable {
     public var end: Time
     /// A card already at the marker, which is renumbered and keeps its words.
     public var existingClipID: String?
+    /// With insert, where the take is cut for the card's room: the
+    /// marker's time, or the pause before the word the marker sits on.
+    public var cut: Time?
 }
 
 public struct CardsResult: Codable, Sendable {
@@ -213,9 +218,18 @@ extension TandemService {
         if let expected = request.expectedRevision, expected != revision {
             throw ServiceError.wrap(EditError.staleRevision(expected: expected, actual: revision))
         }
-        let placements: [SectionCard.Placement]
+        let insert = request.insert == true
+        var placements: [SectionCard.Placement]
+        var cuts: [String: Time] = [:]
+        var warnings: [String] = []
         do {
             placements = try SectionCard.placements(in: project, markerIDs: request.markers, duration: request.duration, kicker: request.kicker)
+            if insert {
+                (cuts, warnings) = sectionCuts(for: placements, in: project)
+                if !cuts.isEmpty {
+                    placements = try SectionCard.placements(in: project, markerIDs: request.markers, duration: request.duration, kicker: request.kicker, cuts: cuts)
+                }
+            }
         } catch {
             throw ServiceError.wrap(error)
         }
@@ -252,7 +266,7 @@ extension TandemService {
         }
         commands.append(.addSectionCards(
             markerIDs: request.markers, trackID: request.track, duration: request.duration, kicker: request.kicker,
-            mode: request.insert == true ? .insert : nil, soundIn: soundIn, soundOut: soundOut
+            mode: insert ? .insert : nil, soundIn: soundIn, soundOut: soundOut, cuts: cuts.isEmpty ? nil : cuts
         ))
 
         let cards = placements.map { placement -> PlannedCard in
@@ -266,7 +280,8 @@ extension TandemService {
                 markerID: placement.marker.id, at: placement.marker.time,
                 start: placement.start,
                 end: placement.start + placement.duration,
-                existingClipID: placement.existingClipID
+                existingClipID: placement.existingClipID,
+                cut: insert && placement.existingClipID == nil ? placement.cut : nil
             )
         }
         let count = cards.count
@@ -278,8 +293,48 @@ extension TandemService {
         let applied = try self.apply(applyRequest, context: context)
         return CardsResult(
             revision: revision, cards: cards, sounds: sounds, commands: commands,
-            applied: apply ? applied : nil, warnings: applied.warnings
+            applied: apply ? applied : nil, warnings: warnings + applied.warnings
         )
+    }
+
+    /// Where `--insert` cuts the take for each new card's room, by marker
+    /// ID, when that isn't the marker (`TranscriptTools.sectionCut`), and
+    /// what to say about markers on a word.
+    func sectionCuts(for placements: [SectionCard.Placement], in project: Project) -> (cuts: [String: Time], warnings: [String]) {
+        let map = TranscriptTools.speechMap(project, analysis: analysis)
+        var cuts: [String: Time] = [:]
+        var warnings: [String] = []
+        var unchecked: [String] = []
+        var untranscribed = Set<String>()
+        for placement in placements where placement.existingClipID == nil {
+            let marker = placement.marker
+            let found = TranscriptTools.sectionCut(at: marker.time, in: map, project: project, reach: placement.cutReach)
+            if found.time != marker.time { cuts[marker.id] = found.time }
+            switch found.reason {
+            case .clear:
+                break
+            case .movedOff(let word, let on):
+                let earlier = found.time < marker.time
+                let side = earlier ? "before" : "after"
+                warnings.append(
+                    "The marker \"\(marker.name)\" is \(on ? "on" : "just \(side)") \"\(word.text)\", so the take is cut "
+                    + "\(TimeText.duration(Time(flicks: abs((found.time - marker.time).flicks)))) \(earlier ? "earlier" : "later"), at \(found.time), "
+                    + "in the pause \(side) the word, so the word isn't clipped."
+                )
+            case .inSpeech(let word):
+                warnings.append("The marker \"\(marker.name)\" is in the middle of \"\(word.text)\", with no pause near enough, so the take is cut there and the word may be clipped. Put the marker in the pause before the section's first word.")
+            case .untranscribed(let mediaIDs):
+                unchecked.append("\"\(marker.name)\"")
+                untranscribed.formUnion(mediaIDs)
+            }
+        }
+        if !unchecked.isEmpty {
+            let paths = untranscribed.sorted().compactMap { project.media($0)?.path }
+            let files = paths.isEmpty ? "the speech there" : paths.joined(separator: ", ")
+            let markers = unchecked.count == 1 ? "the marker \(unchecked[0])" : "the markers \(unchecked.joined(separator: ", "))"
+            warnings.append("No transcript yet for \(files), so the take is cut right at \(markers), even if a word starts there.")
+        }
+        return (cuts, warnings)
     }
 }
 
@@ -292,6 +347,7 @@ extension CardsResult: ReadableResult {
             var line = "  \(card.number)  \(card.at)  \"\(card.title)\""
             if let subtitle = card.subtitle { line += " / \"\(subtitle)\"" }
             line += "  card \(card.start)-\(card.end) (\(String(format: "%.1f", (card.end - card.start).seconds)) s)"
+            if let cut = card.cut, cut != card.at { line += "  take cut at \(cut)" }
             if card.existingClipID != nil { line += "  already there, renumbered" }
             lines.append(line)
         }

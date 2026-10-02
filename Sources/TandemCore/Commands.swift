@@ -84,6 +84,10 @@ public enum EditCommand: Codable, Equatable, Sendable {
     /// default) lays the cards over the timeline; `insert` also makes room,
     /// so the card is a pause and its wipes show the shots either side.
     /// `soundIn` and `soundOut` put a whoosh on SFX for each sweep.
+    /// `cuts` (insert only) moves where the take is cut for a marker's
+    /// room, by marker ID, up to `SectionCard.maxCutShift` from it: into
+    /// the pause before the section's first word, so the word isn't
+    /// clipped. `tandem cards --insert` works them out from the voice.
     case addSectionCards(
         markerIDs: [String]? = nil,
         trackID: String? = nil,
@@ -91,7 +95,8 @@ public enum EditCommand: Codable, Equatable, Sendable {
         kicker: String? = nil,
         mode: InsertMode? = nil,
         soundIn: SectionCardSound? = nil,
-        soundOut: SectionCardSound? = nil
+        soundOut: SectionCardSound? = nil,
+        cuts: [String: Time]? = nil
     )
     /// Makes section cards as long as their words need
     /// (`SectionCard.fittedDuration`), like Fit to text in the app: every

@@ -300,3 +300,165 @@ final class ShortLayoutTests: XCTestCase {
         XCTAssertEqual(TandemService.portraitSlot(for: pip, role: .screen), .top)
     }
 }
+
+/// Where `cards --insert` cuts the take for a section card's room: in the
+/// pause beside the word a marker is on, not through it.
+final class SectionCutTests: XCTestCase {
+    /// "done." (10 to 10.5), a 1 s pause, "Now let's go." said without a
+    /// break (11.5 to 12.4), a 0.15 s pause, "Next" (12.55 to 12.9), and
+    /// "extraordinarily" (20 to 21) on its own. In camera file time, which
+    /// is timeline time in the uncut take.
+    static let words = [
+        TranscriptWord(text: "done.", start: t(10), end: t(10.5)),
+        TranscriptWord(text: "Now", start: t(11.5), end: t(11.8)),
+        TranscriptWord(text: "let's", start: t(11.8), end: t(12.1)),
+        TranscriptWord(text: "go.", start: t(12.1), end: t(12.4)),
+        TranscriptWord(text: "Next", start: t(12.55), end: t(12.9)),
+        TranscriptWord(text: "extraordinarily", start: t(20), end: t(21))
+    ]
+
+    /// The fixture's take with a clip on each of its tracks (Screen, Camera
+    /// and Voice) for every piece: where it starts on the timeline and in
+    /// the camera's file. One piece is the take uncut.
+    static func take(_ pieces: [(at: Double, file: Double)] = [(0, 0)]) -> Project {
+        var project = APIFixture.project()
+        func cut(_ track: Track) -> [Clip] {
+            let first = track.clips[0]
+            // The screen runs 0.5 s ahead of the camera in its file.
+            let offset = first.sourceStart - first.start
+            return pieces.enumerated().map { index, piece in
+                var clip = first
+                clip.id = "\(first.id)_\(index)"
+                clip.start = t(piece.at)
+                clip.duration = t((index + 1 < pieces.count ? pieces[index + 1].at : 60) - piece.at)
+                clip.sourceStart = t(piece.file) + offset
+                clip.linkGroup = "lnk_\(index)"
+                return clip
+            }
+        }
+        for index in project.videoTracks.indices where project.videoTracks[index].rippleMode == .cut {
+            project.videoTracks[index].clips = cut(project.videoTracks[index])
+            project.videoTracks[index].transitions = []
+        }
+        for index in project.audioTracks.indices where project.audioTracks[index].rippleMode == .cut {
+            project.audioTracks[index].clips = cut(project.audioTracks[index])
+        }
+        return project
+    }
+
+    func cut(at marker: Double, in project: Project = take(), words: [TranscriptWord] = words, reach: Time = SectionCard.maxCutShift) -> TranscriptTools.SectionCut {
+        let transcript = Transcript(language: "en", engine: "fake", words: words)
+        let map = TranscriptTools.speechMap(project) { $0.id == "med_camera" ? transcript : nil }
+        return TranscriptTools.sectionCut(at: t(marker), in: map, project: project, reach: reach)
+    }
+
+    /// The word a cut moved off, and whether the marker was on it.
+    func movedOff(_ cut: TranscriptTools.SectionCut) -> (String, Bool)? {
+        if case .movedOff(let word, let on) = cut.reason { return (word.text, on) }
+        return nil
+    }
+
+    func testAMarkerInAPauseStays() {
+        XCTAssertEqual(cut(at: 11), TranscriptTools.SectionCut(time: t(11), reason: .clear))
+        XCTAssertEqual(cut(at: 11.01), TranscriptTools.SectionCut(time: t(11), reason: .clear), "on its nearest frame")
+        // Between two words said without a break there's nowhere better.
+        XCTAssertEqual(cut(at: 12.1), TranscriptTools.SectionCut(time: t(12.1), reason: .clear))
+    }
+
+    func testAMarkerOnAWordMovesIntoThePauseBeforeIt() throws {
+        // On "Now", after a 1 s pause: 0.2 s of the pause stays before it.
+        let on = cut(at: 11.5)
+        XCTAssertEqual(on.time, t(11.3))
+        XCTAssertTrue(try XCTUnwrap(movedOff(on)) == ("Now", true), "\(on.reason)")
+        // Just before it, too close to keep its first sound.
+        let near = cut(at: 11.45)
+        XCTAssertEqual(near.time, t(11.3))
+        XCTAssertTrue(try XCTUnwrap(movedOff(near)) == ("Now", false), "\(near.reason)")
+        // Just inside it, where a transcript that starts it late would put the marker.
+        XCTAssertEqual(cut(at: 11.6).time, t(11.3), "0.3 s back, as far as a cut goes")
+        // After a pause under 0.4 s, half way through it, on a frame:
+        // 12.475 is a quarter of a frame past frame 374.
+        let short = cut(at: 12.55)
+        XCTAssertEqual(short.time, Time.frames(374, at: .fps30))
+        XCTAssertTrue(try XCTUnwrap(movedOff(short)) == ("Next", true), "\(short.reason)")
+        // A short card's quicker wipes let it move less: as far as it may.
+        XCTAssertEqual(cut(at: 11.5, reach: t(0.1)).time, t(11.4))
+    }
+
+    func testAMarkerInAWordsSecondHalfMovesIntoThePauseAfterIt() throws {
+        // On the end of "done.", the last word of the section before.
+        let end = cut(at: 10.45)
+        XCTAssertEqual(end.time, t(10.7))
+        XCTAssertTrue(try XCTUnwrap(movedOff(end)) == ("done.", true), "\(end.reason)")
+    }
+
+    func testAMarkerDeepInAWordStays() {
+        let deep = cut(at: 20.5)
+        XCTAssertEqual(deep.time, t(20.5))
+        guard case .inSpeech(let word) = deep.reason else { return XCTFail("\(deep.reason)") }
+        XCTAssertEqual(word.text, "extraordinarily")
+    }
+
+    /// A pause tightened with its cut off centre: the room goes at the cut
+    /// already there, a frame from the middle of the pause, so the take
+    /// isn't cut again a frame away from it.
+    func testTheRoomGoesAtACutAlreadyInThePause() throws {
+        // File 10.6 to 11.45 cut out: "Now" at 10.65, 0.05 s after the cut.
+        let tightened = cut(at: 10.65, in: Self.take([(0, 0), (10.6, 11.45)]))
+        XCTAssertEqual(tightened.time, t(10.6))
+        XCTAssertTrue(try XCTUnwrap(movedOff(tightened)) == ("Now", true), "\(tightened.reason)")
+    }
+
+    /// A jump cut right on the word's start: the voice doesn't play on
+    /// across it, so room there clips nothing more than the cut does, and
+    /// moving off it would leave a sliver of the shot before after the card.
+    func testAJumpCutOnTheWordIsWhereTheRoomGoes() {
+        // File 10.6 to 11.5 cut out: "Now" starts the second piece.
+        XCTAssertEqual(cut(at: 10.6, in: Self.take([(0, 0), (10.6, 11.5)])), TranscriptTools.SectionCut(time: t(10.6), reason: .clear))
+    }
+
+    /// A clip split on the word's start with the voice running on across
+    /// it is no place for the room: the word's first sound is before it.
+    func testASplitOnTheWordIsNoPlaceForTheRoom() {
+        XCTAssertEqual(cut(at: 11.5, in: Self.take([(0, 0), (11.5, 11.5)])).time, t(11.3))
+    }
+
+    /// Never a piece of a clip under a frame long: in a 0.06 s pause the
+    /// nearest frame to its middle is half a frame from a split already
+    /// there (off the frames, 0.01 s before "Next"), so the room goes there.
+    func testNoSliverUnderAFrame() {
+        var words = Self.words
+        words[4] = TranscriptWord(text: "Next", start: t(12.46), end: t(12.9))
+        XCTAssertEqual(cut(at: 12.46, in: Self.take([(0, 0), (12.45, 12.45)]), words: words).time, t(12.45))
+        XCTAssertEqual(cut(at: 12.46, words: words).time, Time.frames(373, at: .fps30), "the middle's nearest frame, uncut")
+    }
+
+    func testWithoutATranscriptTheCutStaysOnTheMarker() {
+        let project = Self.take()
+        let map = TranscriptTools.speechMap(project) { _ in nil }
+        XCTAssertEqual(TranscriptTools.sectionCut(at: t(11.5), in: map, project: project), TranscriptTools.SectionCut(time: t(11.5), reason: .untranscribed(mediaIDs: ["med_camera"])))
+    }
+
+    /// Word edges come from the voice. The engine runs its words end to
+    /// end, so "done." swallows the pause and "Now" starts at 11.6, 0.1 s
+    /// after the voice does. On the engine's times there's no pause and the
+    /// cut would land in the voice; on the voice's, it keeps 0.2 s of
+    /// silence before it.
+    func testTheCutKeepsClearOfTheVoiceNotTheEnginesTimes() {
+        var peaks = [Float](repeating: 0.001, count: 3000)
+        for (start, end) in [(10.0, 10.5), (11.5, 12.4), (12.55, 12.9)] {
+            for index in Int((start * 100).rounded())..<Int((end * 100).rounded()) { peaks[index] = 0.25 }
+        }
+        let engine = [
+            TranscriptWord(text: "done.", start: t(10), end: t(11.6)),
+            TranscriptWord(text: "Now", start: t(11.6), end: t(11.8)),
+            TranscriptWord(text: "let's", start: t(11.8), end: t(12.1)),
+            TranscriptWord(text: "go.", start: t(12.1), end: t(12.55)),
+            TranscriptWord(text: "Next", start: t(12.55), end: t(12.9))
+        ]
+        let voice = Transcript(language: "en", engine: "SpeechAnalyzer", words: engine).aligned(to: Waveform(samplesPerSecond: 100, peaks: peaks))
+        XCTAssertEqual(voice.words.map(\.start), [t(10), t(11.5), t(11.8), t(12.1), t(12.55)])
+        XCTAssertEqual(cut(at: 11.6, words: engine).time, t(11.6))
+        XCTAssertEqual(cut(at: 11.6, words: voice.words).time, t(11.3))
+    }
+}

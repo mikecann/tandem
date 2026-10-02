@@ -733,6 +733,19 @@ from the asset library, levelled for the project's speech.
 {"addSectionCards": {"soundIn": {"mediaID": "med_swishin", "gainDB": -5.4, "offset": 0}, "soundOut": {"mediaID": "med_swishout", "gainDB": -8.3}}}
 ```
 
+With `insert` the take is cut for each card's room at its marker, unless
+`cuts` says where instead, by marker ID: within 0.3 s of the marker (less
+for a card under 1.76 s), so the card still covers it. Put a cut in the
+pause before the section's first word, never on the word: room made right
+on a word's start leaves its first sound before the card and the rest
+after it. The card hides the frame from its cut on, and the marker moves
+with what it was on. `tandem cards --insert` works the cuts out from the
+voice (see Add a section card).
+
+```json
+{"addSectionCards": {"markerIDs": ["mk_daytona"], "mode": "insert", "cuts": {"mk_daytona": "15:03.233"}}}
+```
+
 #### fitSectionCards
 
 Makes section cards as long as their words need, like Fit to text in the
@@ -1308,6 +1321,22 @@ adding or moving a section: cards already at a marker are renumbered and
 keep their words. `--kicker Tip` suits a list video. It's one undo step,
 and in the app it's Timeline > Add section cards at section markers
 (Option-M).
+
+`--insert` cuts the take in the pause before each section's first word,
+not on it. A marker on the word (where its transcript starts it) or just
+before it moves the cut back into the pause, keeping 0.2 s of silence
+before the word (half the pause, when the pause is under 0.4 s), on a
+frame; one in the second half of a word moves it into the pause after
+that word. Word
+edges come from the voice, as for `pauses`. When that would leave a sliver
+of a clip beside the room (a tightened pause, with its cut in the middle),
+the cut already in that pause is used. The cut moves at most 0.3 s, so the
+card still covers its marker and running `tandem cards` again finds it.
+The plan shows `take cut at` for each card whose cut moved, and warns about
+each marker that sat on a word, one in the middle of a long word (no pause
+near enough, so it's cut there: move the marker) and speech with no
+transcript yet (cut right at the marker). A section marked in the pause
+before its first word needs no move.
 
 A soft whoosh goes with each sweep: two airy swishes made for the card with
 ElevenLabs, kept in the asset library (docs/ASSETS.md). `tandem cards

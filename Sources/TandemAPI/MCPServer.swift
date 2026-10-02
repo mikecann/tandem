@@ -588,9 +588,9 @@ enum MCPTools {
             properties: [
                 "markers": S.ids("Marker IDs to put cards at. Default: every section marker after 0:00."),
                 "kicker": S.string("Words beside the number, like Section or Tip, shown as SECTION 1 OF 3."),
-                "duration": time("Every card's length. Default: each fitted to its words, 3.2 to 6 s; the wipes keep their length."),
+                "duration": time("Every card's length. Default: each fitted to its words, 4 to 7 s; the wipes keep their length."),
                 "track": S.string("Video track ID for the cards. Default Graphics."),
-                "insert": S.boolean("Make room at each marker so the card is a pause and its wipes show the shots either side (the whole take moves)."),
+                "insert": S.boolean("Make room at each marker so the card is a pause and its wipes show the shots either side (the whole take moves). The take is cut in the pause before the section's first word: a marker on a word moves the cut into the pause beside it (up to 0.3 s), so the word isn't clipped, and the plan says so."),
                 "sounds": S.boolean("A whoosh on each sweep, from the asset library. Default true."),
                 "apply": S.boolean("Add them. Without it nothing changes."),
                 "label": S.string("Undo label."), "author": S.string("Who made the edit."),

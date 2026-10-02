@@ -92,7 +92,7 @@ public enum CommandText {
         case .closeGap(_, let at): return "Close gap at \(at)"
         case .insertTime(let at, let duration, _): return "Insert \(TimeText.duration(duration)) at \(at)"
         case .insertTemplate(let template, let at, _, _): return "Insert \(template.name) at \(at)"
-        case .addSectionCards(let markerIDs, _, _, _, let mode, _, _):
+        case .addSectionCards(let markerIDs, _, _, _, let mode, _, _, _):
             let markers = markerIDs.map { count($0.count, "marker") } ?? "section markers"
             return mode == .insert ? "Add section cards at \(markers), making room" : "Add section cards at \(markers)"
         case .fitSectionCards(let clipIDs): return clipIDs.map { "Fit \(count($0.count, "section card")) to their words" } ?? "Fit section cards to their words"
@@ -156,6 +156,10 @@ public enum CommandJSON {
         "fadeIn", "fadeOut", "animationDuration", "takeOffset"
     ]
 
+    /// Objects whose values are all times, under keys of the caller's own
+    /// (`addSectionCards`' `cuts`, by marker ID).
+    static let timeMapKeys: Set<String> = ["cuts"]
+
     /// Free-form values that must be left exactly as they are.
     static let opaqueKeys: Set<String> = ["metadata", "values", "props", "params", "propsJSON", "tags", "fields"]
 
@@ -178,8 +182,10 @@ public enum CommandJSON {
         if let key, opaqueKeys.contains(key) { return value }
         switch value {
         case .object(let fields):
+            // A map of times reads each value as a time, whatever its key.
+            let timeMap = key.map(timeMapKeys.contains) ?? false
             var result: [String: JSONValue] = [:]
-            for (k, v) in fields { result[k] = normalize(v, key: k) }
+            for (k, v) in fields { result[k] = normalize(v, key: timeMap ? "time" : k) }
             if key == "range", result["duration"] == nil,
                case .number(let start)? = result["start"], case .number(let end)? = result["end"] {
                 result["duration"] = .number(end - start)

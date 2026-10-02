@@ -50,10 +50,10 @@ public enum Editing {
             try insertTime(&project, at: at, duration: duration, trackIDs: trackIDs, &context)
         case .insertTemplate(let template, let at, let values, let mode):
             try insertTemplate(&project, template, at: at, values: values ?? [:], mode: mode ?? .place, &context)
-        case .addSectionCards(let markerIDs, let trackID, let duration, let kicker, let mode, let soundIn, let soundOut):
+        case .addSectionCards(let markerIDs, let trackID, let duration, let kicker, let mode, let soundIn, let soundOut, let cuts):
             try addSectionCards(
                 &project, markerIDs: markerIDs, trackID: trackID, duration: duration, kicker: kicker,
-                mode: mode ?? .overwrite, soundIn: soundIn, soundOut: soundOut, &context
+                mode: mode ?? .overwrite, soundIn: soundIn, soundOut: soundOut, cuts: cuts, &context
             )
         case .fitSectionCards(let clipIDs):
             try fitSectionCards(&project, clipIDs: clipIDs, &context)

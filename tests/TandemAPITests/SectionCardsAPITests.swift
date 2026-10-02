@@ -143,6 +143,80 @@ final class SectionCardsAPITests: XCTestCase {
         XCTAssertEqual(quiet.sounds, "no sounds (asked for none)")
     }
 
+    /// Mike's Daytona video: each section marker sat right on the section's
+    /// first word, where the transcript starts it ("Now," at 15:03.33), in a
+    /// pause tightened with its cut 0.1 s before the word. Making room for
+    /// the card right at the marker left a 0.1 s sliver of the take before
+    /// the gap and started the section on the word's first sound, so "Now"
+    /// was clipped. The take is cut in the pause before the word instead,
+    /// here at the cut already there, so nothing is left behind.
+    func testInsertCutsInThePauseBeforeTheSectionsFirstWord() async throws {
+        let h = try ServiceHarness()
+        defer { h.close() }
+        // The pause from "section." (29.9) to "Now" (30.5), across the cut
+        // at 30, tightened the way `tandem tighten` does it: 0.1 s kept on
+        // each side of the cut, which stays at 30.
+        let tightened = try h.service.tighten(TightenRequest(min: 0.5, keep: 0.15, apply: true, from: t(29.5), to: t(31)), context: h.context)
+        XCTAssertEqual(tightened.cuts.map(\.cut), [TimeRange(start: t(30), end: t(30.4))])
+        func now() throws -> WordTiming {
+            try XCTUnwrap(h.service.transcript(id: nil, from: nil, to: nil).words.first { $0.text == "Now" })
+        }
+        XCTAssertEqual(try now().start, t(30.1))
+        // The marker right on the word, as the agent put it.
+        try h.apply(.updateMarker(markerID: "mk_s2", patch: .object(["time": .number(30.1)])))
+        let take = ["Screen", "Camera", "Voice"]
+        let before = take.map { h.service.coordinator.project.track(named: $0)!.clips }
+
+        // The plan says where the take is cut, and why.
+        let plan = try await h.service.cards(CardsRequest(insert: true, sounds: false), context: h.context)
+        XCTAssertEqual(plan.cards.map(\.cut), [t(30)])
+        XCTAssertEqual(plan.commands.last, .addSectionCards(mode: .insert, cuts: ["mk_s2": t(30)]))
+        XCTAssertTrue(plan.readableText.contains("take cut at 00:30.000"), plan.readableText)
+        XCTAssertTrue(plan.warnings.contains(#"The marker "Section 2" is on "Now", so the take is cut 0.100s earlier, at 00:30.000, in the pause before the word, so the word isn't clipped."#), "\(plan.warnings)")
+        // Laid over the take, nothing is cut, so nothing moves.
+        let over = try await h.service.cards(CardsRequest(sounds: false), context: h.context)
+        XCTAssertEqual(over.cards.map(\.cut), [nil])
+        XCTAssertEqual(over.cards.map(\.start), [Time.frames(890, at: .fps30)], "0.43 s before the marker, on a frame, as before")
+        XCTAssertFalse(over.warnings.contains { $0.contains("\"Now\"") })
+
+        let result = try await h.service.cards(CardsRequest(insert: true, sounds: false, apply: true), context: h.context)
+        let project = h.service.coordinator.project
+        for (name, clips) in zip(take, before) {
+            let after = try XCTUnwrap(project.track(named: name)).clips
+            XCTAssertEqual(after.count, clips.count, "\(name): the room goes at the cut already there, so no sliver is cut off")
+            XCTAssertEqual(after.map(\.sourceStart), clips.map(\.sourceStart), name)
+            XCTAssertEqual(after.map(\.duration), clips.map(\.duration), name)
+            XCTAssertEqual(after[0].end, t(30), "\(name): the section before plays up to the cut")
+            XCTAssertGreaterThan(after[1].start, after[0].end, "\(name): the room is between the sections")
+        }
+        // No cut on or just before the word's first sound: the section
+        // starts 0.1 s before "Now", as it did before the room.
+        let spoken = try now()
+        for name in take {
+            for clip in try XCTUnwrap(project.track(named: name)).clips {
+                for edge in [clip.start, clip.end] {
+                    XCTAssertFalse(edge > spoken.start - t(0.05) && edge < spoken.end, "\(name) is cut at \(edge), on \"Now\" (\(spoken.start))")
+                }
+            }
+        }
+        let voice = try XCTUnwrap(project.track(named: "Voice")).clips
+        XCTAssertEqual(spoken.start - voice[1].start, t(0.1))
+        XCTAssertEqual(project.markers.first { $0.id == "mk_s2" }?.time, spoken.start, "the marker stays on its word")
+        // The card hides the frame from the cut on.
+        let card = try XCTUnwrap(cards(project).first)
+        let covered = try XCTUnwrap(SectionCard.Motion(duration: card.clip.duration, width: project.settings.width, height: project.settings.height).covered)
+        XCTAssertLessThanOrEqual(card.clip.start + Time(seconds: covered.lowerBound), t(30))
+        XCTAssertEqual(voice[1].start.seconds, (card.clip.start + Time(seconds: covered.upperBound)).seconds, accuracy: 1.0 / 30, "the section starts as the wipe out shows it")
+        XCTAssertTrue(result.warnings.contains { $0.contains("\"Now\"") }, "\(result.warnings)")
+
+        // The card still covers its marker, so running it again finds it.
+        let again = try await h.service.cards(CardsRequest(insert: true, sounds: false, apply: true), context: h.context)
+        XCTAssertEqual(again.cards.map(\.existingClipID), [card.clip.id])
+        XCTAssertEqual(again.cards.map(\.cut), [nil])
+        XCTAssertEqual(h.service.coordinator.project.track(named: "Voice")?.clips, voice, "no more room")
+        XCTAssertEqual(cards(h.service.coordinator.project).count, 1)
+    }
+
     func testMistakesComeBackAsServiceErrors() async throws {
         let h = try ServiceHarness()
         defer { h.close() }

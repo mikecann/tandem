@@ -432,6 +432,59 @@ final class SectionCardCommandTests: XCTestCase {
         assertValid(c.project)
     }
 
+    /// `cuts` moves where the take is cut for a marker's room (`tandem cards
+    /// --insert` puts it in the pause before the section's first word, when
+    /// the marker sits on the word). The card hides the frame from the cut
+    /// on, the next section starts as the wipe out shows it, and the marker
+    /// moves with what it was on and stays under its card, so running it
+    /// again finds the card there.
+    func testInsertCutsTheTakeWhereItsTold() throws {
+        let (_, c) = try marked()
+        try c.run("Cards", .addSectionCards(markerIDs: ["mk_method"], mode: .insert, cuts: ["mk_method": t(11.8)]))
+        let card = try XCTUnwrap(cards(c).first)
+        let covered = try XCTUnwrap(SectionCard.Motion(duration: card.clip.duration.seconds, aspect: 9.0 / 16).covered)
+        let camera = c.clips("Camera")
+        XCTAssertEqual(camera.count, 2)
+        XCTAssertEqual(camera[0].end, t(11.8), "the section before plays up to the cut")
+        XCTAssertLessThanOrEqual(card.clip.start + Time(seconds: covered.lowerBound), t(11.8), "the card hides the frame from the cut on")
+        XCTAssertGreaterThan(card.clip.start + Time(seconds: covered.lowerBound + 0.034), t(11.8))
+        let reveal = card.clip.start + Time(seconds: covered.upperBound)
+        XCTAssertEqual(camera[1].start.seconds, reveal.seconds, accuracy: 1.0 / 30, "the next section starts as the wipe out shows it")
+        XCTAssertEqual(camera[1].sourceStart, camera[0].sourceEnd, "none of the take is lost")
+        let marker = try XCTUnwrap(c.project.markers.first { $0.id == "mk_method" })
+        XCTAssertEqual(marker.time, camera[1].start + t(0.2), "the marker moves with what it was on")
+        XCTAssertTrue(card.clip.range.contains(marker.time), "and stays under its card")
+        assertValid(c.project)
+
+        try c.run("Again", .addSectionCards(markerIDs: ["mk_method"], mode: .insert))
+        XCTAssertEqual(cards(c).map(\.clip.id), [card.clip.id], "the card there is renumbered")
+        XCTAssertEqual(c.clips("Camera"), camera, "and nothing more is cut")
+    }
+
+    func testCutsAreCheckedAndOnlyMoveTheRoom() throws {
+        let (_, c) = try marked()
+        // Too far from the marker for its card to cover it.
+        XCTAssertThrowsError(try c.run("Cards", .addSectionCards(markerIDs: ["mk_method"], mode: .insert, cuts: ["mk_method": t(11.6)]))) { error in
+            XCTAssertTrue("\(error)".contains("0.40 s from its marker"), "\(error)")
+        }
+        XCTAssertThrowsError(try c.run("Cards", .addSectionCards(mode: .insert, cuts: ["mk_nope": t(11.8)]))) { error in
+            XCTAssertEqual(error as? EditError, .notFound("marker mk_nope for a cut"))
+        }
+        // A 1 s card's quicker wipes cover less either side of its cut.
+        let short = try XCTUnwrap(SectionCard.placements(in: c.project, markerIDs: ["mk_method"], duration: t(1)).first)
+        XCTAssertEqual(short.cutReach.seconds, 0.2, accuracy: 0.01)
+        XCTAssertThrowsError(try c.run("Cards", .addSectionCards(markerIDs: ["mk_method"], duration: t(1), mode: .insert, cuts: ["mk_method": t(11.75)])))
+        let usual = try XCTUnwrap(SectionCard.placements(in: c.project, markerIDs: ["mk_method"]).first)
+        XCTAssertEqual(usual.cutReach, SectionCard.maxCutShift)
+        XCTAssertEqual(usual.cut, t(12), "the marker's own time unless told otherwise")
+
+        // Laid over the take nothing is cut, so the card stays on its marker.
+        let camera = c.clips("Camera")
+        try c.run("Over", .addSectionCards(markerIDs: ["mk_method"], cuts: ["mk_method": t(11.8)]))
+        XCTAssertEqual(try XCTUnwrap(cards(c).first).clip.start, usual.start)
+        XCTAssertEqual(c.clips("Camera"), camera)
+    }
+
     /// A transition on the cut at the marker can't survive room made there;
     /// the card covers that cut, so it takes the transition's place.
     func testInsertReplacesATransitionOnTheSectionCut() throws {
@@ -471,6 +524,9 @@ final class SectionCardCommandTests: XCTestCase {
         XCTAssertEqual(command, .addSectionCards(markerIDs: ["mk_a"], duration: t(4), kicker: "Tip", mode: .insert, soundIn: SectionCardSound(mediaID: "med_in", gainDB: -14, offset: t(0.1))))
         let bare = try JSONDecoder().decode(EditCommand.self, from: Data(#"{"addSectionCards": {}}"#.utf8))
         XCTAssertEqual(bare, .addSectionCards())
+        let cut = try JSONDecoder().decode(EditCommand.self, from: Data(#"{"addSectionCards": {"mode": "insert", "cuts": {"mk_a": 11.8}}}"#.utf8))
+        XCTAssertEqual(cut, .addSectionCards(mode: .insert, cuts: ["mk_a": t(11.8)]))
+        XCTAssertEqual(try JSONDecoder().decode(EditCommand.self, from: JSONEncoder().encode(cut)), cut)
     }
 }
 

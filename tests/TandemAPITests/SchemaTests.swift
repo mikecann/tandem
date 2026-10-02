@@ -74,6 +74,11 @@ final class SchemaTests: XCTestCase {
             .addTransition(trackID: "trk_a", transition: Transition(id: "tr_a", type: .push, direction: .left, duration: t(0.7), fromClipID: "clip_a", toClipID: "clip_b", soundClipID: "clip_s"), sound: TransitionSound(mediaID: "med_s", gainDB: -23.3, offset: t(-0.39))),
             .addMarker(marker: Marker(id: "mk_a", time: t(3), duration: t(1), name: "A", kind: .todo, note: "fix")),
             .insertTemplate(template: template, at: t(5), values: ["title": "T"], mode: .overwrite),
+            .addSectionCards(
+                markerIDs: ["mk_a"], trackID: "trk_g", duration: t(4), kicker: "Tip", mode: .insert,
+                soundIn: SectionCardSound(mediaID: "med_in", gainDB: -5.4, offset: t(0)), soundOut: SectionCardSound(mediaID: "med_out", gainDB: -8.3, offset: t(0.1)),
+                cuts: ["mk_a": t(2.9)]
+            ),
             .placeMedia(mediaIDs: ["med_a"], at: t(1), sourceStart: t(2), duration: t(3), mode: .insert, videoTrackID: "trk_v", audioTrackID: "trk_a", includeAudio: false),
             .moveClips(clipIDs: ["clip_a"], delta: t(1), toTrackID: "trk_b", includeLinked: false, mode: .overwrite),
             .trim(clipID: "clip_a", edge: .start, to: t(2), ripple: false, includeLinked: false),
@@ -120,6 +125,9 @@ final class SchemaTests: XCTestCase {
         XCTAssertEqual(range, .rippleDeleteRange(range: TimeRange(start: t(12.4), end: t(13.2))))
         let blade = try CommandJSON.decode(try json(#"{"blade": {"at": "1:02.5"}}"#))
         XCTAssertEqual(blade, .blade(at: t(62.5)))
+        // A map of times by marker ID reads its values as times too.
+        let cards = try CommandJSON.decode(try json(#"{"addSectionCards": {"mode": "insert", "cuts": {"mk_a": "15:03.200", "mk_b": 960.5}}}"#))
+        XCTAssertEqual(cards, .addSectionCards(mode: .insert, cuts: ["mk_a": t(903.2), "mk_b": t(960.5)]))
         // Free-form values that look like times stay strings.
         let metadata = try CommandJSON.decode(try json(#"{"updateProject": {"patch": {"metadata": {"time": "12"}}}}"#))
         XCTAssertEqual(metadata, .updateProject(patch: .object(["metadata": .object(["time": .string("12")])])))

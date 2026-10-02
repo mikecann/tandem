@@ -194,6 +194,152 @@ public enum TranscriptTools {
         cuts.sorted { $0.cut.start > $1.cut.start }.map { .rippleDeleteRange(range: $0.cut, trackIDs: nil) }
     }
 
+    // MARK: - Section cuts
+
+    /// Silence a section card's room keeps beside the words either side of
+    /// it, when the pause has it (`sectionCut`). A voice starts a little
+    /// before it's loud enough to find, so a cut right on a word's start
+    /// leaves its first sound on the other side of the room.
+    public static let sectionLead = Time(seconds: 0.2)
+    /// A cut already in the take is used for the room if it's at least
+    /// this far from the words either side, or the voice doesn't play on
+    /// across it.
+    static let cutMargin = Time(seconds: 0.05)
+    /// A piece of a clip shorter than this, cut off beside a card's room,
+    /// is a sliver: a flash of a shot under the wipe.
+    static let sliver = Time(seconds: 0.25)
+
+    /// Where `cards --insert` cuts the take for a section card's room.
+    public struct SectionCut: Equatable, Sendable {
+        public enum Reason: Equatable, Sendable {
+            /// The marker is clear of the words, so the cut is on it: on its
+            /// nearest frame, or on a cut already in the take beside it so
+            /// no sliver of a clip is left by the room.
+            case clear
+            /// The marker is on `word` (`on`), or so close to it that a cut
+            /// there could clip it, so the cut moved into the pause beside it.
+            case movedOff(word: SpokenWord, on: Bool)
+            /// The marker is inside `word` with no pause it may move to, so
+            /// the cut stays on it.
+            case inSpeech(word: SpokenWord)
+            /// Speech around the marker has no transcript yet, so nobody
+            /// knows what a cut there would clip, and it stays on the marker.
+            case untranscribed(mediaIDs: [String])
+        }
+
+        public var time: Time
+        public var reason: Reason
+    }
+
+    /// Where to cut the take for a section card's room at `marker`: in the
+    /// pause before the section's first word, not through it.
+    ///
+    /// Agents put section markers on the first word, where its transcript
+    /// starts it, and room made right there left the word's first sound
+    /// before the room and the rest after it (Mike heard "Now" clipped). So
+    /// the cut goes in the pause beside the word the marker is on or near:
+    /// the one before it, or after it when the marker is in the word's
+    /// second half. It keeps `sectionLead` of silence beside each word, or
+    /// half the pause when that's shorter, and lands on a frame. Word edges
+    /// come from the voice (`speechMap`), as they do for `pauses`. When that
+    /// would leave a sliver of a clip beside the room (a tightened pause,
+    /// with its cut in the middle), a cut already in the pause is used, so
+    /// the take isn't cut again. The cut moves at most `reach` from the
+    /// marker (`SectionCard.Placement.cutReach`), so its card still covers it.
+    public static func sectionCut(at marker: Time, in map: SpeechMap, project: Project, reach: Time = SectionCard.maxCutShift) -> SectionCut {
+        let around = TimeRange(start: marker - reach, end: marker + reach)
+        if map.unknown.contains(where: { $0.overlaps(around) }) {
+            let media = map.clips.filter { $0.range.overlaps(around) }.compactMap(\.mediaID).filter(map.missing.contains)
+            return SectionCut(time: marker, reason: .untranscribed(mediaIDs: Set(media).sorted()))
+        }
+        let words = map.words
+        // The word the marker is on, or the first one after it.
+        let index = words.firstIndex { $0.end > marker }
+        let on = index.map { words[$0] }.flatMap { $0.start <= marker ? $0 : nil }
+        // The pause the cut goes in: from the end of `before` to the start
+        // of `after`. No word on a side leaves that side open.
+        var before: SpokenWord?
+        var after: SpokenWord?
+        if let index, let on, marker - on.start > on.end - marker {
+            before = on
+            after = index + 1 < words.count ? words[index + 1] : nil
+        } else {
+            before = words[..<(index ?? words.count)].max { $0.end < $1.end }
+            after = index.map { words[$0] }
+        }
+        let high = after?.start
+        let low = before.map { word in min(word.end, high ?? word.end) }
+        let half = low.flatMap { low in high.map { Time(flicks: ($0 - low).flicks / 2) } }
+        let lead = min(sectionLead, half ?? sectionLead)
+        var ideal = marker
+        if let high, ideal > high - lead { ideal = high - lead }
+        if let low, ideal < low + lead { ideal = low + lead }
+        ideal = max(ideal, .zero)
+        func inPause(_ time: Time) -> Bool {
+            time >= .zero && (low.map { time >= $0 } ?? true) && (high.map { time <= $0 } ?? true)
+        }
+        // Only as far as `reach`, and not at all when that's still inside a word.
+        var target = ideal
+        if abs((target - marker).flicks) > reach.flicks {
+            target = target < marker ? marker - reach : marker + reach
+            guard inPause(target) else {
+                return SectionCut(time: marker, reason: on.map { .inSpeech(word: $0) } ?? .clear)
+            }
+        }
+        func fits(_ time: Time) -> Bool {
+            inPause(time) && abs((time - marker).flicks) <= reach.flicks
+        }
+        let rate = project.settings.frameRate
+        let down = Time.frames(target.frameIndex(at: rate), at: rate)
+        let up = down == target ? down : down + rate.frameDuration
+        var cut = [down, up].sorted { abs(($0 - target).flicks) < abs(($1 - target).flicks) }.first(where: fits) ?? target
+
+        // A cut beside one already in the take would leave a sliver of a
+        // clip next to the room: make the room at that cut instead, if it's
+        // clear of the words or the voice doesn't play on across it (or
+        // it's within a frame of here, as good a place).
+        let take = project.allTracks.filter { $0.rippleMode == .cut && !$0.locked }
+        func leavesSliver(_ time: Time) -> Bool {
+            take.contains { track in
+                track.clips.contains { $0.start < time && time < $0.end && min(time - $0.start, $0.end - time) < sliver }
+            }
+        }
+        if leavesSliver(cut) {
+            let margin = min(cutMargin, half ?? cutMargin)
+            let edges = Set(take.flatMap { $0.clips.flatMap { [$0.start, $0.end] } })
+            let usable = edges.filter { edge in
+                guard fits(edge), !leavesSliver(edge) else { return false }
+                if abs((edge - cut).flicks) < rate.flicksPerFrame { return true }
+                let clear = (low.map { edge - $0 >= margin } ?? true) && (high.map { $0 - edge >= margin } ?? true)
+                return clear || voiceBreaks(at: edge, in: project)
+            }
+            if let nearest = usable.min(by: { abs(($0 - cut).flicks) < abs(($1 - cut).flicks) }) { cut = nearest }
+        }
+
+        // Said only when the marker was too close to a word and the cut
+        // moved off it by a frame or more.
+        if abs((cut - marker).flicks) >= rate.flicksPerFrame, let word = ideal < marker ? after : ideal > marker ? before : nil {
+            return SectionCut(time: cut, reason: .movedOff(word: word, on: word.start <= marker && marker < word.end))
+        }
+        return SectionCut(time: cut, reason: .clear)
+    }
+
+    /// Whether the voice already breaks at `time`: no speech clip plays on
+    /// across it, because the take jumps in its file there or stops. Room
+    /// made there can't split a sound that was playing.
+    static func voiceBreaks(at time: Time, in project: Project) -> Bool {
+        let tolerance = project.settings.frameRate.flicksPerFrame / 2
+        for track in speechTracks(project) {
+            let heard = track.clips.filter(isHeard)
+            if heard.contains(where: { $0.start < time && time < $0.end }) { return false }
+            guard let left = heard.first(where: { $0.end == time }), let right = heard.first(where: { $0.start == time }) else { continue }
+            if left.mediaID == right.mediaID, left.speed == right.speed, abs((right.sourceStart - left.sourceEnd).flicks) <= tolerance {
+                return false
+            }
+        }
+        return true
+    }
+
     // MARK: - Search
 
     /// Lower-case words with punctuation removed, so "Don't," matches "dont".

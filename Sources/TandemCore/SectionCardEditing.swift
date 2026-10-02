@@ -30,13 +30,22 @@ extension SectionCard {
     public static let soundGainDB = -15.0
     public static let soundInOffset = Time(seconds: 0.2)
 
+    /// How far `addSectionCards`' `cuts` may move a section's cut from its
+    /// marker: far enough to reach the pause before a word the marker sits
+    /// on. A card starts 0.42 s before its cut and ends 0.41 s after the
+    /// next shot starts to show (at 16:9; a little more on other frames),
+    /// so it still covers the marker and running it again finds the card
+    /// there. A card under 1.76 s has quicker wipes and allows less
+    /// (`Placement.cutReach`).
+    public static let maxCutShift = Time(seconds: 0.3)
+
     /// One card `addSectionCards` puts at a marker.
     public struct Placement: Equatable, Sendable {
         public var marker: Marker
         /// "01", "02"... in time order.
         public var number: String
         /// Where the card starts: early enough that it hides the whole frame
-        /// from the marker on, so the cut between sections is never seen.
+        /// from the cut on, so the cut between sections is never seen.
         /// On a frame.
         public var start: Time
         /// How long it is: the length asked for, or fitted to its words
@@ -45,12 +54,21 @@ extension SectionCard {
         /// A section card already over the marker, which is renumbered
         /// instead of getting a new one.
         public var existingClipID: String?
+        /// Where one section cuts to the next: the marker's time, or the
+        /// cut asked for it. With `insert` the take is cut here for the
+        /// card's room.
+        public var cut: Time
+        /// How far from the marker the cut may go, so the card still
+        /// covers the marker: `maxCutShift`, or less for a short card.
+        /// Zero for a card already there.
+        public var cutReach: Time
     }
 
     /// The cards for `markerIDs` (every section marker after the start
     /// when nil), in time order: each `duration` long, or when that's nil
     /// fitted to its words (the marker's name and note, and the kicker).
-    public static func placements(in p: Project, markerIDs: [String]?, duration: Time? = nil, kicker: String? = nil) throws -> [Placement] {
+    /// `cuts` moves a marker's cut, by marker ID (see `addSectionCards`).
+    public static func placements(in p: Project, markerIDs: [String]?, duration: Time? = nil, kicker: String? = nil, cuts: [String: Time]? = nil) throws -> [Placement] {
         var markers: [Marker]
         if let markerIDs {
             var seen = Set<String>()
@@ -70,6 +88,9 @@ extension SectionCard {
                 : "no markers given")
         }
         if let duration { _ = try coverage(of: duration, in: p) }
+        for id in (cuts ?? [:]).keys where !p.markers.contains(where: { $0.id == id }) {
+            throw EditError.notFound("marker \(id) for a cut")
+        }
         let rate = p.settings.frameRate
         let total = markers.count
         let word = kicker?.trimmingCharacters(in: .whitespaces) ?? ""
@@ -77,7 +98,7 @@ extension SectionCard {
             let number = numberText(offset + 1)
             // A card already there stays where it is, as long as it is.
             if let existing = existingCard(at: marker.time, in: p) {
-                return Placement(marker: marker, number: number, start: existing.start, duration: existing.duration, existingClipID: existing.id)
+                return Placement(marker: marker, number: number, start: existing.start, duration: existing.duration, existingClipID: existing.id, cut: marker.time, cutReach: .zero)
             }
             let length = duration ?? fittedDuration(for: Props(
                 title: marker.name,
@@ -85,9 +106,18 @@ extension SectionCard {
                 number: number, total: total, kicker: word
             ), frameRate: rate)
             let covered = try coverage(of: length, in: p)
-            let ideal = marker.time - Time(seconds: covered.lowerBound)
+            // The card has to cover its marker wherever the cut goes: it
+            // starts `lowerBound` before the cut and ends `length -
+            // upperBound` after the next shot starts to show.
+            let margin = Time(seconds: min(covered.lowerBound, length.seconds - covered.upperBound)) - rate.frameDuration
+            let reach = max(.zero, min(maxCutShift, margin))
+            let cut = cuts?[marker.id] ?? marker.time
+            guard abs((cut - marker.time).flicks) <= reach.flicks, cut >= .zero else {
+                throw EditError.invalid("the cut for \"\(marker.name)\" at \(cut) is \(String(format: "%.2f", abs((cut - marker.time).seconds))) s from its marker. Keep it within \(String(format: "%.2f", reach.seconds)) s of it, in the pause before the section's first word")
+            }
+            let ideal = cut - Time(seconds: covered.lowerBound)
             let start = max(.zero, Time.frames(ideal.frameIndex(at: rate), at: rate))
-            return Placement(marker: marker, number: number, start: start, duration: length, existingClipID: nil)
+            return Placement(marker: marker, number: number, start: start, duration: length, existingClipID: nil, cut: cut, cutReach: reach)
         }
     }
 
@@ -163,9 +193,11 @@ extension Editing {
         mode: InsertMode,
         soundIn: SectionCardSound?,
         soundOut: SectionCardSound?,
+        cuts: [String: Time]? = nil,
         _ context: inout EditContext
     ) throws {
-        let placements = try SectionCard.placements(in: p, markerIDs: markerIDs, duration: duration, kicker: kicker)
+        // Laid over the take, nothing is cut, so the cards stay on their markers.
+        let placements = try SectionCard.placements(in: p, markerIDs: markerIDs, duration: duration, kicker: kicker, cuts: mode == .insert ? cuts : nil)
         let rate = p.settings.frameRate
 
         // Where the cards go: the named track, else Graphics (made on top if
@@ -226,13 +258,15 @@ extension Editing {
             let motion = SectionCard.Motion(duration: length, width: p.settings.width, height: p.settings.height)
             if mode == .insert {
                 // Room for the hold: the shot before plays under the wipe in
-                // up to the marker, and the next one starts as the wipe out
-                // shows it.
+                // up to the cut (the marker, unless `cuts` moved it into the
+                // pause before the section's first word), and the next one
+                // starts as the wipe out shows it.
+                let cut = placement.cut
                 let reveal = start + Time(seconds: covered.upperBound)
-                let room = Time.frames((reveal - marker.time).frameIndex(at: rate), at: rate)
+                let room = Time.frames((reveal - cut).frameIndex(at: rate), at: rate)
                 if room > .zero {
-                    removeTransitions(onCutAt: marker.time, in: &p, &context)
-                    try insertTime(&p, at: marker.time, duration: room, trackIDs: nil, &context)
+                    removeTransitions(onCutAt: cut, in: &p, &context)
+                    try insertTime(&p, at: cut, duration: room, trackIDs: nil, &context)
                 }
             }
             let group = soundIn != nil || soundOut != nil ? context.makeID("lnk") : nil

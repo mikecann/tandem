@@ -603,7 +603,8 @@ extension CommandSchema {
                 "kicker": S.string("Words beside the chip, like Tip (shown as TIP 1 OF 14). Default none, which Mike prefers: the number alone reads faster. Only add one when asked. On cards already there, empty removes it."),
                 "mode": S.enumeration(["overwrite", "insert", "place"], "overwrite (default) lays the cards over the timeline, insert also makes room at each marker (the whole take moves), place fails where the card track is taken."),
                 "soundIn": sectionCardSound("A sound for the sweep in, like a whoosh. Starts 0.2 s after the card unless offset says otherwise."),
-                "soundOut": sectionCardSound("A sound for the sweep out. Starts as the sweep out does unless offset says otherwise.")
+                "soundOut": sectionCardSound("A sound for the sweep out. Starts as the sweep out does unless offset says otherwise."),
+                "cuts": S.map(S.time("Where the take is cut for this marker's room, within 0.3 s of it."), "With insert: where the take is cut for each marker's room, by marker ID, when it shouldn't be the marker itself. Put it in the pause before the section's first word, so the word isn't clipped. tandem cards --insert works these out from the voice. Default: each marker's time.")
             ]),
             example: #"{"addSectionCards": {"soundIn": {"mediaID": "med_swishin", "gainDB": -3.4, "offset": 0}, "soundOut": {"mediaID": "med_swishout", "gainDB": -6.3}}}"#
         ),
