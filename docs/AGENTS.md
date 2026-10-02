@@ -1104,8 +1104,8 @@ tandem comments resolve mk_7hd2p4xa          # one you did in an edit without re
 
 While he reviews, Mike leaves comments at moments on the timeline (Add
 comment, Shift-C, or a double-click on an empty stretch in the app): notes
-like "cut the umm here" or "this B-roll is wrong", shown as blue notes on
-the ruler. They're markers of kind
+like "cut the umm here" or "this B-roll is wrong", shown in a Comments
+strip under the ruler. They're markers of kind
 `comment`. When he asks you to look at them, do each one, label the edit
 with what you did (he reads the labels beside your highlighted changes),
 and remove the comment in the same batch, so one undo puts both back.

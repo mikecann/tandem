@@ -97,11 +97,12 @@ final class EditorBehaviourTests: XCTestCase {
 
     // MARK: - Comments
 
+    private var timeline: TimelineContainerView { editor.view(TimelineContainerView.self)! }
+
     func testShiftCOpensACommentAtThePlayheadAndReturnKeepsIt() throws {
         editor.model.playback.seek(to: t(12))
         editor.press("shift+c")
-        let ruler = try XCTUnwrap(editor.view(TimelineRulerView.self))
-        let box = try XCTUnwrap(ruler.commentBox, "the box opens on the ruler")
+        let box = try XCTUnwrap(timeline.commentBox, "the box opens under the ruler")
         XCTAssertEqual(box.request.time, t(12))
         XCTAssertNil(box.request.comment)
         XCTAssertEqual(box.popover?.isShown, true)
@@ -119,36 +120,98 @@ final class EditorBehaviourTests: XCTestCase {
     func testClickingAwayKeepsWhatsWrittenAndEscapeDoesnt() throws {
         editor.model.playback.seek(to: t(8))
         editor.press("shift+c")
-        let ruler = try XCTUnwrap(editor.view(TimelineRulerView.self))
-        let kept = try XCTUnwrap(ruler.commentBox)
+        let kept = try XCTUnwrap(timeline.commentBox)
         kept.field.stringValue = "Louder here"
         kept.popover?.close()
         XCTAssertEqual(editor.project.comments.map(\.name), ["Louder here"], "a stray click doesn't lose it")
 
         editor.model.playback.seek(to: t(20))
         editor.press("shift+c")
-        let dropped = try XCTUnwrap(ruler.commentBox)
+        let dropped = try XCTUnwrap(timeline.commentBox)
         XCTAssertFalse(dropped === kept)
         dropped.field.stringValue = "Never mind"
         _ = dropped.control(dropped.field, textView: NSTextView(), doCommandBy: #selector(NSResponder.cancelOperation(_:)))
         XCTAssertEqual(editor.project.comments.map(\.name), ["Louder here"], "Escape drops it")
     }
 
+    func testCommentsHaveAStripOfTheirOwnWhileThereAreAny() throws {
+        XCTAssertTrue(timeline.comments.isHidden, "no comments, no strip")
+        let lanesTop = timeline.lanes.frame.minY
+        editor.model.apply(try XCTUnwrap(CommentEdits.add("B-roll here", at: t(25), id: "mk_note")))
+        editor.settle()
+        XCTAssertFalse(timeline.comments.isHidden)
+        XCTAssertEqual(timeline.comments.frame.minY, timeline.ruler.frame.maxY, "right under the ruler")
+        XCTAssertEqual(timeline.lanes.frame.minY, lanesTop + Theme.Metrics.commentsHeight, "the tracks make room")
+        editor.model.deleteComment(try XCTUnwrap(editor.project.comments.first))
+        editor.settle()
+        XCTAssertTrue(timeline.comments.isHidden, "gone with the last comment")
+        XCTAssertEqual(timeline.lanes.frame.minY, lanesTop)
+    }
+
+    func testTheRulerStaysFreeForThePlayheadOverAComment() throws {
+        let long = "Can you remove the cuts here instead and just show it in real time, so we can see how fast it actually is"
+        editor.model.apply(try XCTUnwrap(CommentEdits.add(long, at: t(20), id: "mk_long")))
+        editor.settle()
+        // Where the comment's words would have run along the ruler.
+        editor.click(editor.rulerPoint(at: 24))
+        XCTAssertEqual(editor.model.playback.time.seconds, 24, accuracy: 0.5, "the click moved the playhead")
+        XCTAssertEqual(editor.project.comments.first?.time, t(20), "and left the comment alone")
+        let menu = try editor.menu(at: editor.rulerPoint(at: 20))
+        XCTAssertFalse(menu.contains("Change comment"), menu)
+    }
+
+    func testACommentInTheStripGoesThereMovesChangesAndDeletes() throws {
+        editor.model.apply(try XCTUnwrap(CommentEdits.add("B-roll here", at: t(25), id: "mk_note")))
+        editor.settle()
+        editor.model.playback.seek(to: t(5))
+
+        // A click goes to it.
+        editor.click(editor.commentsPoint(at: 25.5))
+        XCTAssertEqual(editor.model.playback.time, t(25))
+
+        // A drag moves it.
+        editor.drag(editor.commentsPoint(at: 25.5), to: editor.commentsPoint(at: 32.5))
+        let moved = try XCTUnwrap(editor.project.comments.first)
+        XCTAssertEqual(moved.time.seconds, 32, accuracy: 0.2)
+        XCTAssertEqual(editor.model.undoLabel, "Move comment")
+
+        // A double-click changes it.
+        editor.click(editor.commentsPoint(at: moved.time.seconds + 0.5), count: 2)
+        let box = try XCTUnwrap(timeline.commentBox, "a double-click opens it")
+        XCTAssertEqual(box.request.comment?.id, "mk_note")
+        XCTAssertEqual(box.field.stringValue, "B-roll here")
+        box.field.stringValue = "The servers B-roll here"
+        box.save()
+        XCTAssertEqual(editor.project.comments.map(\.name), ["The servers B-roll here"], "changed, not added")
+
+        let menu = try editor.menu(at: editor.commentsPoint(at: moved.time.seconds + 0.5))
+        XCTAssertTrue(menu.contains("Change comment…") && menu.contains("Delete comment") && menu.contains("Add comment here…"), menu)
+
+        // Between comments, a click moves the playhead and a double-click adds one.
+        editor.click(editor.commentsPoint(at: 10))
+        XCTAssertEqual(editor.model.playback.time.seconds, 10, accuracy: 0.2)
+        editor.click(editor.commentsPoint(at: 12), count: 2)
+        let added = try XCTUnwrap(timeline.commentBox)
+        XCTAssertNil(added.request.comment)
+        XCTAssertEqual(added.request.time.seconds, 12, accuracy: 0.2)
+        added.cancel()
+    }
+
     func testADoubleClickOnAnEmptyStretchOpensACommentThere() throws {
         XCTAssertTrue(editor.clips("Graphics").isEmpty, "the fixture's Graphics track is empty")
-        let ruler = try XCTUnwrap(editor.view(TimelineRulerView.self))
         editor.click(editor.point(onTrack: "Graphics", at: 14), count: 2)
-        let box = try XCTUnwrap(ruler.commentBox, "a double-click on an empty stretch opens the box")
+        let box = try XCTUnwrap(timeline.commentBox, "a double-click on an empty stretch opens the box")
         XCTAssertEqual(box.request.time.seconds, 14, accuracy: 0.05)
         XCTAssertEqual(editor.model.playback.time.seconds, 14, accuracy: 0.05, "the playhead goes there too")
         XCTAssertEqual(box.popover?.isShown, true)
         box.field.stringValue = "Something on screen here"
         box.save()
         XCTAssertEqual(editor.project.comments.map(\.name), ["Something on screen here"])
+        editor.settle()
 
         // On the ruler, away from the markers, the same.
         editor.click(editor.rulerPoint(at: 40), count: 2)
-        let second = try XCTUnwrap(ruler.commentBox)
+        let second = try XCTUnwrap(timeline.commentBox)
         XCTAssertFalse(second === box)
         XCTAssertEqual(second.request.time.seconds, 40, accuracy: 0.5, "rulerPoint aims a little right of the time")
         XCTAssertNil(second.request.comment)
@@ -156,29 +219,8 @@ final class EditorBehaviourTests: XCTestCase {
 
         // A double-click on a clip still picks it, with no box.
         editor.click(editor.point(of: editor.clip("Camera").id, at: 30), count: 2)
-        XCTAssertTrue(ruler.commentBox === second, "no new box")
+        XCTAssertTrue(timeline.commentBox === second, "no new box")
         XCTAssertTrue(editor.model.selection.contains(editor.clip("Camera").id))
-    }
-
-    func testACommentOnTheRulerCanBeChangedAndDeleted() throws {
-        editor.model.apply(try XCTUnwrap(CommentEdits.add("B-roll here", at: t(25), id: "mk_note")))
-        editor.settle()
-        let point = editor.rulerPoint(at: 25)
-        editor.click(point, count: 2)
-        let ruler = try XCTUnwrap(editor.view(TimelineRulerView.self))
-        let box = try XCTUnwrap(ruler.commentBox, "a double-click opens it")
-        XCTAssertEqual(box.request.comment?.id, "mk_note")
-        XCTAssertEqual(box.field.stringValue, "B-roll here")
-        box.field.stringValue = "The servers B-roll here"
-        box.save()
-        XCTAssertEqual(editor.project.comments.map(\.name), ["The servers B-roll here"])
-        XCTAssertEqual(editor.project.comments.count, 1, "changed, not added")
-
-        let menu = try editor.menu(at: point)
-        XCTAssertTrue(menu.contains("Change comment…") && menu.contains("Delete comment"), menu)
-        XCTAssertFalse(menu.contains("Rename marker"), menu)
-        editor.model.deleteComment(try XCTUnwrap(editor.project.comments.first))
-        XCTAssertTrue(editor.project.comments.isEmpty)
     }
 
     // MARK: - Transitions

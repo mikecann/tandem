@@ -148,6 +148,14 @@ final class EditorHarness {
         return CGPoint(x: inWindow.x, y: frameHeight - inWindow.y)
     }
 
+    /// A point in the comments strip at `seconds`, in window points from
+    /// the top left: half a second in, it's on a comment that starts there.
+    func commentsPoint(at seconds: Double) -> CGPoint {
+        guard let strip = view(TimelineCommentsView.self) else { return .zero }
+        let inWindow = strip.convert(CGPoint(x: CGFloat(model.timeline.scale.x(t(seconds))), y: strip.bounds.midY), to: nil)
+        return CGPoint(x: inWindow.x, y: frameHeight - inWindow.y)
+    }
+
     /// A point on the ruler just right of `seconds`, where a marker or
     /// comment there is drawn, in window points from the top left.
     func rulerPoint(at seconds: Double) -> CGPoint {

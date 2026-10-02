@@ -1,7 +1,8 @@
 import AppKit
 import TandemCore
 
-/// The box Mike writes a comment in, under the ruler at the comment's time.
+/// The box Mike writes a comment in, under the timeline's top at the
+/// comment's time.
 /// Return keeps it, Option-Return starts a new line, Escape drops it.
 /// Clicking away keeps what's written, so a stray click doesn't lose a note.
 @MainActor

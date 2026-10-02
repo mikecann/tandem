@@ -599,7 +599,7 @@ final class TimelineViewState {
 
     /// Zooms around `anchorX`, or the playhead's position when nil.
     @ObservationIgnored var playheadX: (() -> CGFloat?)?
-    /// Opens the comment box on the ruler (the timeline sets it).
+    /// Opens the comment box on the timeline (the timeline sets it).
     @ObservationIgnored var showCommentBox: ((CommentBoxRequest) -> Void)?
 
     func zoom(by factor: Double, anchorX: CGFloat?) {
