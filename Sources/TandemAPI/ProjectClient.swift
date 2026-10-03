@@ -148,9 +148,16 @@ public enum ProjectLocator {
         throw ServiceError(.notFound, "No .tandem project in \(directory.path) or its parents. Pass --project <file.tandem>, or create one with `tandem new <name>.tandem`.")
     }
 
+    /// The project as an export rendered it, which every export leaves
+    /// beside its video (`review.mp4.tandem`): a record, not a project to
+    /// work on, so never the one found.
+    static func isRenderSnapshot(_ url: URL) -> Bool {
+        ["mp4", "mov", "m4v"].contains(url.deletingPathExtension().pathExtension.lowercased())
+    }
+
     private static func single(in folder: URL, explicit: Bool) throws -> URL? {
         let files = (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? []
-        let projects = files.filter { $0.pathExtension == ProjectFile.fileExtension }.sorted { $0.lastPathComponent < $1.lastPathComponent }
+        let projects = files.filter { $0.pathExtension == ProjectFile.fileExtension && !isRenderSnapshot($0) }.sorted { $0.lastPathComponent < $1.lastPathComponent }
         if projects.count == 1 { return projects[0].standardizedFileURL }
         if projects.count > 1 {
             let names = projects.map(\.lastPathComponent).joined(separator: ", ")
