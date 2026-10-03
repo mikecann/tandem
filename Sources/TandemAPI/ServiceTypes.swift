@@ -150,6 +150,9 @@ public struct MediaInfo: Codable, Sendable {
     public var exists: Bool
     /// Analysis status by kind (`transcript`, `loudness`, `proxy`...).
     public var analysis: [String: AnalysisState]
+    /// How late the file's picture is against its sound; every clip of it
+    /// shows its picture that much later (`tandem sync`).
+    public var pictureDelay: Time? = nil
 }
 
 public struct MediaResult: Codable, Sendable {

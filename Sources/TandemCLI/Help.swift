@@ -38,6 +38,12 @@ enum Help {
                     --changed checks only what agents changed that's waiting for Mike's review, half a second either side: run it before handing back.
                     --quick skips rendering: just the gaps and pictures zoomed past their own pixels.
                     """),
+        CommandHelp(name: "sync", usage: "tandem sync [<seconds> [--media <id>]... [--default]]", summary: "How late each file's picture is against its sound, so lips match the voice; give a delay to set it on the camera takes.", options: ["media", "default", "label", "expect"],
+                    details: """
+                    A webcam's picture lags its mic (Mike's by about 0.08 s). With a delay, every camera take (or the --media files) shows its picture that much later in the file, everywhere: the app, frames, review clips, check and exports. The sound, the cuts and the transcript's word times stay where they are, so nothing else moves. 0 puts the picture back as recorded. Don't also slip clips by hand, or the delay doubles.
+                    --default makes it the delay new camera takes get (Tandem's settings), as Settings in the app does.
+                    Without a delay it lists each file's delay and the default.
+                    """),
         CommandHelp(name: "comments", usage: "tandem comments [resolve <id>... | resolve --all]", summary: "The comments Mike left on the timeline for you, with what's said and playing at each; resolve clears the ones you've done.", options: ["all", "label"],
                     details: """
                     Mike adds comments in Tandem at the playhead (Add comment, Shift-C) while he reviews: notes like "cut the umm here" for the next round. Each shows its ID, time and words, what's said a few seconds either side (| marks the comment) and the clips playing there.

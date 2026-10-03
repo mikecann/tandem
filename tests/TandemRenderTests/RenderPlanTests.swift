@@ -225,6 +225,23 @@ final class RenderPlanTests: XCTestCase {
         XCTAssertFalse(bare.warnings.isEmpty)
     }
 
+    func testAPictureThatLagsItsSoundIsShownLaterInTheFile() {
+        camera.pictureDelay = t(0.08)
+        var pip = mediaClip("clip_c", "med_cam", start: 1, duration: 3, source: 12)
+        pip.video = VideoProperties(cutout: Cutout())
+        let voice = mediaClip("clip_v", "med_cam", start: 1, duration: 3, source: 12)
+        let assets = FakeAssets()
+        assets.mattes["med_cam"] = URL(fileURLWithPath: "/tmp/matte.mov")
+        let plan = RenderPlanner.plan(project(
+            video: [Track(kind: .video, name: "Camera", clips: [pip])],
+            audio: [Track(kind: .audio, name: "Voice", clips: [voice])]
+        ), format: nil, assets: assets)
+        XCTAssertEqual(plan.videoSegments.first { $0.role == .picture }?.sourceStart, t(12.08), "the picture from 80 ms later")
+        XCTAssertEqual(plan.videoSegments.first { $0.role == .matte }?.sourceStart, t(12.08), "its matte with it")
+        XCTAssertEqual(plan.audioSegments.first { $0.role == .sound }?.sourceStart, t(12), "the sound where it was")
+        XCTAssertEqual(plan.videoSegments.first?.timeline, TimeRange(start: t(1), end: t(4)), "and the clip where it was")
+    }
+
     func testImagesAndGraphicsGetNoCompositionTracks() {
         let still = Clip(id: "clip_i", content: .media(mediaID: "med_img"), start: .zero, duration: t(2))
         let graphic = Clip(id: "clip_g", content: .graphic(GraphicContent(template: "remotion:Bar")), start: t(2), duration: t(2))

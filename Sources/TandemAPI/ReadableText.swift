@@ -63,6 +63,7 @@ extension MediaResult: ReadableResult {
             if let codec = item.undecodableCodec { parts.append(MediaItem.codecName(codec)) }
             if let clip = item.livePhotoVideo { parts.append("Live Photo, motion clip \((clip as NSString).lastPathComponent)") }
             if let take = item.takeID { parts.append("take \(take) +\(TimeText.duration(item.takeOffset ?? .zero))") }
+            if let delay = item.pictureDelay, delay != .zero { parts.append("picture \(SyncResult.milliseconds(delay)) late, shown in sync") }
             parts.append(item.clips == 1 ? "1 clip" : "\(item.clips) clips")
             if !item.exists { parts.append("MISSING FILE") }
             parts.append(Self.analysisSummary(item.analysis))

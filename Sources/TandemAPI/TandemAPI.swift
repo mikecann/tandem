@@ -38,6 +38,7 @@ public enum ServiceOperation: String, CaseIterable, Codable, Sendable {
     case relink
     case check
     case comments
+    case sync
 
     /// The request type that carries this operation's parameters.
     public var callType: any ServiceCall.Type {
@@ -68,13 +69,14 @@ public enum ServiceOperation: String, CaseIterable, Codable, Sendable {
         case .relink: return RelinkRequest.self
         case .check: return CheckRequest.self
         case .comments: return CommentsRequest.self
+        case .sync: return SyncRequest.self
         }
     }
 
     /// True for operations that change the project.
     public var edits: Bool {
         switch self {
-        case .apply, .undo, .redo, .tighten, .captions, .short, .cards, .media, .archive, .relink: return true
+        case .apply, .undo, .redo, .tighten, .captions, .short, .cards, .media, .archive, .relink, .sync: return true
         default: return false
         }
     }

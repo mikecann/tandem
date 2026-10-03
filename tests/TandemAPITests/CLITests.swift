@@ -21,12 +21,15 @@ final class CLITests: XCTestCase {
     /// A shared library nothing makes, so commands run here never look in
     /// the real ~/Movies/Tandem Library.
     static let noSharedLibrary = FileManager.default.temporaryDirectory.appendingPathComponent("tandem-tests-no-shared-library-\(UUID().uuidString)").path
+    /// Settings nothing writes, so commands run here never use Mike's.
+    static let noSettings = FileManager.default.temporaryDirectory.appendingPathComponent("tandem-tests-no-settings-\(UUID().uuidString).json").path
 
     static func environment(_ extra: [String: String] = [:]) -> [String: String] {
         var environment = ProcessInfo.processInfo.environment
         environment.removeValue(forKey: "TANDEM_PROJECT")
         environment.removeValue(forKey: "TANDEM_AUTHOR")
         environment["TANDEM_LIBRARY"] = noSharedLibrary
+        environment["TANDEM_SETTINGS"] = noSettings
         environment.merge(extra) { $1 }
         return environment
     }
@@ -92,6 +95,13 @@ final class CLITests: XCTestCase {
         let noProject = try tandem("status", in: folder.url)
         XCTAssertEqual(noProject.status, 1)
         XCTAssertTrue(noProject.stderr.contains("No .tandem project"), noProject.stderr)
+
+        // What an export leaves beside its video is a record, not a project.
+        try Data("{}".utf8).write(to: folder.file("review 1:00-1:20.mp4.tandem"))
+        XCTAssertTrue(ProjectLocator.isRenderSnapshot(folder.file("review 1:00-1:20.mp4.tandem")))
+        XCTAssertFalse(ProjectLocator.isRenderSnapshot(folder.file("Daytona.tandem")))
+        let snapshotOnly = try tandem("status", in: folder.url)
+        XCTAssertTrue(snapshotOnly.stderr.contains("No .tandem project"), snapshotOnly.stderr)
 
         let badTime = try tandem("frame", "soon", in: folder.url)
         XCTAssertEqual(badTime.status, 2)

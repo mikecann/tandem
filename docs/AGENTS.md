@@ -1113,6 +1113,24 @@ Comments move with ripple edits like any marker, so list them again after
 one rather than reusing the times you read first. Leave a comment you
 couldn't do, or weren't sure about, and say why when you hand back.
 
+### Keep the camera in sync
+
+```bash
+tandem sync                                  # how late each file's picture is
+tandem sync 0.08                             # every camera take: picture 80 ms late
+tandem sync 0.05 --media med_screen          # one file
+tandem sync 0.08 --default                   # also what new camera takes get
+```
+
+A webcam's picture lags its microphone (Mike's by about 75 ms), so lips
+and voice drift apart. A file's `pictureDelay` makes every clip of it show
+its picture that much later in the file, in the app, frames, review clips,
+`check` and exports. The sound, the cuts and the transcript's word times
+stay where they are, so nothing else moves. New camera takes get Tandem's
+default (Settings in the app, or `--default`). Never slip clips by hand as
+well, or the delay doubles. `tandem media` shows it as "picture 80 ms
+late, shown in sync". In MCP: `sync {"delay": 0.08}`.
+
 ### Tighten pauses
 
 ```bash

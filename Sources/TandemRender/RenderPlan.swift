@@ -148,7 +148,10 @@ enum RenderPlanner {
                     warnings.add("\(item.path) is \(codec), which macOS can't decode, and it isn't converted yet, so it's left out.")
                     continue
                 }
-                let sourceStart = clip.freezeFrame ? clip.sourceStart : clip.sourceStart - head.scaled(by: clip.speed)
+                // A file whose picture lags its sound (a webcam) shows its
+                // picture that much later in the file; the matte follows.
+                let delay = item.pictureDelay ?? .zero
+                let sourceStart = (clip.freezeFrame ? clip.sourceStart : clip.sourceStart - head.scaled(by: clip.speed)) + delay
                 let picture = PlannedSegment(
                     clipID: clip.id, mediaID: item.id, role: .picture, timeline: visible,
                     sourceStart: sourceStart, speed: clip.speed, freeze: clip.freezeFrame

@@ -266,7 +266,8 @@ public final class MCPServer: @unchecked Sendable {
     changed: true and fix what it finds (black frames, flickers, green screen that didn't key). Mike's saved segments (his intro, outro and \
     calls to action) are in `segments_list` and go in with `segments_insert`. Mike leaves comments on the timeline for the next round \
     ("cut the umm here"): when he asks you to look at them, `comments` lists them; do each, then remove it with removeMarker in the same \
-    batch. Only change the project through these tools, and never quit \
+    batch. A camera's picture lags its mic: `sync` sets how late (never slip clips by hand for it). Only change the project through \
+    these tools, and never quit \
     or restart the app. Times are seconds or mm:ss.mmm. Pass `project` (a .tandem path) when the server wasn't started in the video's folder.
     """
 
@@ -635,6 +636,19 @@ enum MCPTools {
                 "width": S.integer("How wide frames are rendered for the scan. Default 384.")
             ],
             readOnly: true, idempotent: true
+        ),
+        Tool(
+            name: "sync", title: "Sync picture and sound",
+            description: "A webcam's picture lags its mic (Mike's by about 0.08 s), so lips and voice drift apart. With delay, every camera take (or the media files named) shows its picture that much later in the file, in the app, frames, review clips, check and exports; the sound, the cuts and word times stay put. 0 puts it back as recorded. Never slip clips by hand as well, or the delay doubles. Without delay it lists each file's delay and the default new camera takes get.",
+            operation: .sync,
+            properties: [
+                "delay": time("How late the picture is against the sound, in seconds (0.08 for 80 ms). 0 puts it back."),
+                "media": S.array(S.string("A media ID."), "The files to set. Default: every camera take."),
+                "makeDefault": S.boolean("Make it the delay new camera takes get, in Tandem's settings."),
+                "label": S.string("Undo label."),
+                "expectedRevision": S.integer("Refuse unless the project is at this revision.")
+            ],
+            readOnly: false
         ),
         Tool(
             name: "comments", title: "Mike's comments",

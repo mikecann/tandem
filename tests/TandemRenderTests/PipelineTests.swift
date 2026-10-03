@@ -32,6 +32,24 @@ final class PipelineTests: XCTestCase {
         XCTAssertEqual(TestMedia.readIndex(last, in: CGRect(x: 0, y: 0, width: 320, height: 180)), 74)
     }
 
+    func testAFilesPictureDelayShowsLaterFrames() async throws {
+        let media = try TestMedia()
+        try await indexMovie(media)
+        var item = media.item("med_i", "index.mov", seconds: 3)
+        item.pictureDelay = t(0.1)
+        let clip = Clip(id: "clip_a", content: .media(mediaID: "med_i"), start: .zero, duration: t(2), sourceStart: t(0.5))
+        // Used up to the file's end: the delay reaches past its last frame.
+        let tail = Clip(id: "clip_b", content: .media(mediaID: "med_i"), start: t(2), duration: t(0.5), sourceStart: t(2.5))
+        let project = smallProject(video: [Track(kind: .video, name: "V1", clips: [clip, tail])], media: [item])
+        let renderer = FrameRenderer(context: RenderContext(project: project, folder: media.projectFolder))
+        // 0.1 s is three frames at 30 fps: frame 15 becomes 18. Past the
+        // file's last frame (89), that frame holds.
+        for (time, expected) in [(0.0, 18), (1.0, 48), (2.0, 78), (2.45, 89)] {
+            let frame = Bitmap(try await renderer.image(at: t(time)))
+            XCTAssertEqual(TestMedia.readIndex(frame, in: CGRect(x: 0, y: 0, width: 320, height: 180)), expected, "at \(time)")
+        }
+    }
+
     func testSpeedAndFreezeFrames() async throws {
         let media = try TestMedia()
         try await indexMovie(media, seconds: 4)

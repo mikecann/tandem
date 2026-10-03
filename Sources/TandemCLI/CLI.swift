@@ -152,6 +152,15 @@ struct CLI {
             let result = try await client().call(request)
             _ = show(result, json: json)
             return result.ok ? 0 : 1
+        case "sync":
+            try args.expectPositionals(atMost: 1, command: name)
+            let delay = try args.positionals.first.map(Self.syncDelay)
+            let media = args.values("media")
+            let request = SyncRequest(
+                delay: delay, media: media.isEmpty ? nil : media, makeDefault: args.has("default") ? true : nil,
+                label: args.options["label"], expectedRevision: try args.integer("expect")
+            )
+            return show(try await client().call(request), json: json)
         case "comments":
             guard args.positionals.first == "resolve" else {
                 try args.expectPositionals(atMost: 0, command: name)
@@ -449,6 +458,14 @@ struct CLI {
         if let key = args.options["key"] { request.idempotencyKey = key }
         if args.has("dry-run") { request.dryRun = true }
         return request
+    }
+
+    /// A sync delay: seconds (0.08 or 0.08s), or milliseconds (80ms).
+    static func syncDelay(_ text: String) throws -> Time {
+        let value = text.trimmingCharacters(in: .whitespaces).lowercased()
+        if value.hasSuffix("ms"), let ms = Double(value.dropLast(2)) { return Time(seconds: ms / 1000) }
+        if let seconds = Double(value.hasSuffix("s") ? String(value.dropLast()) : value) { return Time(seconds: seconds) }
+        throw UsageError(message: "\(text) isn't a delay. Give seconds, like tandem sync 0.08, or milliseconds, like tandem sync 80ms.")
     }
 
     /// Clears comments an agent has done: one undoable edit, credited to it.

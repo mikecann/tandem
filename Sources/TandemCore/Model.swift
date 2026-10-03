@@ -191,6 +191,12 @@ public struct MediaItem: Codable, Equatable, Identifiable, Sendable {
     /// stored like `path`. Scanning pairs them and doesn't add the movie as
     /// media of its own, so it's kept here for later use.
     public var livePhotoVideo: String?
+    /// How late the file's picture is against its own sound, in seconds: a
+    /// webcam's picture lags its microphone (Mike's by about 0.08 s). Every
+    /// clip of the file shows its picture this much later in the file, so
+    /// lips match the voice, while its sound, its cuts and the transcript's
+    /// word times stay where they are. Nil or zero: in sync.
+    public var pictureDelay: Time?
 
     public init(
         id: String = IDs.make("med"),
@@ -210,7 +216,8 @@ public struct MediaItem: Codable, Equatable, Identifiable, Sendable {
         undecodableCodec: String? = nil,
         fingerprint: String? = nil,
         look: [Effect] = [],
-        livePhotoVideo: String? = nil
+        livePhotoVideo: String? = nil,
+        pictureDelay: Time? = nil
     ) {
         self.id = id
         self.path = path
@@ -230,6 +237,7 @@ public struct MediaItem: Codable, Equatable, Identifiable, Sendable {
         self.fingerprint = fingerprint
         self.look = look
         self.livePhotoVideo = livePhotoVideo
+        self.pictureDelay = pictureDelay
     }
 }
 
@@ -1038,6 +1046,7 @@ extension MediaItem {
         fingerprint = try c.decodeIfPresent(String.self, forKey: .fingerprint)
         look = try c.decode(.look, or: [])
         livePhotoVideo = try c.decodeIfPresent(String.self, forKey: .livePhotoVideo)
+        pictureDelay = try c.decodeIfPresent(Time.self, forKey: .pictureDelay)
     }
 }
 

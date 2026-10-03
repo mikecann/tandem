@@ -27,8 +27,8 @@ public enum MediaScanner {
     /// that are gone are left out; use
     /// `scanReport` to get them, along with files that couldn't be read yet
     /// and anything worth telling Mike.
-    public static func scan(_ folder: ProjectFolder, known: [MediaItem]) async throws -> [MediaItem] {
-        try await scanReport(folder, known: known).items
+    public static func scan(_ folder: ProjectFolder, known: [MediaItem], settings: TandemSettings = .load()) async throws -> [MediaItem] {
+        try await scanReport(folder, known: known, settings: settings).items
     }
 
     /// Scans the folder like `scan` and says what happened.
@@ -37,7 +37,8 @@ public enum MediaScanner {
     /// for a rename, when a new file has the same content (size and hash of
     /// both ends). Unchanged files (same size and modification time) are not
     /// probed again, so rescanning a big folder is cheap.
-    public static func scanReport(_ folder: ProjectFolder, known: [MediaItem]) async throws -> ScanReport {
+    /// New camera takes get the camera picture delay from `settings`.
+    public static func scanReport(_ folder: ProjectFolder, known: [MediaItem], settings: TandemSettings = .load()) async throws -> ScanReport {
         let files = mediaFiles(in: folder)
         var report = ScanReport()
 
@@ -132,6 +133,11 @@ public enum MediaScanner {
         LivePhotos.forgetMissingMotionClips(&items, folder: folder)
 
         report.cameraTakes = await findCameraTakes(&items, new: new, folder: folder)
+        // A webcam's picture lags its mic: new takes play in sync from the
+        // start (`TandemSettings.cameraPictureDelay`).
+        for index in items.indices where new.contains(items[index].id) && items[index].pictureDelay == nil {
+            items[index].pictureDelay = settings.pictureDelay(for: items[index])
+        }
         report.items = items
         return report
     }
@@ -365,7 +371,7 @@ public enum MediaScanner {
 
     /// Probes one file: duration, frame rate, size, streams, alpha, VFR, and
     /// its role, including whether a video is a camera take.
-    public static func probe(_ url: URL, folder: ProjectFolder, id: String? = nil) async throws -> MediaItem {
+    public static func probe(_ url: URL, folder: ProjectFolder, id: String? = nil, settings: TandemSettings = .load()) async throws -> MediaItem {
         let path = folder.path(for: url)
         let probe = try await MediaProbe.probe(url)
         var item = MediaItem(id: id ?? IDs.make("med"), path: path, kind: probe.kind, role: .other)
@@ -373,6 +379,7 @@ public enum MediaScanner {
         item.role = role(forPath: path, kind: probe.kind, duration: probe.duration)
         if await CameraTakes.reason(for: item, at: url) != nil { item.role = .camera }
         item.fingerprint = try Fingerprint.compute(for: url).description
+        item.pictureDelay = settings.pictureDelay(for: item)
         return item
     }
 }

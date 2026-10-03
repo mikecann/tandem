@@ -3,6 +3,7 @@ import SwiftUI
 import TandemAPI
 import TandemAssets
 import TandemCore
+import TandemMedia
 
 /// Tandem > Settings…: where the shared library is, and the sound each type
 /// of transition plays. One window, reused.
@@ -87,6 +88,8 @@ struct SettingsView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             Rectangle().fill(Theme.sheetDivider.color).frame(height: 1).padding(.vertical, 4)
+            CameraSyncSettingsView()
+            Rectangle().fill(Theme.sheetDivider.color).frame(height: 1).padding(.vertical, 4)
             TransitionSoundSettingsView()
         }
         .padding(22)
@@ -109,6 +112,61 @@ struct SettingsView: View {
     private func move(to folder: URL?) {
         message = "Moving…"
         host.moveSharedLibrary(to: folder) { message = $0 }
+    }
+}
+
+/// The picture delay new camera takes get: a webcam's picture lags its mic,
+/// so without it lips and voice drift apart (`TandemSettings`, shared with
+/// the `tandem` command).
+struct CameraSyncSettingsView: View {
+    @State private var milliseconds = PictureDelay.milliseconds(Time(seconds: TandemSettings.load().cameraPictureDelay))
+    @State private var problem: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                Image(systemName: "video.badge.waveform")
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(Theme.textMuted.color)
+                Text("Camera sync")
+                    .font(.ui(15, .bold))
+                    .foregroundStyle(Theme.text.color)
+            }
+            Text("A webcam's picture runs a little behind its microphone, so lips and voice drift apart. New camera takes get this delay, and every clip of them shows its picture that much later. A file's own delay is in the Info tab.")
+                .font(.ui(12))
+                .foregroundStyle(Theme.textMuted.color)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 10) {
+                Text("New camera takes")
+                    .font(.ui(12.5))
+                    .foregroundStyle(Theme.text.color)
+                Menu(PictureDelay.title(milliseconds: milliseconds)) {
+                    ForEach(PictureDelay.choices, id: \.self) { choice in
+                        Button(PictureDelay.title(milliseconds: choice)) { set(choice) }
+                    }
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                Spacer()
+            }
+            if let problem {
+                Text(problem)
+                    .font(.ui(11.5))
+                    .foregroundStyle(Theme.amber.color)
+            }
+        }
+    }
+
+    private func set(_ choice: Int) {
+        var settings = TandemSettings.load()
+        settings.cameraPictureDelay = Double(choice) / 1000
+        do {
+            try settings.save()
+            milliseconds = choice
+            problem = nil
+        } catch {
+            problem = "Couldn't save it: \(error.localizedDescription)"
+        }
     }
 }
 

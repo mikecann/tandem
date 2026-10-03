@@ -583,6 +583,25 @@ struct ClipInfo: View {
                 InfoRow(label: "Streams", value: [item.hasVideo ? "picture" : nil, item.hasAudio ? "sound" : nil, item.hasAlpha ? "alpha" : nil].compactMap { $0 }.joined(separator: ", "))
                 if let codec = item.undecodableCodecName { InfoRow(label: "Codec", value: conversionText(codec, item)) }
                 if let take = item.takeID { InfoRow(label: "Take", value: take + (item.takeOffset.map { " · starts \(String(format: "%.3f", $0.seconds)) s in" } ?? "")) }
+                if item.kind == .video, item.hasVideo {
+                    HStack(spacing: 10) {
+                        Text("Picture delay")
+                            .font(.ui(12))
+                            .foregroundStyle(Theme.textMuted.color)
+                            .frame(width: 86, alignment: .leading)
+                        Menu(PictureDelay.title(milliseconds: PictureDelay.milliseconds(item.pictureDelay))) {
+                            ForEach(PictureDelay.choices, id: \.self) { choice in
+                                Button(PictureDelay.title(milliseconds: choice)) {
+                                    if let batch = PictureDelay.batch(item, milliseconds: choice) { model.apply(batch) }
+                                }
+                            }
+                        }
+                        .menuStyle(.borderlessButton)
+                        .fixedSize()
+                        Spacer()
+                    }
+                    .tip("How late this file's picture is against its sound: a webcam's picture lags its mic. Every clip of the file shows its picture that much later, so lips match the voice; the sound and cuts don't move. New camera takes get the delay set in Settings.")
+                }
             }
         }
     }
