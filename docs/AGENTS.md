@@ -1131,6 +1131,12 @@ default (Settings in the app, or `--default`). Never slip clips by hand as
 well, or the delay doubles. `tandem media` shows it as "picture 80 ms
 late, shown in sync". In MCP: `sync {"delay": 0.08}`.
 
+Record It now takes the lag out as it records (its Settings → Camera
+delay) and tags the file `com.mikerosoft.record-it.camera-delay`. Tandem
+reads the tag (`pictureDelayCorrected`, "in sync as recorded" in `tandem
+media`), gives those takes no delay of its own, and `tandem sync` leaves
+them alone.
+
 ### Tighten pauses
 
 ```bash

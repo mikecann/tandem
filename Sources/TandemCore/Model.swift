@@ -197,6 +197,11 @@ public struct MediaItem: Codable, Equatable, Identifiable, Sendable {
     /// lips match the voice, while its sound, its cuts and the transcript's
     /// word times stay where they are. Nil or zero: in sync.
     public var pictureDelay: Time?
+    /// How much of the picture's lag the recorder already took out, so the
+    /// file is in sync as recorded: Record It's Camera delay, read from its
+    /// `com.mikerosoft.record-it.camera-delay` tag. Tandem doesn't add its
+    /// own default delay to such a file.
+    public var pictureDelayCorrected: Time?
 
     public init(
         id: String = IDs.make("med"),
@@ -217,7 +222,8 @@ public struct MediaItem: Codable, Equatable, Identifiable, Sendable {
         fingerprint: String? = nil,
         look: [Effect] = [],
         livePhotoVideo: String? = nil,
-        pictureDelay: Time? = nil
+        pictureDelay: Time? = nil,
+        pictureDelayCorrected: Time? = nil
     ) {
         self.id = id
         self.path = path
@@ -238,6 +244,7 @@ public struct MediaItem: Codable, Equatable, Identifiable, Sendable {
         self.look = look
         self.livePhotoVideo = livePhotoVideo
         self.pictureDelay = pictureDelay
+        self.pictureDelayCorrected = pictureDelayCorrected
     }
 }
 
@@ -1047,6 +1054,7 @@ extension MediaItem {
         look = try c.decode(.look, or: [])
         livePhotoVideo = try c.decodeIfPresent(String.self, forKey: .livePhotoVideo)
         pictureDelay = try c.decodeIfPresent(Time.self, forKey: .pictureDelay)
+        pictureDelayCorrected = try c.decodeIfPresent(Time.self, forKey: .pictureDelayCorrected)
     }
 }
 

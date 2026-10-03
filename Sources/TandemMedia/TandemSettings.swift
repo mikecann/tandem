@@ -50,9 +50,10 @@ public struct TandemSettings: Codable, Equatable, Sendable {
     }
 
     /// The delay a new file gets: the camera picture delay for a camera
-    /// take's video, nothing otherwise.
+    /// take's video, unless its recorder already took the lag out (Record
+    /// It's Camera delay); nothing otherwise.
     public func pictureDelay(for item: MediaItem) -> Time? {
-        guard item.role == .camera, item.kind == .video, item.hasVideo, cameraPictureDelay != 0 else { return nil }
+        guard item.role == .camera, item.kind == .video, item.hasVideo, item.pictureDelayCorrected == nil, cameraPictureDelay != 0 else { return nil }
         return Time(seconds: cameraPictureDelay)
     }
 }

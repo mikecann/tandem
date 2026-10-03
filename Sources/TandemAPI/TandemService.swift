@@ -237,7 +237,8 @@ public final class TandemService: @unchecked Sendable {
                 clips: usage[item.id] ?? 0,
                 exists: FileManager.default.fileExists(atPath: folder.url(for: item).path),
                 analysis: analysisStates(for: item, jobs: jobs),
-                pictureDelay: item.pictureDelay
+                pictureDelay: item.pictureDelay,
+                pictureDelayCorrected: item.pictureDelayCorrected
             )
         }
         return MediaResult(revision: revision, added: added, items: items)

@@ -86,9 +86,11 @@ matter more than the numbers.
   clap test on 2026-10-02 measured about 75 ms (±20 ms). Tandem fixes it
   per file: a camera take's `pictureDelay` makes every clip of it show its
   picture that much later, everywhere, while the sound and cuts stay put.
-  New camera takes get Tandem's default (0.08 s on his Mac). `tandem sync`
-  shows each file's delay; `tandem sync 0.08` sets it on a project made
-  before the default. Never slip clips by hand as well, or the delay
+  Record It takes the lag out as it records (from 2026-10-03; Tandem shows
+  those takes "in sync as recorded" and leaves them alone), and older camera
+  takes get Tandem's default (0.08 s on his Mac). `tandem sync` shows each
+  file's delay; `tandem sync 0.08` sets it on a project made before the
+  default. Never slip clips by hand as well, or the delay
   doubles: undo old hand slips (Daytona's +0.09 s) before using it. Don't
   chase exact: the webcam only gives about 22.5 real frames a second (it
   repeats 3 of every 12), so sync wobbles by up to 30 ms whatever you pick.

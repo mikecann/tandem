@@ -42,6 +42,7 @@ enum Help {
                     details: """
                     A webcam's picture lags its mic (Mike's by about 0.08 s). With a delay, every camera take (or the --media files) shows its picture that much later in the file, everywhere: the app, frames, review clips, check and exports. The sound, the cuts and the transcript's word times stay where they are, so nothing else moves. 0 puts the picture back as recorded. Don't also slip clips by hand, or the delay doubles.
                     --default makes it the delay new camera takes get (Tandem's settings), as Settings in the app does.
+                    Takes Record It already corrected (its Camera delay, tagged in the file) show "in sync as recorded" and are left alone.
                     Without a delay it lists each file's delay and the default.
                     """),
         CommandHelp(name: "comments", usage: "tandem comments [resolve <id>... | resolve --all]", summary: "The comments Mike left on the timeline for you, with what's said and playing at each; resolve clears the ones you've done.", options: ["all", "label"],

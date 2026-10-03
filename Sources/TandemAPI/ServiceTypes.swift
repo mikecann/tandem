@@ -153,6 +153,8 @@ public struct MediaInfo: Codable, Sendable {
     /// How late the file's picture is against its sound; every clip of it
     /// shows its picture that much later (`tandem sync`).
     public var pictureDelay: Time? = nil
+    /// The lag its recorder already took out (Record It's Camera delay).
+    public var pictureDelayCorrected: Time? = nil
 }
 
 public struct MediaResult: Codable, Sendable {

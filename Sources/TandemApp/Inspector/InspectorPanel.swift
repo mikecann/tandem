@@ -583,6 +583,9 @@ struct ClipInfo: View {
                 InfoRow(label: "Streams", value: [item.hasVideo ? "picture" : nil, item.hasAudio ? "sound" : nil, item.hasAlpha ? "alpha" : nil].compactMap { $0 }.joined(separator: ", "))
                 if let codec = item.undecodableCodecName { InfoRow(label: "Codec", value: conversionText(codec, item)) }
                 if let take = item.takeID { InfoRow(label: "Take", value: take + (item.takeOffset.map { " · starts \(String(format: "%.3f", $0.seconds)) s in" } ?? "")) }
+                if let corrected = item.pictureDelayCorrected {
+                    InfoRow(label: "Lip sync", value: "In sync as recorded: Record It took out \(PictureDelay.milliseconds(corrected)) ms")
+                }
                 if item.kind == .video, item.hasVideo {
                     HStack(spacing: 10) {
                         Text("Picture delay")

@@ -23,6 +23,12 @@ struct MediaProbe: Sendable {
     var creationDate: Date?
     /// Number of video frames, when there's a video track.
     var frameCount: Int?
+    /// The picture lag the recorder already took out (Record It's tag).
+    var pictureDelayCorrected: Time?
+
+    /// Record It's tag for the camera delay it took out of the picture, in
+    /// seconds (QuickTime metadata).
+    static let cameraDelayKey = "com.mikerosoft.record-it.camera-delay"
 
     func apply(to item: inout MediaItem) {
         item.kind = kind
@@ -35,6 +41,7 @@ struct MediaProbe: Sendable {
         item.hasAlpha = hasAlpha
         item.variableFrameRate = variableFrameRate
         item.undecodableCodec = undecodableCodec
+        item.pictureDelayCorrected = pictureDelayCorrected
     }
 
     static func probe(_ url: URL) async throws -> MediaProbe {
@@ -71,7 +78,7 @@ struct MediaProbe: Sendable {
 
     static func probeAudioVisual(_ url: URL) async throws -> MediaProbe {
         let asset = AVURLAsset(url: url, options: [AVURLAssetPreferPreciseDurationAndTimingKey: true])
-        let (duration, tracks, creation) = try await asset.load(.duration, .tracks, .creationDate)
+        let (duration, tracks, creation, metadata) = try await asset.load(.duration, .tracks, .creationDate, .metadata)
         let videoTracks = tracks.filter { $0.mediaType == .video }
         let audioTracks = tracks.filter { $0.mediaType == .audio }
         guard !videoTracks.isEmpty || !audioTracks.isEmpty, duration.isNumeric, duration.seconds > 0 else {
@@ -84,6 +91,11 @@ struct MediaProbe: Sendable {
         probe.hasAudio = !audioTracks.isEmpty
         probe.hasVideo = !videoTracks.isEmpty
         if let creation { probe.creationDate = try? await creation.load(.dateValue) }
+        let cameraDelay = AVMetadataItem.identifier(forKey: cameraDelayKey, keySpace: .quickTimeMetadata)
+        if let tag = metadata.first(where: { $0.identifier == cameraDelay }),
+           let text = try? await tag.load(.stringValue), let seconds = Double(text) {
+            probe.pictureDelayCorrected = Time(seconds: seconds)
+        }
 
         if let track = videoTracks.first {
             let (size, transform, nominalRate, formats, timescale, canCursor, decodable) = try await track.load(

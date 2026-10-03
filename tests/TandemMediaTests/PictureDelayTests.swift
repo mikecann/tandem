@@ -33,6 +33,20 @@ final class PictureDelayTests: TempFolderTestCase {
         XCTAssertEqual(dropped.pictureDelay, Time(seconds: 0.08))
     }
 
+    func testATakeRecordItAlreadyCorrectedGetsNoMoreDelay() async throws {
+        var spec = SyntheticMedia.Video(width: 320, height: 180, duration: 1)
+        spec.metadata = [AVMetadataItem.identifier(forKey: "com.mikerosoft.record-it.camera-delay", keySpace: .quickTimeMetadata)!: "0.080"]
+        try await SyntheticMedia.writeMovie(to: file("source/2026-10-03_101500-camera.mov"), spec)
+        try await SyntheticMedia.writeMovie(to: file("source/2026-09-30_090000-camera.mov"), .init(width: 320, height: 180, duration: 1))
+        let report = try await MediaScanner.scanReport(folder, known: [], settings: TandemSettings(cameraPictureDelay: 0.08))
+        let corrected = try XCTUnwrap(report.items.first { $0.path.contains("2026-10-03") })
+        XCTAssertEqual(corrected.pictureDelayCorrected, Time(seconds: 0.08), "Record It's tag")
+        XCTAssertNil(corrected.pictureDelay, "in sync as recorded: no second delay")
+        let older = try XCTUnwrap(report.items.first { $0.path.contains("2026-09-30") })
+        XCTAssertNil(older.pictureDelayCorrected)
+        XCTAssertEqual(older.pictureDelay, Time(seconds: 0.08), "a take from before Record It corrected them still gets Tandem's")
+    }
+
     func testTheSettingsFileReadsBackAndToleratesItsAbsence() throws {
         let url = file("settings/settings.json")
         XCTAssertEqual(TandemSettings.load(from: url), TandemSettings(), "no file: the defaults")

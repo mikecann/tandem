@@ -65,6 +65,8 @@ public struct SyncFile: Codable, Sendable {
     public var path: String
     public var role: MediaRole
     public var pictureDelay: Time?
+    /// The lag its recorder already took out (Record It's Camera delay).
+    public var pictureDelayCorrected: Time?
 }
 
 extension SyncResult: ReadableResult {
@@ -78,7 +80,9 @@ extension SyncResult: ReadableResult {
             let idWidth = files.map(\.id.count).max() ?? 0
             for file in files {
                 let delay = file.pictureDelay.flatMap { $0 == .zero ? nil : $0 }
-                lines.append("  \(file.id.padding(toLength: idWidth, withPad: " ", startingAt: 0))  \(file.path)  \(file.role.rawValue)  \(delay.map(Self.milliseconds) ?? "as recorded")")
+                var state = delay.map(Self.milliseconds) ?? "as recorded"
+                if let corrected = file.pictureDelayCorrected { state += ", in sync as recorded (Record It took out \(Self.milliseconds(corrected)))" }
+                lines.append("  \(file.id.padding(toLength: idWidth, withPad: " ", startingAt: 0))  \(file.path)  \(file.role.rawValue)  \(state)")
             }
         }
         lines.append(defaultDelay == .zero
@@ -108,7 +112,8 @@ extension TandemService {
                     return item
                 }
             } else {
-                targets = project.media.filter(Self.isCameraTake)
+                // Takes Record It already corrected are in sync as they are.
+                targets = project.media.filter { Self.isCameraTake($0) && $0.pictureDelayCorrected == nil }
             }
             let commands = targets.filter { ($0.pictureDelay ?? .zero) != delay }.map { item in
                 EditCommand.updateMedia(mediaID: item.id, patch: .object(["pictureDelay": delay == .zero ? .null : .number(delay.seconds)]))
@@ -132,7 +137,7 @@ extension TandemService {
         let (project, revision) = coordinator.snapshot()
         let files = project.media.filter { $0.kind == .video && $0.hasVideo }
             .sorted { (Self.isCameraTake($0) ? 0 : 1, $0.path) < (Self.isCameraTake($1) ? 0 : 1, $1.path) }
-            .map { SyncFile(id: $0.id, path: $0.path, role: $0.role, pictureDelay: $0.pictureDelay) }
+            .map { SyncFile(id: $0.id, path: $0.path, role: $0.role, pictureDelay: $0.pictureDelay, pictureDelayCorrected: $0.pictureDelayCorrected) }
         return SyncResult(revision: revision, files: files, defaultDelay: Time(seconds: settings.cameraPictureDelay), applied: applied)
     }
 

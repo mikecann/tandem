@@ -36,6 +36,20 @@ final class SyncTests: XCTestCase {
     }
 }
 
+extension SyncTests {
+    func testATakeRecordItCorrectedIsLeftInSync() throws {
+        var project = APIFixture.project()
+        let index = try XCTUnwrap(project.media.firstIndex { $0.id == "med_camera" })
+        project.media[index].pictureDelayCorrected = t(0.08)
+        let h = try ServiceHarness(project: project)
+        defer { h.close() }
+        let result = try h.service.sync(SyncRequest(delay: t(0.08)), context: h.context)
+        XCTAssertNil(result.applied, "nothing to do: Record It took the delay out")
+        XCTAssertNil(h.service.coordinator.project.media("med_camera")?.pictureDelay)
+        XCTAssertTrue(result.readableText.contains("as recorded, in sync as recorded (Record It took out 80 ms)"), result.readableText)
+    }
+}
+
 /// `tandem sync` as agents run it.
 final class SyncCLITests: XCTestCase {
     private let cli = CLITests()
