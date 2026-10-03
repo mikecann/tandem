@@ -69,6 +69,62 @@ do, and say why when you hand back.
   0.4 s everywhere else.
 - **The ending:** run on about 5 s after the sign-off, fade to black, and
   fade the music out with it.
+- **Mid-sentence pauses:** close them right up (about 0.08 s) so a sentence
+  sounds like one thought. The 0.4 s is for between sentences. Leave live
+  demo reactions alone.
+- **Editor's notes:** Mike says them out loud in the take ("editor's note:
+  cut that bit"). Read the transcript for them before cutting, and remove
+  both the note and what it points at.
+
+## How Mike likes the rest of the edit
+
+From his review comments on the Daytona video (October 2026). The reasons
+matter more than the numbers.
+
+- **Sync first.** His webcam picture lags his USB mic, so lips and voice
+  drift apart (it spoiled the first Daytona upload and the ESLint video). A
+  clap test on 2026-10-02 measured about 75 ms (±20 ms). Tandem fixes it
+  per file: a camera take's `pictureDelay` makes every clip of it show its
+  picture that much later, everywhere, while the sound and cuts stay put.
+  New camera takes get Tandem's default (0.08 s on his Mac). `tandem sync`
+  shows each file's delay; `tandem sync 0.08` sets it on a project made
+  before the default. Never slip clips by hand as well, or the delay
+  doubles: undo old hand slips (Daytona's +0.09 s) before using it. Don't
+  chase exact: the webcam only gives about 22.5 real frames a second (it
+  repeats 3 of every 12), so sync wobbles by up to 30 ms whatever you pick.
+- **B-roll starts and ends on sentence boundaries:** the take's cuts, or a
+  real pause between words. Never 0.2 s off a cut or mid-word. If less than
+  about 1.5 s of camera would show between two B-roll shots, join them. A
+  quick flash back to the camera looks like a glitch. Use `holdEdges` when a
+  shot runs short.
+- **Show what he says.** When he names a thing (a dashboard table, a docs
+  page, a claim someone made, a price), put the real thing on screen while
+  he says it. A highlight (the $200 free credit) appears when he says it,
+  not before.
+- **Section cards: about 3.2 s.** 4 to 4.8 s felt a touch long, 2 s far too
+  short. "A touch shorter" means a modest change, not the number he floats.
+  To lengthen or shorten a card, open or close time only in the take's gap
+  under it (`insertTime` or `rippleDeleteRange`). The cards wipe over the
+  edges of speech. Then stretch the music bed that spans the card, because
+  clips that span an inserted point don't grow.
+- **Music around cards.** The track plays through the whole card and never
+  cuts out under it. A new track starts right after a card ends, at chapter
+  breaks only. Swell about +14 dB in the card's speech-free middle with
+  `audio.gainDB` keyframes (they set the gain outright, times are
+  clip-relative), and back down before he speaks. The whimsical underscore
+  is for the intro only. Give the outro its own track.
+- **Linked sounds:** a card's whooshes are linked to it, so trim either with
+  `"includeLinked": false` or you drag the other along.
+- **On-screen text moves in and out.** A question or callout slides in and
+  slides off (position keyframes), rather than popping in and vanishing. He
+  liked the typewriter reveal with a typing sound.
+- **Demos where speed is the point** play in real time, with no cuts, so
+  viewers can see how fast it really is.
+- **Before uploading,** watch the start of the export, where sync problems
+  show first. The export's limiter takes about 8 dB off his voice's peaks to
+  reach -14 LUFS, and he hears that as artificial. The project's
+  `loudnessTarget` is ignored by the YouTube presets for now
+  (mikecann/tandem#3).
 
 ## Rules
 
