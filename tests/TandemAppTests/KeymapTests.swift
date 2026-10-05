@@ -144,4 +144,9 @@ final class KeyboardRouterTests: XCTestCase {
         XCTAssertEqual(performed.suffix(3), [.nextKeyframe, .nextKeyframe, .toggleKeyframe])
         XCTAssertTrue(steps.isEmpty)
     }
+
+    /// File > Open makes another window; the project already open stays.
+    func testOpenSaysItOpensAnotherWindow() {
+        XCTAssertEqual(EditorCommand.openProject.title, "Open project in new window…")
+    }
 }

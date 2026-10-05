@@ -107,7 +107,7 @@ enum EditorCommand: String, CaseIterable, Codable {
         case .saveVersion: return "Save as version…"
         case .export: return "Export…"
         case .newProject: return "New project…"
-        case .openProject: return "Open…"
+        case .openProject: return "Open project in new window…"
         }
     }
 }
