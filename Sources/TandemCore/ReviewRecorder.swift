@@ -72,6 +72,16 @@ public final class ReviewRecorder: @unchecked Sendable {
         }
     }
 
+    /// Mike has watched these stretches of `project`'s timeline: what lies
+    /// wholly in them is reviewed (`ReviewLog.markWatched`).
+    public func markWatched(_ watched: [TimeRange], in project: Project) {
+        queue.sync {
+            var log = _log
+            guard log.markWatched(watched, in: project) else { return }
+            commit(log)
+        }
+    }
+
     /// What the journal replayed when the project opened after a crash,
     /// which no recorder heard committing: the agents' batches are
     /// recorded (unless the log already has them) and undos prune.

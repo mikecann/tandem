@@ -360,6 +360,56 @@ extension ReviewLog {
         return regions
     }
 
+    /// Clears what Mike has watched in the app: each clip and transition
+    /// whose whole stretch lies in `watched` (give or take `slack` at
+    /// either end, for starting play a moment late), and each cut he played
+    /// across. Entries with nothing left go. Returns whether anything did.
+    @discardableResult
+    public mutating func markWatched(_ watched: [TimeRange], in project: Project, slack: Time = Time(seconds: 0.5)) -> Bool {
+        guard !entries.isEmpty, !watched.isEmpty else { return false }
+        let seen = TimeRange.union(watched)
+        func covered(_ start: Time, _ end: Time) -> Bool {
+            // A stretch shorter than the slack needs its middle watched.
+            var from = start + slack
+            var to = end - slack
+            if to <= from {
+                from = start + Time(flicks: (end - start).flicks / 2)
+                to = from
+            }
+            return seen.contains { $0.start <= from && to <= $0.end }
+        }
+        var clips: [String: Clip] = [:]
+        var transitions: [String: Transition] = [:]
+        for track in project.allTracks {
+            for clip in track.clips { clips[clip.id] = clip }
+            for transition in track.transitions { transitions[transition.id] = transition }
+        }
+        var changed = false
+        for index in entries.indices {
+            var entry = entries[index]
+            let watchedClips = Set(entry.clipIDs.filter { id in clips[id].map { covered($0.start, $0.end) } ?? false })
+            entry.added.removeAll(where: watchedClips.contains)
+            entry.changed.removeAll(where: watchedClips.contains)
+            entry.transitions.removeAll { id in
+                guard let transition = transitions[id], let span = Self.span(of: transition, clips: clips) else { return false }
+                return covered(span.start, span.end)
+            }
+            // A cut is a moment: watched when play went across it.
+            entry.removals.removeAll { removal in
+                let at = removal.time(in: project)
+                let reach = Time(seconds: 0.25)
+                return seen.contains { $0.start <= at - reach && at + reach <= $0.end }
+            }
+            if entry != entries[index] {
+                entries[index] = entry
+                changed = true
+            }
+        }
+        let before = entries.count
+        entries.removeAll(where: \.isEmpty)
+        return changed || entries.count != before
+    }
+
     /// The time a transition plays over: centred on its cut, or at the
     /// head or tail it fades.
     static func span(of transition: Transition, clips: [String: Clip]) -> (start: Time, end: Time)? {

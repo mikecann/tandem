@@ -1793,7 +1793,8 @@ still when it's beside it. It's one undo step.
 - Mike reviews your edits in the app rather than watching the whole video
   again: every batch that changes the timeline and isn't his is
   highlighted there (the clips it added or changed, a mark where it took
-  something out) until he marks them reviewed, and he steps from one to
+  something out) until he plays through them (each clears once he's
+  watched all of it) or marks them reviewed, and he steps from one to
   the next. Label batches with what they do (`"B-roll over the config
   file"`), since that's what he reads when he hovers one.
 - `tandem status` lists your edits still waiting for him as `waiting for

@@ -232,6 +232,18 @@ final class EditorBehaviourTests: XCTestCase {
         added.cancel()
     }
 
+    func testPlayingThroughAnAgentChangeReviewsIt() throws {
+        editor.model.apply(EditBatch(label: "B-roll over the demo", author: "claude", commands: [.placeMedia(mediaIDs: [editor.clip("B-roll").mediaID!], at: t(40), duration: t(3))]))
+        editor.settle()
+        XCTAssertEqual(editor.model.reviewLog.entries.map(\.label), ["B-roll over the demo"])
+        editor.model.noteWatched(from: t(30), to: t(41))
+        XCTAssertFalse(editor.model.reviewLog.isEmpty, "not watched to the end yet")
+        editor.model.noteWatched(from: t(41), to: t(44))
+        editor.settle()
+        XCTAssertTrue(editor.model.reviewLog.isEmpty, "watched it all: reviewed")
+        XCTAssertTrue(editor.model.review.isEmpty, "and the violet's gone")
+    }
+
     func testTheSidebarFollowsWhatsNearThePlayhead() throws {
         editor.model.apply(try XCTUnwrap(CommentEdits.add("Cut the umm", at: t(12), id: "mk_umm")))
         editor.model.apply(EditBatch(label: "To-do", commands: [.addMarker(marker: Marker(id: "mk_todo", time: t(16), name: "B-roll: the SQLite file", kind: .todo, note: "Open it in TablePlus"))]))

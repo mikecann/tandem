@@ -355,6 +355,30 @@ final class ReviewLogTests: XCTestCase {
         XCTAssertEqual(log.entries[0].added, [c.clips("B-roll").last!.id])
     }
 
+    /// Played through in the app, an agent's change is reviewed: a clip
+    /// once Mike has watched all of it (give or take half a second at its
+    /// ends), a cut once he's played across it.
+    func testWhatMikeWatchesIsReviewed() throws {
+        let (_, c) = try Fixture.edited()
+        var log = ReviewLog()
+        try run(c, &log, by: "claude", [.placeMedia(mediaIDs: ["med_broll"], at: t(40), duration: t(3))], label: "B-roll")
+        try run(c, &log, by: "claude", [.placeMedia(mediaIDs: ["med_broll"], at: t(50), duration: t(4))], label: "More B-roll")
+        try run(c, &log, by: "claude", [.rippleDeleteRange(range: TimeRange(start: t(20), end: t(21)))], label: "Cut")
+        XCTAssertEqual(log.entries.map(\.label), ["B-roll", "More B-roll", "Cut"])
+        let first = c.clips("B-roll").first { $0.start == t(39) || $0.start == t(40) }!.start
+
+        // Most of the first shot, but not all of it: still waiting.
+        XCTAssertFalse(log.markWatched([TimeRange(start: first + t(1), end: first + t(3))], in: c.project))
+        // Started a moment late and stopped a moment early: that's watching it.
+        XCTAssertTrue(log.markWatched([TimeRange(start: first + t(0.3), end: first + t(2.7))], in: c.project))
+        XCTAssertEqual(log.entries.map(\.label), ["More B-roll", "Cut"], "an entry with nothing left goes")
+
+        // Two stretches that meet count as one.
+        XCTAssertFalse(log.markWatched([TimeRange(start: t(10), end: t(19.9))], in: c.project), "stopped short of the cut")
+        XCTAssertTrue(log.markWatched([TimeRange(start: t(10), end: t(19.9)), TimeRange(start: t(19.9), end: t(21))], in: c.project), "played across it")
+        XCTAssertEqual(log.entries.map(\.label), ["More B-roll"])
+    }
+
     /// The highlight is on the clip's ID, so it stays with the clip when
     /// Mike tightens the take before it and then moves it.
     func testTheHighlightFollowsItsClipThroughARippleAndAMove() throws {

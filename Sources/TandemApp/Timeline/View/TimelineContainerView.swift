@@ -266,6 +266,7 @@ final class TimelineContainerView: NSView {
         lanes.playheadMoved(to: playheadTime)
         scroller.needsDisplay = true
         model.refreshNearPlayhead()
+        model.notePlayhead()
     }
 
     func positionPlayhead() {

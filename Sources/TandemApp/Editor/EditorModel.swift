@@ -177,6 +177,11 @@ final class EditorModel {
     private(set) var nearPlayhead = NearThePlayhead.empty
     func setNearPlayhead(_ near: NearThePlayhead) { nearPlayhead = near }
     @ObservationIgnored private var reviewToken: UUID?
+    /// The stretches Mike has played through since the timeline last
+    /// changed (`notePlayhead`), and where the playhead was last time.
+    @ObservationIgnored var watched: [TimeRange] = []
+    @ObservationIgnored var watchedRevision = -1
+    @ObservationIgnored var lastWatched: Time?
 
     @ObservationIgnored private var lastScan: Date = .distantPast
     @ObservationIgnored private var scanning = false

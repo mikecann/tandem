@@ -41,8 +41,8 @@ gives a command's options. Read the parts you need before editing.
    `open "<video folder>/<name>.tandem"` (skip it if `tandem status` says
    the app already has it open), rather than asking him to open it. Then
    tell him in a few lines what you changed and why. Your edits stay
-   highlighted on his timeline until he marks them reviewed; that's his
-   to do.
+   highlighted on his timeline until he plays through them or marks them
+   reviewed; that's his to do.
 
 ## Mike's comments
 

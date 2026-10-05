@@ -257,7 +257,7 @@ public final class MCPServer: @unchecked Sendable {
 
     static let instructions = """
     Tandem is Mike's video editor, built for working in turns: you edit, then Mike reviews what you changed in the app, where your edits \
-    stay highlighted until he marks them reviewed. These tools read and edit a .tandem project: the app's copy when the app has it open, \
+    stay highlighted until he plays through them or marks them reviewed. These tools read and edit a .tandem project: the app's copy when the app has it open, \
     otherwise the file. Start with `timeline` (add words: true to see what's said in each voice clip). Change things with `apply`, a batch \
     of edit commands applied atomically as one undo step credited to you; label it with what it does (Mike reads the labels), pass \
     expectedRevision from your last read so you never edit a timeline that changed under you, and try dryRun: true when unsure. `undo` \
