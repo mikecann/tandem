@@ -18,6 +18,8 @@ final class ProjectWindowController: NSWindowController, NSWindowDelegate, NSMen
     private var archiveSheet: ArchiveSheetController?
     /// Timeline > Save selection as segment…, while its sheet is up.
     private var segmentSheet: SaveSegmentSheetController?
+    /// Keeps the window's title with the project's name.
+    private var titleLoop: ObservationLoop?
 
     init(model: EditorModel, keymap: Keymap, frame: NSRect? = nil) {
         self.model = model
@@ -31,7 +33,7 @@ final class ProjectWindowController: NSWindowController, NSWindowDelegate, NSMen
         )
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
-        window.title = model.project.name
+        window.title = model.windowTitle
         window.representedURL = model.fileURL
         window.backgroundColor = Theme.window.ns
         window.appearance = NSAppearance(named: .darkAqua)
@@ -49,6 +51,10 @@ final class ProjectWindowController: NSWindowController, NSWindowDelegate, NSMen
             window.setFrame(placed, display: false)
         }
         window.delegate = self
+        titleLoop = ObservationLoop(read: { [weak model] in _ = model?.project.name }, onChange: { [weak self] in
+            guard let self else { return }
+            self.window?.title = self.model.windowTitle
+        })
         actions.controller = self
         restoreTimeline()
         // The editor, with the keys the buttons show while ⌘ is held drawn

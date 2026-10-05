@@ -186,7 +186,10 @@ final class ProjectDocuments: NSObject, NSMenuDelegate {
         do {
             try model.session.save()
             let (project, revision) = model.session.coordinator.snapshot()
-            let moved = VersionNaming.relocated(project, from: model.fileURL.deletingLastPathComponent(), to: target.deletingLastPathComponent())
+            var moved = VersionNaming.relocated(project, from: model.fileURL.deletingLastPathComponent(), to: target.deletingLastPathComponent())
+            // Named after its file ("Video v2"), so its window, the project
+            // list and its exports tell it from the one it came from.
+            moved.name = target.deletingPathExtension().lastPathComponent
             // A file being replaced may have left a journal or undo history
             // behind; replaying or undoing them over the new version would
             // bring back its old edits.

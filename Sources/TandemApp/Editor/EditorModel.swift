@@ -256,6 +256,16 @@ final class EditorModel {
     var folder: ProjectFolder { session.folder }
     var fileName: String { fileURL.lastPathComponent }
     var folderName: String { fileURL.deletingLastPathComponent().lastPathComponent }
+    /// The file, short: its folder and name ("daytona/Daytona.tandem"). The
+    /// title bar shows it, so two projects with the same name (a version
+    /// beside its original, a copy elsewhere) tell apart.
+    var shortPath: String { "\(folderName)/\(fileName)" }
+    /// The window's title, for the Window menu and switching windows: the
+    /// project's name, and the file's when that's different.
+    var windowTitle: String {
+        let file = fileURL.deletingPathExtension().lastPathComponent
+        return file == project.name ? project.name : "\(project.name) · \(fileName)"
+    }
 
     // MARK: - Editing
 

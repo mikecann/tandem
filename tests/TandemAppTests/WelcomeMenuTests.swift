@@ -1,6 +1,7 @@
 import AppKit
 import XCTest
 @testable import TandemApp
+import TandemCore
 
 /// Right-clicking a project on the project list.
 @MainActor
@@ -43,6 +44,18 @@ final class WelcomeMenuTests: XCTestCase {
         view.items = { [MenuAction(title: "Open") {}, .separator, MenuAction(title: "Show in Finder") {}] }
         let event = NSEvent.mouseEvent(with: .rightMouseDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!
         XCTAssertEqual(view.menu(for: event)?.items.map(\.isSeparatorItem), [false, true, false])
+    }
+
+    /// Two projects with the same name tell apart by their files.
+    func testAWindowSaysWhichFileItIs() throws {
+        let editor = try EditorHarness()
+        defer { editor.close() }
+        XCTAssertEqual(editor.model.shortPath, "\(editor.model.folderName)/Behaviour.tandem")
+        XCTAssertEqual(editor.model.windowTitle, "Behaviour", "the file goes by the project's name")
+        editor.model.apply(EditBatch(label: "Rename", commands: [.updateProject(patch: .object(["name": .string("Behaviour v2")]))]))
+        editor.settle()
+        XCTAssertEqual(editor.model.windowTitle, "Behaviour v2 · Behaviour.tandem")
+        XCTAssertEqual(editor.window.title, "Behaviour v2 · Behaviour.tandem", "the Window menu follows a rename")
     }
 
     /// A renamed project keeps its place in the list, and its timeline and

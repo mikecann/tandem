@@ -170,15 +170,22 @@ struct TopBar: View {
         HStack(spacing: 14) {
             // The window's own traffic lights sit here.
             Color.clear.frame(width: 52, height: 12)
-            // Just the video's name: it autosaves, and the status bar
-            // says when a save fails.
-            Text(model.project.name)
-                .font(.ui(13, .bold))
-                .foregroundStyle(Theme.text.color)
-                .lineLimit(1)
-                .frame(maxWidth: 260, alignment: .leading)
-                // The title drags the window like the rest of the bar.
-                .allowsHitTesting(false)
+            // The video's name and, dimmer, which file it is: it autosaves,
+            // and the status bar says when a save fails.
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Text(model.project.name)
+                    .font(.ui(13, .bold))
+                    .foregroundStyle(Theme.text.color)
+                    .lineLimit(1)
+                Text(model.shortPath)
+                    .font(.ui(11.5))
+                    .foregroundStyle(Theme.textFaint.color)
+                    .lineLimit(1)
+                    .truncationMode(.head)
+            }
+            .frame(maxWidth: 520, alignment: .leading)
+            // The title drags the window like the rest of the bar.
+            .allowsHitTesting(false)
             Spacer(minLength: 12)
             AgentChip(model: model)
             ExportButton { model.showExportSheet = true }
