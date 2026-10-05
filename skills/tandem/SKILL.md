@@ -153,7 +153,10 @@ matter more than the numbers.
   - `placeMedia` with `anchor` (or `tandem assets use --anchor`) for
     stickers;
   - `tandem segments` for Mike's saved intro, outro and like-and-subscribe
-    pieces.
+    pieces;
+  - `tandem join` (a dry run, then `--apply`) to make clips that play the
+    file straight through one clip again, after putting a cut back, never a
+    lift and trim by hand.
 - New files you make (B-roll, sound effects, stills) go in the video
   folder, then `tandem media --refresh` adds them.
 - Find music, sound effects, stickers and icons with `tandem assets search`
