@@ -22,6 +22,13 @@ gives a command's options. Read the parts you need before editing.
 
 ## The loop
 
+Before you change anything, run `tandem status`. If it shows "waiting for
+Mike's review: N", stop there, change nothing, and ask him: "There are
+still N unreviewed changes in Tandem. Are you sure you want me to
+continue?" Carry on only once he says yes. He reviews a round before
+asking for the next, and new edits on top of unreviewed ones mix the two
+rounds up.
+
 1. **Read.** `tandem status`, `tandem timeline --summary`, then
    `tandem timeline --from 1:20 --to 1:40` for detail. `tandem transcript`
    and `tandem search "<phrase>"` find what's said where.
