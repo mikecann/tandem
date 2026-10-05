@@ -25,7 +25,10 @@ struct TimelineRepresentable: NSViewRepresentable {
     func updateNSView(_ view: TimelineContainerView, context: Context) {}
 }
 
-/// Tools, snapping and linking toggles, transcript lane and zoom.
+/// Tools, the snapping, ripple, linking and transcript toggles and
+/// Tighten pauses on the left; on the right, reviewing: Comment and the
+/// agent edits waiting. Zoom is the keys, a pinch and the scroll bar's
+/// ends.
 struct TimelineToolbar: View {
     let model: EditorModel
     let actions: EditorActions
@@ -44,6 +47,19 @@ struct TimelineToolbar: View {
             ToggleText(title: "Ripple", on: model.rippleTrims, help: Shortcuts.help("Ripple trims: dragging an edge moves everything after it", .toggleRipple), shortcut: .toggleRipple) { model.rippleTrims.toggle() }
             ToggleText(title: "Linked", on: model.linkedSelection, help: Shortcuts.help("Linked selection: clicking a clip selects its linked picture and sound. Option-click picks one side", .toggleLinkedSelection), shortcut: .toggleLinkedSelection) {
                 model.linkedSelection.toggle()
+            }
+            ToggleText(title: "Transcript", on: model.showTranscript, help: Shortcuts.help("Transcript lane: show what's said above the tracks", .toggleTranscriptLane), shortcut: .toggleTranscriptLane) { model.showTranscript.toggle() }
+            Button {
+                showTighten = true
+            } label: {
+                Text("Tighten pauses…")
+                    .font(.ui(11.5))
+                    .foregroundStyle(Theme.textMuted.color)
+            }
+            .buttonStyle(.plain)
+            .tip("Tighten pauses: remove long silences from the take, found from its transcript")
+            .popover(isPresented: $showTighten, arrowEdge: .top) {
+                TightenPausesPopover(model: model) { showTighten = false }
             }
             if let range = model.inOutRange {
                 Text("In to out \(Timecode.string(range.duration, rate: model.frameRate))")
@@ -68,38 +84,10 @@ struct TimelineToolbar: View {
             .tip(Shortcuts.help("Add comment: a note at the playhead for the next round of agent edits", .addComment))
             .shortcutHint(.addComment)
             ReviewChip(model: model, actions: actions)
-            Button {
-                showTighten = true
-            } label: {
-                Text("Tighten pauses…")
-                    .font(.ui(11.5))
-                    .foregroundStyle(Theme.textMuted.color)
-            }
-            .buttonStyle(.plain)
-            .tip("Tighten pauses: remove long silences from the take, found from its transcript")
-            .popover(isPresented: $showTighten, arrowEdge: .top) {
-                TightenPausesPopover(model: model) { showTighten = false }
-            }
-            ToggleText(title: "Transcript", on: model.showTranscript, help: Shortcuts.help("Transcript lane: show what's said above the tracks", .toggleTranscriptLane), shortcut: .toggleTranscriptLane) { model.showTranscript.toggle() }
-            GraphiteSlider(
-                value: Binding(get: { model.timeline.zoomFraction }, set: { model.timeline.zoomFraction = $0 }),
-                range: 0...1,
-                track: Theme.zoomTrack,
-                fill: Theme.textMuted
-            )
-            .frame(width: 84)
-            .tip(zoomHelp)
         }
         .padding(.horizontal, 14)
         .frame(height: Theme.Metrics.timelineToolbarHeight)
         .overlay(alignment: .bottom) { Rectangle().fill(Theme.borderSubtle.color).frame(height: 1) }
-    }
-
-    private var zoomHelp: String {
-        let keys = [EditorCommand.zoomIn, .zoomOut, .zoomToFit].compactMap { command in
-            Shortcuts.symbol(for: command).map { "\($0) \(command == .zoomToFit ? "fits" : command == .zoomIn ? "in" : "out")" }
-        }
-        return keys.isEmpty ? "Timeline zoom" : "Timeline zoom (" + keys.joined(separator: ", ") + ")"
     }
 }
 
