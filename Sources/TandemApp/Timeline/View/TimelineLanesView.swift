@@ -49,6 +49,10 @@ final class TimelineLanesView: TimelineChildView {
     private var marquee: Marquee?
     private let outlineView = ClipOutlineView()
     private let marqueeView = MarqueeView()
+    /// The box over the gap under the pointer, with the × that closes it.
+    let gapView = GapView()
+    /// That gap, while it's showing.
+    private(set) var gap: TimelineGap?
     /// The scroll, zoom and track offset the outlines were placed for.
     private var outlinedAt: (scale: TimelineScale, offset: CGFloat)?
     private var snapLine: Time?
@@ -144,6 +148,8 @@ final class TimelineLanesView: TimelineChildView {
         addSubview(canvas)
         addSubview(strip)
         addSubview(outlineView)
+        gapView.isHidden = true
+        addSubview(gapView)
         addSubview(marqueeView)
         addSubview(snapView)
         addSubview(labelView)
@@ -317,7 +323,47 @@ final class TimelineLanesView: TimelineChildView {
     }
 
     /// Everything paints again: new thumbnails, a new layout.
+    // MARK: - Gaps
+
+    /// Over an empty stretch Close gap can take out, a box across the
+    /// tracks it closes on, with an × in the middle that closes it (as
+    /// Filmora does). Anywhere else, nothing.
+    private func updateGap(_ hit: TimelineHit, model: EditorModel) {
+        var found: TimelineGap?
+        if session == nil, marquee == nil, keyframeDrag == nil, case .emptyTrack(let trackID, let time) = hit {
+            found = TimelineGap.at(time, onTrack: trackID, in: model.project)
+        }
+        // Still in the same gap: the box stays where it is.
+        if found?.range == gap?.range, found?.trackIDs == gap?.trackIDs, gap != nil { return }
+        guard let found, let container else { return hideGap() }
+        gap = found
+        let scale = model.timeline.scale
+        let x0 = scale.x(found.range.start)
+        let x1 = scale.x(found.range.end)
+        gapView.boxes = found.trackIDs.compactMap { container.layoutCache.lane(forTrack: $0) }.map { lane in
+            CGRect(x: x0, y: lane.y - offset, width: x1 - x0, height: lane.height).insetBy(dx: 1, dy: 1)
+        }
+        let anchor = container.layoutCache.lane(forTrack: found.trackID)
+        let size: CGFloat = 18
+        gapView.button = CGRect(x: (x0 + x1) / 2 - size / 2, y: (anchor?.midY ?? 0) - offset - size / 2, width: size, height: size)
+        gapView.frame = bounds
+        gapView.isHidden = false
+        gapView.needsDisplay = true
+    }
+
+    func hideGap() {
+        guard gap != nil || !gapView.isHidden else { return }
+        gap = nil
+        gapView.isHidden = true
+    }
+
+    /// Whether a press at `point` (view coordinates) is on the gap's ×.
+    private func pressesGapButton(_ point: CGPoint) -> Bool {
+        gap != nil && !gapView.isHidden && gapView.button.insetBy(dx: -4, dy: -4).contains(point)
+    }
+
     func redrawAll() {
+        hideGap()
         shownContent = currentContent()
         if usesCanvas {
             canvas.needsDisplay = true
@@ -331,6 +377,7 @@ final class TimelineLanesView: TimelineChildView {
     /// The timeline scrolled, sideways or up and down: the tiles move with
     /// it and the strip paints again.
     func lanesMoved() {
+        hideGap()
         if usesCanvas {
             canvas.needsDisplay = true
         } else {
@@ -354,6 +401,7 @@ final class TimelineLanesView: TimelineChildView {
     /// The project shown changed (an edit, or a drag's preview): what
     /// changed paints again, or everything when tracks came or went.
     func contentChanged() {
+        hideGap()
         guard let container else { return }
         let content = currentContent()
         guard let shown = shownContent, !Self.changesEverything(from: shown.project, to: content.project, state: container.drawState),
@@ -418,6 +466,7 @@ final class TimelineLanesView: TimelineChildView {
     /// The zoom or the lanes' heights changed: the canvas paints each step,
     /// and the tiles come back once they rest.
     func reshaped() {
+        hideGap()
         shownContent = currentContent()
         isReshaping = true
         reshapeRestTimer?.invalidate()
@@ -521,13 +570,17 @@ final class TimelineLanesView: TimelineChildView {
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         if let trackingArea { removeTrackingArea(trackingArea) }
-        let area = NSTrackingArea(rect: .zero, options: [.mouseMoved, .activeInKeyWindow, .inVisibleRect, .cursorUpdate], owner: self)
+        let area = NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect, .cursorUpdate], owner: self)
         addTrackingArea(area)
         trackingArea = area
     }
 
     override func cursorUpdate(with event: NSEvent) {
         updateCursor(event)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        hideGap()
     }
 
     override func mouseMoved(with event: NSEvent) {
@@ -559,6 +612,7 @@ final class TimelineLanesView: TimelineChildView {
         }
         // The blade cuts clips, through any transition over them.
         let hit = tester.hit(point, transitions: model.tool != .blade)
+        updateGap(hit, model: model)
         updateToolTip(hit, model: model)
         // The selection only decides which clips a move takes, not the kind
         // of drag, so it's left out here; the pointer moves a lot.
@@ -589,7 +643,14 @@ final class TimelineLanesView: TimelineChildView {
             tip = TransitionTips.body(id, in: model.project)
         case .transitionEdge(let id, _, _):
             tip = TransitionTips.edge(id, in: model.project)
-        case .emptyTrack, .transcript, .nothing:
+        case .emptyTrack:
+            tip = gap.map { gap in
+                let seconds = String(format: "%.1f", gap.range.duration.seconds)
+                let names = gap.trackIDs.compactMap { model.project.track($0)?.name }
+                let tracks = names.count > 1 ? " on \(names.joined(separator: ", "))" : ""
+                return "Close this \(seconds) s gap\(tracks): what's after it moves up"
+            }
+        case .transcript, .nothing:
             tip = nil
         }
         if toolTip != tip { toolTip = tip }
@@ -629,6 +690,12 @@ final class TimelineLanesView: TimelineChildView {
     override func mouseDown(with event: NSEvent) {
         guard let model, let tester = tester(for: model.project) else { return }
         window?.makeFirstResponder(self)
+        // The gap's ×: close it.
+        if let gap, pressesGapButton(convert(event.locationInWindow, from: nil)) {
+            hideGap()
+            model.apply(gap.batch)
+            return
+        }
         let point = lanePoint(event)
         let hit = tester.hit(point, transitions: model.tool != .blade)
         let mods = modifiers(event)
@@ -1505,5 +1572,44 @@ final class TranscriptEdgeView: NSView {
         let dots = "…" as NSString
         let size = dots.size(withAttributes: [.font: font])
         dots.draw(at: CGPoint(x: bounds.width - size.width - 4, y: (bounds.height - size.height) / 2), withAttributes: [.font: font, .foregroundColor: Theme.textFaint.ns])
+    }
+}
+
+/// The box over a gap, on each track Close gap would close it on, and the
+/// × that closes it. Clicks go through to the lanes, which find the ×
+/// themselves.
+final class GapView: NSView {
+    var boxes: [CGRect] = []
+    var button: CGRect = .zero
+
+    override var isFlipped: Bool { true }
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    override func draw(_ dirtyRect: NSRect) {
+        guard let context = NSGraphicsContext.current?.cgContext else { return }
+        for box in boxes {
+            let path = CGPath(roundedRect: box, cornerWidth: 5, cornerHeight: 5, transform: nil)
+            context.addPath(path)
+            context.setFillColor(Theme.text.opacity(0.06).cg)
+            context.fillPath()
+            context.addPath(path)
+            context.setStrokeColor(Theme.textMuted.opacity(0.8).cg)
+            context.setLineWidth(1)
+            context.setLineDash(phase: 0, lengths: [4, 3])
+            context.strokePath()
+        }
+        context.setLineDash(phase: 0, lengths: [])
+        context.addEllipse(in: button)
+        context.setFillColor(Theme.red.cg)
+        context.fillPath()
+        let cross = button.insetBy(dx: 6, dy: 6)
+        context.setStrokeColor(Theme.text.cg)
+        context.setLineWidth(1.6)
+        context.setLineCap(.round)
+        context.move(to: CGPoint(x: cross.minX, y: cross.minY))
+        context.addLine(to: CGPoint(x: cross.maxX, y: cross.maxY))
+        context.move(to: CGPoint(x: cross.maxX, y: cross.minY))
+        context.addLine(to: CGPoint(x: cross.minX, y: cross.maxY))
+        context.strokePath()
     }
 }

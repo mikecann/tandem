@@ -232,6 +232,33 @@ final class EditorBehaviourTests: XCTestCase {
         added.cancel()
     }
 
+    func testHoveringAGapOffersAnXThatClosesIt() throws {
+        let camera = editor.clip("Camera").id
+        editor.model.apply(EditBatch(label: "Cuts", commands: [.blade(at: t(20), clipIDs: [camera]), .blade(at: t(10), clipIDs: [camera])]))
+        let middle = editor.clips("Camera")[1].id
+        editor.model.apply(EditBatch(label: "Lift", commands: [.removeClips(clipIDs: [middle], ripple: false, includeLinked: true)]))
+        editor.settle()
+        let lanes = try XCTUnwrap(editor.view(TimelineLanesView.self))
+
+        editor.hover(editor.point(onTrack: "Screen", at: 15))
+        let gap = try XCTUnwrap(lanes.gap, "a box over the gap")
+        XCTAssertEqual(gap.range, TimeRange(start: t(10), end: t(20)))
+        XCTAssertEqual(gap.trackIDs.count, 3, "across camera, screen and voice")
+        XCTAssertFalse(lanes.gapView.isHidden)
+        XCTAssertEqual(lanes.gapView.boxes.count, 3)
+
+        let button = lanes.gapView.button
+        editor.click(editor.windowPoint(CGPoint(x: button.midX, y: button.midY), in: lanes))
+        XCTAssertEqual(editor.clips("Camera").map(\.start.seconds), [0, 10], "closed: what was after it moved up")
+        XCTAssertEqual(editor.clips("Voice").map(\.start.seconds), [0, 10])
+        XCTAssertEqual(editor.model.undoLabel, "Close gap")
+        XCTAssertNil(lanes.gap, "the box goes with it")
+
+        // Over a clip there's no box.
+        editor.hover(editor.point(onTrack: "Screen", at: 5))
+        XCTAssertNil(lanes.gap)
+    }
+
     func testPlayingThroughAnAgentChangeReviewsIt() throws {
         editor.model.apply(EditBatch(label: "B-roll over the demo", author: "claude", commands: [.placeMedia(mediaIDs: [editor.clip("B-roll").mediaID!], at: t(40), duration: t(3))]))
         editor.settle()

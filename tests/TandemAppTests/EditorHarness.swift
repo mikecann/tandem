@@ -170,6 +170,17 @@ final class EditorHarness {
         return CGPoint(x: inWindow.x, y: frameHeight - inWindow.y)
     }
 
+    /// Moves the pointer to `point` (window points from the top left).
+    func hover(_ point: CGPoint) {
+        run(InputSimulator.Gesture(kind: .hover, at: point, modifiers: []))
+    }
+
+    /// A point in `view`'s own coordinates as window points from the top left.
+    func windowPoint(_ point: CGPoint, in view: NSView) -> CGPoint {
+        let inWindow = view.convert(point, to: nil)
+        return CGPoint(x: inWindow.x, y: frameHeight - inWindow.y)
+    }
+
     func click(_ point: CGPoint, count: Int = 1, modifiers: NSEvent.ModifierFlags = []) {
         run(InputSimulator.Gesture(kind: .click(count: count), at: point, modifiers: modifiers))
     }
