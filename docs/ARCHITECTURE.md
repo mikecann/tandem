@@ -176,12 +176,17 @@ join pinned to the clip after it. The take (the `cut` tracks) is the
 reference: its surviving media maps old times to new ones, so a clip that
 moved exactly as the take around it rode along with a ripple, the right
 half of a cut clip is the same clip, and only the join of a ripple delete
-is news. The log is saved to `.tandem/<name>.review.json` after each
-change, so it survives restarts, and because headless commands keep it too
-the app finds their edits when it opens the project (agent batches a crash
-left in the journal are caught up then). Later edits by anyone carry the
-highlights along (both halves of a cut clip stay highlighted, and a
-highlighted clip an edit takes off the timeline stays listed out of sight).
+is news. Joining through-edits (`ThroughEdits`) plays exactly what was
+there, so the old timeline is compared as if the clips an edit joined
+were one clip already: the joined clip isn't changed and the clips it
+took in aren't removals. The log is saved to `.tandem/<name>.review.json`
+after each change, so it survives restarts, and because headless commands
+keep it too the app finds their edits when it opens the project (agent
+batches a crash left in the journal are caught up then). Later edits by
+anyone carry the highlights along (both halves of a cut clip stay
+highlighted, a highlighted clip joined onto another highlights the clip
+that plays it now, and a highlighted clip an edit takes off the timeline
+stays listed out of sight).
 An undo or headless undo drops what it put back, and the clips it puts back
 have the highlights they had before they went, never ones guessed from the
 clips around them. Mark reviewed in the app clears the log. `status`

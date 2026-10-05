@@ -1207,13 +1207,15 @@ tandem apply '{"join": {"clipID": "clip_k3f9x2mq"}}'   # only the cut after that
 
 Each joined clip keeps the first clip's ID and link group and plays exactly
 what the two did; the camera, screen and voice of a take join together,
-and hundreds of cuts join in one go. A cut is left, and listed with the
-reason, when joining would change what plays: a transition or a fade on
-it, clips with different settings (a gain, a crop, an effect), animation
-that wouldn't carry on across it, or a linked clip cut somewhere else (a
-split edit). Take away what's in the way first if that cut should go too.
-In MCP: `join {}`, then `join {"apply": true, "expectedRevision": <the
-plan's revision>}`.
+and hundreds of cuts join in one go. As nothing Mike would see or hear
+changes, a join (with `join` or by hand) adds nothing to his review, and a
+piece still waiting for it is highlighted in the clip it joined. A cut is
+left, and listed with the reason, when joining would change what plays: a
+transition or a fade on it, clips with different settings (a gain, a crop,
+an effect), animation that wouldn't carry on across it, or a linked clip
+cut somewhere else (a split edit). Take away what's in the way first if
+that cut should go too. In MCP: `join {}`, then `join {"apply": true,
+"expectedRevision": <the plan's revision>}`.
 
 ### Caption a short
 

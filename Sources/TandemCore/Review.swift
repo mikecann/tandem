@@ -90,7 +90,9 @@ public struct ReviewEntry: Codable, Equatable, Identifiable, Sendable {
     public var transitions: [String]
     public var removals: [ReviewRemoval]
     /// Fingerprints of the changed clips and transitions, and of what the
-    /// removals took from, as they were before the batch (`ReviewDiff`).
+    /// removals took from, as they were before the batch (`ReviewDiff`). A
+    /// clip changed because a highlighted one was joined onto it has its
+    /// fingerprint from before that join (`ReviewLog.follow`).
     public var before: [String: String]
 
     public var id: Int { revision }
@@ -178,15 +180,19 @@ public struct ReviewLog: Codable, Equatable, Sendable {
     /// Carries the highlights through an edit, whoever made it: both
     /// halves of a highlighted clip that was cut in two stay highlighted,
     /// a highlighted clip put back unchanged with a new ID (an agent
-    /// rebuilding a track) stays highlighted, and a removal whose anchor
-    /// went is pinned again where its join is now.
+    /// rebuilding a track) stays highlighted, a highlighted clip joined
+    /// onto the clip before it (a through-edit joined) highlights the clip
+    /// that plays it now, and a removal whose anchor went is pinned again
+    /// where its join is now.
     ///
     /// After an undo or a reload (`reverts`) only removals are pinned
-    /// again. The clips it puts back were all on the timeline before, and
-    /// the ones that were highlighted then are still listed (`away`), so
-    /// the rest are nobody's other half, however they line up: a clip a
-    /// join took out comes back looking like the far half of the clip that
-    /// was stretched over it.
+    /// again, and a highlight a join takes in (a headless redo of one is a
+    /// reload) only goes to a clip that was there already. The clips it
+    /// puts back were all on the timeline before, and the ones that were
+    /// highlighted then are still listed (`away`), so the rest are
+    /// nobody's other half, however they line up: a clip a join took out
+    /// comes back looking like the far half of the clip that was stretched
+    /// over it.
     @discardableResult
     public mutating func follow(from before: Project, to after: Project, reverts: Bool = false) -> Bool {
         guard !entries.isEmpty else { return false }
@@ -197,8 +203,9 @@ public struct ReviewLog: Codable, Equatable, Sendable {
         // nothing to do.
         let tracked = Set(entries.flatMap(\.clipIDs))
         let anchors = Set(entries.flatMap { $0.removals.compactMap(\.anchorClipID) })
-        let carries = !reverts && (!remaining.subtracting(beforeIDs).isEmpty || !tracked.isSubset(of: remaining))
-        guard carries || !anchors.isSubset(of: remaining) else { return false }
+        let went = !tracked.isSubset(of: remaining)
+        let carries = !reverts && (!remaining.subtracting(beforeIDs).isEmpty || went)
+        guard carries || went || !anchors.isSubset(of: remaining) else { return false }
         let c = ReviewDiff.Correspondence(before, after)
         var changed = false
         // New clips that carry on a highlighted one: its right half, or it
@@ -214,6 +221,22 @@ public struct ReviewLog: Codable, Equatable, Sendable {
                 }
                 if entries[index].changed.contains(original), !entries[index].changed.contains(successor) {
                     entries[index].changed.append(successor)
+                    changed = true
+                }
+            }
+        }
+        // A highlighted clip joined onto the clip before it plays on in
+        // that clip, which is highlighted as changed. Its fingerprint from
+        // before the join lets an undo of the join take that off again
+        // (`prune`), leaving the joined-on clip highlighted, back in place.
+        let heirs = c.heirs.filter { tracked.contains($0.old) && (!reverts || beforeIDs.contains($0.new)) }
+        if !heirs.isEmpty {
+            let objects = ReviewFingerprint.Objects(before)
+            for (heir, original) in heirs {
+                for index in entries.indices where entries[index].added.contains(original) || entries[index].changed.contains(original) {
+                    guard !entries[index].added.contains(heir), !entries[index].changed.contains(heir) else { continue }
+                    entries[index].changed.append(heir)
+                    if entries[index].before[heir] == nil { entries[index].before[heir] = objects.fingerprint(heir) }
                     changed = true
                 }
             }
@@ -431,6 +454,10 @@ public struct ReviewChanges: Equatable, Sendable {
 /// - Media the take lost is a removal at the join, where the map puts it.
 /// - An agent that rebuilds a track puts most clips back as they were with
 ///   new IDs. One put back the same, where it was, is the same clip.
+/// - Joining a through-edit (`ThroughEdits`) plays exactly what was there,
+///   so the old timeline is read as if the clips an edit joined were one
+///   clip already (`Joins`): the joined clip is that clip, and the clips it
+///   took in haven't gone.
 public enum ReviewDiff {
     /// Differences smaller than this are rounding, not edits.
     static let tolerance = Time(seconds: 0.002)
@@ -471,14 +498,24 @@ public enum ReviewDiff {
         let newTransitions: [String: PlacedTransition]
         /// New transition ID to the one it was put back in place of.
         let transitionReplacements: [String: String]
+        /// Clips the edit joined onto the clip before them (`Joins`), to
+        /// that clip's ID. They're in `old` as part of it.
+        let onto: [String: String]
+        /// New clips that play what one of those played: the clip it was
+        /// joined onto, a piece of that, or the clip put back in its place.
+        let heirs: [(new: String, old: String)]
 
         init(_ before: Project, _ after: Project) {
-            let old = ReviewDiff.index(before)
+            var old = ReviewDiff.index(before)
             let new = ReviewDiff.index(after)
+            // Through-edits the edit joined count as joined before it.
+            let joins = Joins(before, after, old: old, new: new)
+            let joinedOn = joins.onto.keys.compactMap { old[$0] }
+            if !joins.onto.isEmpty { old = ReviewDiff.index(joins.before) }
             let take = Set(before.allTracks.filter { $0.rippleMode == .cut }.map(\.id))
             var pieces: [String: String] = [:]
             for track in after.allTracks {
-                guard let oldTrack = before.track(track.id) else { continue }
+                guard let oldTrack = joins.before.track(track.id) else { continue }
                 for clip in track.clips where old[clip.id] == nil {
                     if let original = ReviewDiff.original(ofPiece: clip, among: oldTrack.clips, new: new) { pieces[clip.id] = original }
                 }
@@ -487,7 +524,7 @@ public enum ReviewDiff {
             for (pieceID, originalID) in pieces.sorted(by: { $0.key < $1.key }) {
                 if let piece = new[pieceID] { families[originalID, default: []].append(piece.clip) }
             }
-            let (map, cuts) = ReviewDiff.timeMap(before: before, take: take, new: new, families: families)
+            let (map, cuts) = ReviewDiff.timeMap(before: joins.before, take: take, new: new, families: families)
 
             // Clips that went and clips that came, paired where one was put
             // back as the other was, where it was.
@@ -522,6 +559,25 @@ public enum ReviewDiff {
                 }
             }
 
+            // What became of the clip each joined-on clip went into: it's
+            // still there, cut into pieces or put back with a new ID. Those
+            // that play some of what the joined-on clip played now hold it.
+            var heirs: [(new: String, old: String)] = []
+            if !joinedOn.isEmpty {
+                var line: [String: [String]] = [:]
+                for (piece, original) in pieces { line[original, default: []].append(piece) }
+                for (now, original) in replacements { line[original, default: []].append(now) }
+                for was in joinedOn {
+                    guard let first = joins.onto[was.clip.id] else { continue }
+                    var candidates = line[first] ?? []
+                    if new[first]?.trackID == was.trackID { candidates.append(first) }
+                    for id in candidates where new[id].map({ ReviewDiff.plays($0.clip, someOf: was.clip) }) == true {
+                        heirs.append((id, was.clip.id))
+                    }
+                }
+                heirs.sort { ($0.new, $0.old) < ($1.new, $1.old) }
+            }
+
             self.old = old
             self.new = new
             self.take = take
@@ -533,6 +589,69 @@ public enum ReviewDiff {
             self.oldTransitions = oldTransitions
             self.newTransitions = newTransitions
             self.transitionReplacements = transitionReplacements
+            self.onto = joins.onto
+            self.heirs = heirs
+        }
+    }
+
+    /// The through-edits an edit joined (`ThroughEdits`): runs of clips that
+    /// played one file straight through, which one clip plays now. The join
+    /// command makes them, and so does lifting the clip after a cut and
+    /// trimming the one before it over where it was.
+    struct Joins {
+        /// The timeline before the edit with each run as the one clip
+        /// joining it makes, under the ID of its first clip.
+        private(set) var before: Project
+        /// The clips joined onto the first of their run, to its ID.
+        private(set) var onto: [String: String] = [:]
+
+        init(_ before: Project, _ after: Project, old: [String: Placed], new: [String: Placed]) {
+            self.before = before
+            // Joining takes clips off the timeline: an edit that took none
+            // off joined none.
+            guard old.keys.contains(where: { new[$0] == nil }) else { return }
+            // What `ThroughEdits` would join, on the timeline before the
+            // edit. A transition the edit took away is reviewed as a removal
+            // of its own, so only those still there can stop a join, and a
+            // lock doesn't change what plays.
+            var judged = before
+            let kept = Set(after.allTracks.flatMap { $0.transitions.map(\.id) })
+            for location in judged.trackLocations {
+                judged[location].locked = false
+                judged[location].transitions.removeAll { !kept.contains($0.id) }
+            }
+            let joiner = ThroughEdits.Joiner(judged)
+            var joined: [String: [Clip]] = [:]
+            for (t, track) in joiner.tracks.enumerated() where track.clips.contains(where: { new[$0.id] == nil }) {
+                guard let now = after.track(track.id) else { continue }
+                // A run plays on in the clip still under its first clip's
+                // ID, or in a new one.
+                let fresh = now.clips.filter { old[$0.id] == nil }
+                var clips: [Clip] = []
+                var index = 0
+                while index < track.clips.count {
+                    var run = track.clips[index]
+                    let players = new[run.id].map { $0.trackID == track.id ? fresh + [$0.clip] : fresh } ?? fresh
+                    var next = index + 1
+                    // Each clip after it that went joins the run when a clip
+                    // plays the file on across the cut into it, and joining
+                    // it on plays the same.
+                    while next < track.clips.count, new[track.clips[next].id] == nil {
+                        let right = track.clips[next]
+                        guard players.contains(where: { ReviewDiff.plays($0, across: run, right) }),
+                              case .success(let clip) = joiner.pair(run, right, on: t) else { break }
+                        onto[right.id] = run.id
+                        run = clip
+                        next += 1
+                    }
+                    clips.append(run)
+                    index = next
+                }
+                if clips.count < track.clips.count { joined[track.id] = clips }
+            }
+            for location in self.before.trackLocations {
+                if let clips = joined[self.before[location].id] { self.before[location].clips = clips }
+            }
         }
     }
 
@@ -587,12 +706,15 @@ public enum ReviewDiff {
         changes.transitions = transitionIDs.sorted()
 
         // Removals: what the take lost, clips off the take that went, and
-        // transitions that went.
+        // transitions that went. Taking from clips the edit joined (`Joins`)
+        // took from all of them.
+        let runs = Dictionary(grouping: c.onto.sorted { $0.key < $1.key }, by: { $0.value }).mapValues { $0.map(\.key) }
+        func from(_ id: String) -> [String] { [id] + (runs[id] ?? []) }
         var removals: [ReviewRemoval] = c.takeCuts.map {
-            ReviewRemoval(trackID: $0.trackID, time: map.start($0.range.start), duration: $0.range.duration, from: [$0.clipID])
+            ReviewRemoval(trackID: $0.trackID, time: map.start($0.range.start), duration: $0.range.duration, from: from($0.clipID))
         }
         for (id, was) in old where new[id] == nil && c.families[id] == nil && !c.take.contains(was.trackID) && !replaced.contains(id) {
-            removals.append(ReviewRemoval(trackID: was.trackID, time: map.start(was.clip.start), duration: was.clip.duration, from: [id]))
+            removals.append(ReviewRemoval(trackID: was.trackID, time: map.start(was.clip.start), duration: was.clip.duration, from: from(id)))
         }
         let replacedTransitions = Set(c.transitionReplacements.values)
         for (id, was) in c.oldTransitions where c.newTransitions[id] == nil && !replacedTransitions.contains(id) {
@@ -641,6 +763,19 @@ public enum ReviewDiff {
             }
         }
         return nil
+    }
+
+    /// Whether `clip` plays the file on across the cut between `left` and
+    /// `right`: from before `left` stops in it to after `right` starts.
+    static func plays(_ clip: Clip, across left: Clip, _ right: Clip) -> Bool {
+        clip.mediaID == left.mediaID && !clip.freezeFrame && clip.speed == left.speed
+            && clip.sourceStart < left.sourceEnd - tolerance && clip.sourceEnd > right.sourceStart + tolerance
+    }
+
+    /// Whether `clip` plays any of the part of the file `other` played.
+    static func plays(_ clip: Clip, someOf other: Clip) -> Bool {
+        clip.mediaID == other.mediaID && !clip.freezeFrame
+            && clip.sourceStart < other.sourceEnd - tolerance && clip.sourceEnd > other.sourceStart + tolerance
     }
 
     /// Whether `now` is `was` put back unchanged, where the edit moved its

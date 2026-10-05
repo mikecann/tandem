@@ -209,6 +209,122 @@ final class ReviewDiffTests: XCTestCase {
         XCTAssertEqual(cameraClips.count, 2, "the picture and its sound")
         XCTAssertFalse(changes.changed.contains(f.clips("Screen")[0].id))
     }
+
+    // MARK: Joins
+
+    /// Joining a through-edit plays exactly what the two clips did, so
+    /// there's nothing to review: not the joined clip, and not the clip it
+    /// took in.
+    func testJoiningAThroughEditIsNotAChange() throws {
+        let (f, c) = try Fixture.edited()
+        let camera = f.clips("Camera")[0].id
+        try c.run("Cut", .blade(at: t(10), clipIDs: [camera]))
+        let changes = try agent(c, [.join(clipID: camera)])
+        XCTAssertEqual(c.clips("Voice").count, 1, "the camera, screen and voice joined")
+        XCTAssertTrue(changes.isEmpty, "\(changes)")
+    }
+
+    /// Every through-edit at once: the take, the music bed under it and a
+    /// B-roll shot cut twice, so three pieces become one.
+    func testJoiningEveryThroughEditIsNotAChange() throws {
+        let (_, c) = try Fixture.edited()
+        try c.run("Cut", .blade(at: t(10)), .blade(at: t(22)), .blade(at: t(23)), .blade(at: t(45)))
+        XCTAssertEqual(c.clips("B-roll").count, 3)
+        let changes = try agent(c, [.joinThroughEdits()])
+        for name in ["Screen", "Camera", "Voice", "Music", "B-roll"] {
+            XCTAssertEqual(c.clips(name).count, 1, name)
+        }
+        XCTAssertTrue(changes.isEmpty, "\(changes)")
+    }
+
+    /// The same by hand: the clip after the cut lifted, and the one before
+    /// it trimmed over where it was.
+    func testJoiningByHandIsNotAChange() throws {
+        let (f, c) = try Fixture.edited()
+        let camera = f.clips("Camera")[0].id
+        try c.run("Cut", .blade(at: t(10), clipIDs: [camera]))
+        let next = c.clips("Camera")[1]
+        let changes = try agent(c, [.removeClips(clipIDs: [next.id]), .trim(clipID: camera, edge: .end, to: next.end)])
+        XCTAssertEqual(c.clips("Screen").count, 1)
+        XCTAssertTrue(changes.isEmpty, "\(changes)")
+    }
+
+    /// A join by hand that loses something hasn't played the same: the
+    /// voice's fade out at the end of the take went with the clip lifted.
+    func testAJoinByHandThatLosesAFadeIsAChange() throws {
+        let (f, c) = try Fixture.edited()
+        let voice = f.clips("Voice")[0].id
+        try c.run("Fade out", .updateClip(clipID: voice, patch: .object(["audio": .object(["fadeOut": .number(1)])])))
+        try c.run("Cut", .blade(at: t(10), clipIDs: [voice]))
+        let next = c.clips("Voice")[1]
+        let changes = try agent(c, [.removeClips(clipIDs: [next.id]), .trim(clipID: voice, edge: .end, to: next.end)])
+        XCTAssertEqual(changes.changed, [voice])
+        XCTAssertEqual(changes.removals, [])
+    }
+
+    /// The case that prompted this: an agent joins the hundreds of
+    /// through-edits ripple trims left in a take, in one command. Still
+    /// nothing to review, and quickly worked out.
+    func testJoiningHundredsOfThroughEditsIsNothingToReview() throws {
+        var fixture = Fixture()
+        let pieces = 1000
+        let length = t(0.1)
+        fixture.project.media[0].duration = t(200)
+        fixture.project.media[1].duration = t(201)
+        for (name, mediaID, offset) in [("Screen", "med_screen", t(0.5)), ("Camera", "med_camera", Time.zero), ("Voice", "med_camera", Time.zero)] {
+            guard let location = fixture.project.location(ofTrack: fixture.track(name).id) else { return XCTFail(name) }
+            fixture.project[location].clips = (0..<pieces).map { i in
+                let start = Time(flicks: length.flicks * Int64(i))
+                return Clip(id: "clip_\(name)_\(i)", content: .media(mediaID: mediaID), start: start, duration: length, sourceStart: start + offset, linkGroup: "lnk_\(i)")
+            }
+        }
+        let c = ProjectCoordinator(project: fixture.project)
+        let before = c.project
+        try c.apply(EditBatch(label: "Join", author: "claude", commands: [.joinThroughEdits()]))
+        XCTAssertEqual(c.clips("Voice").count, 1)
+        let started = Date()
+        let changes = ReviewDiff.between(before, c.project)
+        let elapsed = Date().timeIntervalSince(started)
+        XCTAssertTrue(changes.isEmpty, "\(changes.changed.count) changed, \(changes.removals.count) removals")
+        XCTAssertLessThan(elapsed, 1, "\(pieces * 3) clips compared in \(elapsed) s")
+    }
+
+    /// A join in a batch that does more: only the rest is news.
+    func testAJoinAlongsideOtherEditsRecordsOnlyThem() throws {
+        let (f, c) = try Fixture.edited()
+        let camera = f.clips("Camera")[0].id
+        try c.run("Cut", .blade(at: t(10), clipIDs: [camera]))
+        let music = f.clips("Music")[0]
+        let changes = try agent(c, [
+            .join(clipID: camera),
+            .updateClip(clipID: music.id, patch: .object(["audio": .object(["gainDB": .number(-35)])])),
+            .placeMedia(mediaIDs: ["med_broll"], at: t(40), duration: t(3))
+        ])
+        XCTAssertEqual(changes.changed, [music.id])
+        XCTAssertEqual(changes.added, [try XCTUnwrap(c.clips("B-roll").last).id])
+        XCTAssertEqual(changes.removals, [])
+    }
+
+    /// Tightening a pause and joining the cut before it in one batch, in
+    /// either order: the joined clip and the piece after the pause are the
+    /// take as it was, so only the pause's join is news.
+    func testTighteningAndJoiningInOneBatchMarksOnlyThePause() throws {
+        for joinFirst in [false, true] {
+            let (f, c) = try Fixture.edited()
+            let camera = f.clips("Camera")[0].id
+            try c.run("Cut", .blade(at: t(10), clipIDs: [camera]))
+            let tighten = EditCommand.rippleDeleteRange(range: TimeRange(start: t(20), end: t(21)))
+            let changes = try agent(c, joinFirst ? [.join(clipID: camera), tighten] : [tighten, .join(clipID: camera)])
+            XCTAssertEqual(c.clips("Camera").map(\.start), [t(0), t(20)])
+            XCTAssertEqual(changes.added, [], "join first: \(joinFirst)")
+            XCTAssertEqual(changes.changed, [], "join first: \(joinFirst)")
+            XCTAssertEqual(Set(changes.removals.map(\.trackID)), Set(["Screen", "Camera", "Voice"].map { f.track($0).id }), "join first: \(joinFirst)")
+            for removal in changes.removals {
+                XCTAssertEqual(removal.time, t(20), "join first: \(joinFirst)")
+                XCTAssertEqual(removal.duration, t(1), "join first: \(joinFirst)")
+            }
+        }
+    }
 }
 
 /// The log: only agents' batches, followed by clip ID through later edits.
@@ -280,6 +396,38 @@ final class ReviewLogTests: XCTestCase {
         try run(c, &log, by: "claude", [.placeMedia(mediaIDs: ["med_broll"], at: t(40), duration: t(3))])
         try run(c, &log, by: "user", [.removeClips(clipIDs: [c.clips("B-roll").last!.id])])
         XCTAssertTrue(log.isEmpty)
+    }
+
+    /// A shot an agent added straight after another, carrying on its file,
+    /// is in the clip it's joined onto, so that's highlighted now. The
+    /// join itself adds nothing to review.
+    func testJoiningAHighlightedClipOnHighlightsTheJoinedClip() throws {
+        let (f, c) = try Fixture.edited()
+        var log = ReviewLog()
+        let shot = f.clips("B-roll")[0]
+        try run(c, &log, by: "claude", [.placeMedia(mediaIDs: ["med_broll"], at: t(25), sourceStart: t(6), duration: t(3))], label: "Longer shot")
+        let more = try XCTUnwrap(c.clips("B-roll").last)
+        XCTAssertEqual(log.entries.map(\.clipIDs), [[more.id]])
+        try run(c, &log, by: "claude", [.join(clipID: shot.id)], label: "Join")
+        XCTAssertEqual(c.clips("B-roll").map(\.id), [shot.id], "joined")
+        XCTAssertEqual(log.entries.map(\.label), ["Longer shot"])
+        XCTAssertEqual(log.entries.map(\.clipIDs), [[shot.id]])
+    }
+
+    /// The other way round: the agent's clip that Mike's carries on from
+    /// keeps its highlight when they're joined.
+    func testJoiningOntoAHighlightedClipKeepsItHighlighted() throws {
+        let (_, c) = try Fixture.edited()
+        var log = ReviewLog()
+        try run(c, &log, by: "claude", [.placeMedia(mediaIDs: ["med_broll"], at: t(40), duration: t(3))], label: "Add push")
+        let push = try XCTUnwrap(c.clips("B-roll").last)
+        try run(c, &log, by: "user", [.placeMedia(mediaIDs: ["med_broll"], at: t(43), sourceStart: push.sourceEnd, duration: t(2))])
+        XCTAssertEqual(c.clips("B-roll").count, 3)
+        try run(c, &log, by: "claude", [.join(clipID: push.id)], label: "Join")
+        XCTAssertEqual(c.clips("B-roll").map(\.id).last, push.id)
+        XCTAssertEqual(c.project.clip(push.id)?.end, t(45), "joined")
+        XCTAssertEqual(log.entries.map(\.label), ["Add push"])
+        XCTAssertEqual(log.entries.map(\.clipIDs), [[push.id]])
     }
 
     /// A lift's mark stays with the clip after it when Mike tightens the
@@ -379,10 +527,11 @@ final class ReviewRecorderTests: XCTestCase {
 
     /// After Mike tightened a pause, an agent puts it back with a ripple
     /// trim, joins the take's pieces so they play the file straight
-    /// through, then undoes both. The clips the join took out come back on
-    /// the first undo; they aren't the far halves of the clips the trim
-    /// lengthened, so the trim's entry keeps only its own clips and goes
-    /// with the second undo. The agent's earlier edit still waits.
+    /// through (which is nothing to review), then undoes both. The clips
+    /// the join took out come back on the first undo; they aren't the far
+    /// halves of the clips the trim lengthened, so the trim's entry keeps
+    /// only its own clips and goes with the second undo. The agent's
+    /// earlier edit still waits.
     func testUndoingATrimAndTheJoinAfterItKeepsOnlyTheEditsLeft() throws {
         let (_, c) = try Fixture.edited()
         try c.run("Tighten", .rippleDeleteRange(range: TimeRange(start: t(10), end: t(10.5))))
@@ -401,7 +550,8 @@ final class ReviewRecorderTests: XCTestCase {
             .removeClips(clipIDs: [next.id]),
             .trim(clipID: piece.id, edge: .end, to: next.end)
         ]))
-        XCTAssertEqual(recorder.log.entries.map(\.label), ["Add push", "Restore the pause", "Join"])
+        XCTAssertEqual(recorder.log.entries.map(\.label), ["Add push", "Restore the pause"])
+        XCTAssertEqual(recorder.log.entries.last.map { Set($0.changed) }, lengthened)
 
         c.undo()
         XCTAssertEqual(recorder.log.entries.map(\.label), ["Add push", "Restore the pause"])
@@ -463,6 +613,58 @@ final class ReviewRecorderTests: XCTestCase {
         XCTAssertEqual(recorder.log.entries.map(\.clipIDs), [["clip_rebuilt"]], "the rebuild itself changed nothing")
         c.undo()
         XCTAssertEqual(recorder.log.entries.map(\.clipIDs), [[shot.id]])
+        c.undo()
+        XCTAssertTrue(recorder.log.isEmpty, "\(recorder.log)")
+    }
+
+    /// After Mike tightened a pause, an agent puts it back by trimming the
+    /// start of the clips after it, which leaves a through-edit, and joins
+    /// it. The joined clips play what the trim put back, so they're
+    /// highlighted in its place, and the join adds nothing to review. Undo
+    /// puts the highlights back on the trimmed clips, redo moves them on
+    /// again, and undoing the trim as well leaves nothing.
+    func testAJoinTakesOnTheHighlightsOfWhatItJoinedAndUndoGivesThemBack() throws {
+        let (_, c) = try Fixture.edited()
+        try c.run("Tighten", .rippleDeleteRange(range: TimeRange(start: t(10), end: t(10.5))))
+        let recorder = ReviewRecorder(coordinator: c, url: url)
+        defer { recorder.close() }
+        let left = c.clips("Voice")[0]
+        let right = c.clips("Voice")[1]
+        // A ripple trim leaves the clip where it starts and plays it from
+        // half a second earlier in the file.
+        try c.apply(EditBatch(label: "Restore the pause", author: "claude", commands: [.trim(clipID: right.id, edge: .start, to: t(9.5), ripple: true)]))
+        let restored = Set(c.project.linkedClipIDs(of: right.id))
+        XCTAssertEqual(restored.count, 3, "the voice, the camera and the screen")
+        XCTAssertEqual(recorder.log.entries.map { Set($0.clipIDs) }, [restored])
+        try c.apply(EditBatch(label: "Join", author: "claude", commands: [.join(clipID: left.id)]))
+        XCTAssertEqual(c.clips("Voice").map(\.id), [left.id], "joined")
+        let joined = Set(c.project.linkedClipIDs(of: left.id))
+        XCTAssertEqual(recorder.log.entries.map(\.label), ["Restore the pause"], "the join is nothing to review")
+        XCTAssertEqual(recorder.log.entries.map { Set($0.clipIDs) }, [joined])
+
+        c.undo()
+        XCTAssertEqual(recorder.log.entries.map { Set($0.clipIDs) }, [restored])
+        c.redo()
+        XCTAssertEqual(recorder.log.entries.map { Set($0.clipIDs) }, [joined])
+        c.undo()
+        c.undo()
+        XCTAssertTrue(recorder.log.isEmpty, "\(recorder.log)")
+    }
+
+    /// Mike joins a shot an agent added onto his own: his clip is
+    /// highlighted while it holds the agent's, and undoing the join puts
+    /// the highlight back on the agent's shot alone.
+    func testUndoingAJoinOntoMikesClipLeavesItAsItWas() throws {
+        let (f, c) = try Fixture.edited()
+        let recorder = ReviewRecorder(coordinator: c, url: url)
+        defer { recorder.close() }
+        let shot = f.clips("B-roll")[0]
+        try c.apply(EditBatch(label: "Longer shot", author: "claude", commands: [.placeMedia(mediaIDs: ["med_broll"], at: t(25), sourceStart: t(6), duration: t(3))]))
+        let more = try XCTUnwrap(c.clips("B-roll").last)
+        try c.run("Join", .join(clipID: shot.id))
+        XCTAssertEqual(recorder.log.changes(in: c.project).map(\.subject), [.clip(shot.id)])
+        c.undo()
+        XCTAssertEqual(recorder.log.changes(in: c.project).map(\.subject), [.clip(more.id)])
         c.undo()
         XCTAssertTrue(recorder.log.isEmpty, "\(recorder.log)")
     }

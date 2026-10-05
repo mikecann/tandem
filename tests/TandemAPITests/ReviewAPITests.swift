@@ -111,6 +111,64 @@ final class ReviewAPITests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: ProjectFile.reviewURL(for: url).path), "nothing left to highlight")
     }
 
+    /// `tandem join --apply` on a take cut through twice: the joined clips
+    /// play exactly what the pieces did, so nothing new waits for Mike, and
+    /// the edit that was waiting (the music turned up after the second
+    /// cut, which stops that cut joining) still does.
+    func testJoiningThroughEditsLeavesNothingNewWaiting() throws {
+        let h = try ServiceHarness()
+        defer { h.close() }
+        try h.apply(.blade(at: t(10)), .blade(at: t(45)), label: "Cut")
+        let music = try XCTUnwrap(h.service.coordinator.project.track("trk_music")).clips
+        try h.apply(.updateClip(clipID: music[2].id, patch: .object(["audio": .object(["gainDB": .number(-28)])])), label: "Louder")
+        XCTAssertEqual(h.service.status().reviewPending?.map(\.label), ["Louder"], "a cut is nothing to review either")
+
+        let result = try h.service.join(JoinRequest(apply: true), context: h.context)
+        XCTAssertNotNil(result.applied)
+        XCTAssertEqual(result.joins.count, 3)
+        let pending = try XCTUnwrap(h.service.status().reviewPending)
+        XCTAssertEqual(pending.map(\.label), ["Louder"])
+        XCTAssertEqual(pending.first?.clipIDs, [music[2].id])
+        XCTAssertEqual(pending.first?.removals, 0)
+    }
+
+    /// With the app closed, an agent puts back the cut between the take's
+    /// pieces by trimming the start of the second, takes the dissolve off
+    /// the cut and joins the pieces. The joined clips play what the trim
+    /// put back, so they're highlighted in its place, and only the
+    /// dissolve's removal is new. Headless undo and redo move the
+    /// highlights back and forth with the join.
+    func testAHeadlessJoinCarriesTheHighlightsThroughUndoAndRedo() async throws {
+        let folder = TempFolder()
+        let url = try APIFixture.write(to: folder.url)
+        let client = ProjectClient(projectURL: url, author: "claude")
+        client.analysis = FakeAnalysis()
+        client.renderer = FakeRenderer()
+        // The second piece stays where it starts and plays from the 2 s the
+        // cut took out.
+        _ = try await client.call(ApplyRequest(label: "Restore the cut", commands: [.trim(clipID: "clip_voc2", edge: .start, to: t(28), ripple: true)]))
+        let restored = try await client.call(StatusRequest())
+        XCTAssertEqual(restored.reviewPending?.map(\.label), ["Restore the cut"])
+        XCTAssertEqual(Set(restored.reviewPending?.first?.clipIDs ?? []), ["clip_voc2", "clip_cam2", "clip_scr2"])
+
+        let joined = try await client.call(ApplyRequest(label: "Join", commands: [.removeTransition(transitionID: "tr_dissolve"), .join(clipID: "clip_voc1")]))
+        let both = try await client.call(StatusRequest())
+        XCTAssertEqual(both.reviewPending?.map(\.label), ["Restore the cut", "Join"])
+        XCTAssertEqual(Set(both.reviewPending?.first?.clipIDs ?? []), ["clip_voc1", "clip_cam1", "clip_scr1"], "the joined clips hold what the trim put back")
+        XCTAssertEqual(both.reviewPending?.last?.clipIDs, [])
+        XCTAssertEqual(both.reviewPending?.last?.removals, 1, "the dissolve")
+
+        let undone = try await client.call(UndoRequest(expectedRevision: joined.revision))
+        let one = try await client.call(StatusRequest())
+        XCTAssertEqual(one.reviewPending?.map(\.label), ["Restore the cut"])
+        XCTAssertEqual(Set(one.reviewPending?.first?.clipIDs ?? []), ["clip_voc2", "clip_cam2", "clip_scr2"])
+
+        _ = try await client.call(RedoRequest(expectedRevision: undone.revision))
+        let again = try await client.call(StatusRequest())
+        XCTAssertEqual(again.reviewPending?.map(\.label), ["Restore the cut", "Join"])
+        XCTAssertEqual(Set(again.reviewPending?.first?.clipIDs ?? []), ["clip_voc1", "clip_cam1", "clip_scr1"])
+    }
+
     /// An archive is a finished video: it starts with nothing to review.
     func testAnArchiveLeavesTheReviewLogBehind() throws {
         let f = try ArchiveFixture()
