@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import TandemCore
 
@@ -49,5 +50,25 @@ extension EditorModel {
 
     func deleteComment(_ comment: Marker) {
         apply(CommentEdits.remove([comment.id]))
+    }
+}
+
+/// Markers and to-dos, in their strips under the ruler.
+extension EditorModel {
+    /// Asks for a marker's new name.
+    func renameMarker(_ marker: Marker) {
+        let noun = marker.kind == .todo ? "to-do" : "marker"
+        let alert = NSAlert()
+        alert.messageText = "Rename \(noun)"
+        alert.addButton(withTitle: "Rename")
+        alert.addButton(withTitle: "Cancel")
+        let field = NSTextField(string: marker.name)
+        field.frame = NSRect(x: 0, y: 0, width: 260, height: 24)
+        alert.accessoryView = field
+        alert.window.initialFirstResponder = field
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        let name = field.stringValue.trimmingCharacters(in: .whitespaces)
+        guard !name.isEmpty, name != marker.name else { return }
+        apply(EditBatch(label: "Rename \(noun)", commands: [.updateMarker(markerID: marker.id, patch: .object(["name": .string(name)]))]))
     }
 }

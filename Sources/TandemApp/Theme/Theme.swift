@@ -117,8 +117,9 @@ enum Theme {
         static let transportHeight: CGFloat = 46
         static let timelineToolbarHeight: CGFloat = 36
         static let rulerHeight: CGFloat = 24
-        /// Mike's comments, under the ruler while there are any.
-        static let commentsHeight: CGFloat = 22
+        /// A strip of markers, to-dos or comments under the ruler, each
+        /// shown while it has any (`MarkerStrip`).
+        static let markerStripHeight: CGFloat = 22
         /// The scroll bar under the tracks.
         static let timelineScrollerHeight: CGFloat = 12
         static let statusBarHeight: CGFloat = 26

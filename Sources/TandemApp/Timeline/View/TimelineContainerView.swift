@@ -10,9 +10,10 @@ import TandemCore
 final class TimelineContainerView: NSView {
     let model: EditorModel
     let ruler = TimelineRulerView()
-    /// Mike's comments, in a strip under the ruler while there are any.
-    let comments = TimelineCommentsView()
-    let commentsHeader = TimelineCommentsHeaderView()
+    /// Markers, to-dos and comments, each in a strip under the ruler while
+    /// there are any, so nothing covers the ruler's time code.
+    let strips = MarkerStrip.allCases.map(TimelineMarkerStripView.init(strip:))
+    let stripHeaders = MarkerStrip.allCases.map(TimelineMarkerStripHeaderView.init(strip:))
     /// The comment box while it's open.
     private(set) var commentBox: CommentBox?
     let headers = TimelineHeaderView()
@@ -50,7 +51,7 @@ final class TimelineContainerView: NSView {
         // fills its dirty rects, so it has to clip.
         clipsToBounds = true
         layer?.backgroundColor = Theme.window.cg
-        for view in [ruler, comments, commentsHeader, headers, lanes, corner, scroller] as [TimelineChildView] {
+        for view in [ruler] + strips + stripHeaders + [headers, lanes, corner, scroller] as [TimelineChildView] {
             view.container = self
             addSubview(view)
         }
@@ -123,11 +124,11 @@ final class TimelineContainerView: NSView {
         let damage = TimelineDamage.between(old, drawState, layout: layoutCache, layoutChanged: layoutChanged)
         if damage.ruler {
             ruler.needsDisplay = true
-            comments.needsDisplay = true
-            commentsHeader.needsDisplay = true
+            for view in strips { view.needsDisplay = true }
+            for view in stripHeaders { view.needsDisplay = true }
         }
-        // The comments strip comes and goes with the comments.
-        if drawState.project.comments.isEmpty != old.project.comments.isEmpty { needsLayout = true }
+        // A strip comes and goes with its markers.
+        if MarkerStrip.shown(in: drawState.project) != MarkerStrip.shown(in: old.project) { needsLayout = true }
         if damage.headers { headers.needsDisplay = true }
         if damage.lanesReshaped {
             lanes.reshaped()
@@ -192,25 +193,30 @@ final class TimelineContainerView: NSView {
         return changed
     }
 
-    /// How tall the comments strip is: nothing while there are none.
-    var commentsHeight: CGFloat {
-        drawState.project.comments.isEmpty ? 0 : Theme.Metrics.commentsHeight
+    /// The strip that holds `strip`'s markers.
+    func stripView(_ strip: MarkerStrip) -> TimelineMarkerStripView {
+        strips.first { $0.strip == strip }!
     }
 
     override func layout() {
         super.layout()
         let header = Theme.Metrics.trackHeaderWidth
         let rulerHeight = Theme.Metrics.rulerHeight
-        let commentsHeight = commentsHeight
-        let top = rulerHeight + commentsHeight
+        // The strips that have something in them, top to bottom.
+        let shown = MarkerStrip.shown(in: drawState.project)
+        var top = rulerHeight
+        for (view, label) in zip(strips, stripHeaders) {
+            let height = shown.contains(view.strip) ? Theme.Metrics.markerStripHeight : 0
+            label.frame = CGRect(x: 0, y: top, width: header, height: height)
+            view.frame = CGRect(x: header, y: top, width: max(0, bounds.width - header), height: height)
+            view.isHidden = height == 0
+            label.isHidden = height == 0
+            top += height
+        }
         let barHeight = Theme.Metrics.timelineScrollerHeight
         let tracksHeight = max(0, bounds.height - top - barHeight)
         corner.frame = CGRect(x: 0, y: 0, width: header, height: rulerHeight)
         ruler.frame = CGRect(x: header, y: 0, width: max(0, bounds.width - header), height: rulerHeight)
-        commentsHeader.frame = CGRect(x: 0, y: rulerHeight, width: header, height: commentsHeight)
-        comments.frame = CGRect(x: header, y: rulerHeight, width: max(0, bounds.width - header), height: commentsHeight)
-        comments.isHidden = commentsHeight == 0
-        commentsHeader.isHidden = commentsHeight == 0
         headers.frame = CGRect(x: 0, y: top, width: header, height: tracksHeight)
         lanes.frame = CGRect(x: header, y: top, width: max(0, bounds.width - header), height: tracksHeight)
         scroller.frame = CGRect(x: header, y: top + tracksHeight, width: max(0, bounds.width - header), height: barHeight)
@@ -234,6 +240,7 @@ final class TimelineContainerView: NSView {
         guard window != nil else { return }
         commentBox?.cancel()
         layoutSubtreeIfNeeded()
+        let comments = stripView(.comments)
         let anchor: TimelineChildView = comments.isHidden ? ruler : comments
         let x = min(max(model.timeline.scale.x(request.time), 8), max(8, anchor.bounds.width - 8))
         let box = CommentBox(request: request, rate: model.frameRate) { [weak model] text in

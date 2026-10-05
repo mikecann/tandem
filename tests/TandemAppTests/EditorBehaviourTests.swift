@@ -135,17 +135,52 @@ final class EditorBehaviourTests: XCTestCase {
     }
 
     func testCommentsHaveAStripOfTheirOwnWhileThereAreAny() throws {
-        XCTAssertTrue(timeline.comments.isHidden, "no comments, no strip")
+        let comments = timeline.stripView(.comments)
+        XCTAssertTrue(comments.isHidden, "no comments, no strip")
         let lanesTop = timeline.lanes.frame.minY
         editor.model.apply(try XCTUnwrap(CommentEdits.add("B-roll here", at: t(25), id: "mk_note")))
         editor.settle()
-        XCTAssertFalse(timeline.comments.isHidden)
-        XCTAssertEqual(timeline.comments.frame.minY, timeline.ruler.frame.maxY, "right under the ruler")
-        XCTAssertEqual(timeline.lanes.frame.minY, lanesTop + Theme.Metrics.commentsHeight, "the tracks make room")
+        XCTAssertFalse(comments.isHidden)
+        XCTAssertEqual(comments.frame.minY, timeline.stripView(.markers).frame.maxY, "under the markers' strip")
+        XCTAssertEqual(timeline.lanes.frame.minY, lanesTop + Theme.Metrics.markerStripHeight, "the tracks make room")
         editor.model.deleteComment(try XCTUnwrap(editor.project.comments.first))
         editor.settle()
-        XCTAssertTrue(timeline.comments.isHidden, "gone with the last comment")
+        XCTAssertTrue(comments.isHidden, "gone with the last comment")
         XCTAssertEqual(timeline.lanes.frame.minY, lanesTop)
+    }
+
+    func testMarkersAndToDosHaveStripsOfTheirOwnAndTheRulerKeepsItsTimeCode() throws {
+        let markers = timeline.stripView(.markers)
+        let todos = timeline.stripView(.todos)
+        let section = try XCTUnwrap(editor.project.markers.first, "the fixture's section marker")
+        XCTAssertFalse(markers.isHidden, "a strip for the section marker")
+        XCTAssertEqual(markers.frame.minY, timeline.ruler.frame.maxY, "right under the ruler")
+        XCTAssertTrue(todos.isHidden, "no to-dos, no strip")
+
+        // The ruler is all time code: a click on the marker's time moves the playhead.
+        editor.click(editor.rulerPoint(at: section.time.seconds))
+        XCTAssertEqual(editor.model.playback.time.seconds, section.time.seconds, accuracy: 0.5)
+        XCTAssertEqual(editor.project.markers.first?.time, section.time, "the marker didn't move")
+
+        // In its strip, a click goes to it and a drag moves it.
+        editor.model.playback.seek(to: t(2))
+        editor.click(editor.stripPoint(.markers, at: section.time.seconds + 0.5))
+        XCTAssertEqual(editor.model.playback.time, section.time)
+        editor.drag(editor.stripPoint(.markers, at: section.time.seconds + 0.5), to: editor.stripPoint(.markers, at: section.time.seconds + 5.5))
+        XCTAssertEqual(editor.project.markers.first?.time.seconds ?? 0, section.time.seconds + 5, accuracy: 0.2)
+        XCTAssertEqual(editor.model.undoLabel, "Move marker")
+        let menu = try editor.menu(at: editor.stripPoint(.markers, at: section.time.seconds + 5.5))
+        XCTAssertTrue(menu.contains("Rename marker…") && menu.contains("Delete marker") && menu.contains("Kind"), menu)
+
+        // An agent's to-do gets the to-dos' strip, with its note on hover.
+        editor.model.apply(EditBatch(label: "To-do", commands: [.addMarker(marker: Marker(id: "mk_todo", time: t(12), name: "B-roll: the SQLite file (not recorded)", kind: .todo, note: "Open it in TablePlus"))]))
+        editor.settle()
+        XCTAssertFalse(todos.isHidden)
+        XCTAssertEqual(todos.frame.minY, markers.frame.maxY, "under the markers")
+        let todo = try XCTUnwrap(editor.project.markers.first { $0.kind == .todo })
+        XCTAssertTrue(todos.toolTip(for: todo).contains("Open it in TablePlus"))
+        let todoMenu = try editor.menu(at: editor.stripPoint(.todos, at: 12.5))
+        XCTAssertTrue(todoMenu.contains("Delete to-do"), todoMenu)
     }
 
     func testTheRulerStaysFreeForThePlayheadOverAComment() throws {

@@ -78,8 +78,8 @@ struct EditorRootView: View {
     /// when the window is short.
     private func defaultWorkspace(available: CGFloat) -> CGFloat {
         let tracks = TimelineLayout.make(project: model.project, showTranscript: model.showTranscript, heightOverrides: model.timeline.trackHeights).contentHeight
-        let comments = model.project.comments.isEmpty ? 0 : Theme.Metrics.commentsHeight
-        let timeline = Theme.Metrics.timelineToolbarHeight + Theme.Metrics.rulerHeight + comments + tracks + 4
+        let strips = MarkerStrip.height(in: model.project)
+        let timeline = Theme.Metrics.timelineToolbarHeight + Theme.Metrics.rulerHeight + strips + tracks + 4
         return max(Theme.Metrics.minimumWorkspaceHeight, min(Theme.Metrics.workspaceHeight, available - 1 - timeline))
     }
 

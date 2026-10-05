@@ -1098,7 +1098,10 @@ keyframes stay; locked tracks are left alone with a warning.
 
 Adds a marker. `kind` is `marker`, `section`, `chapter`, `todo` or
 `comment` (a note Mike left for the next round; see `tandem comments`); a
-`duration` makes it a range.
+`duration` makes it a range. In the app each kind shows in a strip under
+the ruler: Markers (markers, sections, chapters), To-dos and Comments. A
+`todo` is a note for Mike, like a shot to record or find; put what's needed
+in its `note`, which he sees when he hovers over it.
 
 ```json
 {"addMarker": {"marker": {"time": 95, "name": "Section 2", "kind": "section"}}}

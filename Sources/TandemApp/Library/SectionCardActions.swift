@@ -87,7 +87,7 @@ enum SectionCardActions {
     /// Timeline > Add section cards at section markers.
     static func addAtMarkers(in model: EditorModel) {
         guard SectionCardBatches.canAddAtMarkers(model.project) else {
-            model.show(.info, "Mark where each section starts first: add a marker (M) and set its kind to Section from its menu on the ruler.")
+            model.show(.info, "Mark where each section starts first: add a marker (M) and set its kind to Section from its menu in the Markers strip.")
             return
         }
         Task {
