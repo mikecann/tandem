@@ -310,8 +310,11 @@ final class ReviewLogTests: XCTestCase {
     func testTheLogReadsBackAsItWasWritten() throws {
         let (_, c) = try Fixture.edited()
         var log = ReviewLog()
-        try run(c, &log, by: "claude", [.placeMedia(mediaIDs: ["med_broll"], at: t(40), duration: t(3))], label: "Add push")
+        try run(c, &log, by: "claude", [.placeMedia(mediaIDs: ["med_broll"], at: t(40), duration: t(3)), .placeMedia(mediaIDs: ["med_broll"], at: t(50), duration: t(3))], label: "Add push")
         try run(c, &log, by: "codex", [.rippleDeleteRange(range: TimeRange(start: t(10), end: t(11)))], label: "Tighten")
+        // One shot deleted again stays listed, out of sight.
+        try run(c, &log, by: "user", [.removeClips(clipIDs: [c.clips("B-roll").last!.id])])
+        XCTAssertEqual(log.entries.first?.away.count, 1)
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("review-\(UUID().uuidString)/.tandem/Test.review.json")
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent().deletingLastPathComponent()) }
         try log.save(to: url)
@@ -372,6 +375,96 @@ final class ReviewRecorderTests: XCTestCase {
         XCTAssertTrue(recorder.log.isEmpty, "\(recorder.log)")
         c.redo()
         XCTAssertEqual(recorder.log.entries.map(\.label), ["Add push"])
+    }
+
+    /// After Mike tightened a pause, an agent puts it back with a ripple
+    /// trim, joins the take's pieces so they play the file straight
+    /// through, then undoes both. The clips the join took out come back on
+    /// the first undo; they aren't the far halves of the clips the trim
+    /// lengthened, so the trim's entry keeps only its own clips and goes
+    /// with the second undo. The agent's earlier edit still waits.
+    func testUndoingATrimAndTheJoinAfterItKeepsOnlyTheEditsLeft() throws {
+        let (_, c) = try Fixture.edited()
+        try c.run("Tighten", .rippleDeleteRange(range: TimeRange(start: t(10), end: t(10.5))))
+        let recorder = ReviewRecorder(coordinator: c, url: url)
+        defer { recorder.close() }
+        try c.apply(EditBatch(label: "Add push", author: "claude", commands: [.placeMedia(mediaIDs: ["med_broll"], at: t(40), duration: t(3))]))
+        let push = try XCTUnwrap(c.clips("B-roll").last)
+        let piece = c.clips("Voice")[0]
+        try c.apply(EditBatch(label: "Restore the pause", author: "claude", commands: [.trim(clipID: piece.id, edge: .end, to: t(10.5), ripple: true)]))
+        let lengthened = Set(c.project.linkedClipIDs(of: piece.id))
+        XCTAssertEqual(lengthened.count, 3, "the voice, the camera and the screen")
+        XCTAssertEqual(recorder.log.entries.last.map { Set($0.changed) }, lengthened)
+        let next = c.clips("Voice")[1]
+        XCTAssertEqual(next.sourceStart, c.project.clip(piece.id)?.sourceEnd, "the pieces play the file straight through")
+        try c.apply(EditBatch(label: "Join", author: "claude", commands: [
+            .removeClips(clipIDs: [next.id]),
+            .trim(clipID: piece.id, edge: .end, to: next.end)
+        ]))
+        XCTAssertEqual(recorder.log.entries.map(\.label), ["Add push", "Restore the pause", "Join"])
+
+        c.undo()
+        XCTAssertEqual(recorder.log.entries.map(\.label), ["Add push", "Restore the pause"])
+        XCTAssertEqual(recorder.log.entries.last.map { Set($0.changed) }, lengthened, "only what the trim changed")
+        c.undo()
+        XCTAssertEqual(recorder.log.entries.map(\.label), ["Add push"])
+        XCTAssertEqual(recorder.log.changes(in: c.project).map(\.subject), [.clip(push.id)])
+    }
+
+    /// The same with Mike's own join, which isn't recorded: the next clip
+    /// coming back when he undoes it still isn't the agent's.
+    func testUndoingMikesJoinLeavesTheAgentsTrimAsItWas() throws {
+        let (_, c) = try Fixture.edited()
+        try c.run("Tighten", .rippleDeleteRange(range: TimeRange(start: t(10), end: t(10.5))))
+        let recorder = ReviewRecorder(coordinator: c, url: url)
+        defer { recorder.close() }
+        let piece = c.clips("Voice")[0]
+        try c.apply(EditBatch(label: "Restore the pause", author: "claude", commands: [.trim(clipID: piece.id, edge: .end, to: t(10.5), ripple: true)]))
+        let lengthened = Set(c.project.linkedClipIDs(of: piece.id))
+        let next = c.clips("Voice")[1]
+        try c.run("Join", .removeClips(clipIDs: [next.id]), .trim(clipID: piece.id, edge: .end, to: next.end))
+        c.undo()
+        XCTAssertEqual(recorder.log.entries.map { Set($0.clipIDs) }, [lengthened])
+        c.undo()
+        XCTAssertTrue(recorder.log.isEmpty, "\(recorder.log)")
+    }
+
+    /// Both halves of an agent's clip that Mike cut are highlighted again
+    /// when an agent joins them and undoes the join, and go with the rest.
+    func testUndoingAJoinOfAHighlightedClipsHalvesHighlightsBoth() throws {
+        let (f, c) = try Fixture.edited()
+        let recorder = ReviewRecorder(coordinator: c, url: url)
+        defer { recorder.close() }
+        let shot = f.clips("B-roll")[0]
+        try c.apply(EditBatch(label: "Quieter", author: "claude", commands: [.updateClip(clipID: shot.id, patch: .object(["audio": .object(["gainDB": .number(-6)])]))]))
+        try c.run("Cut", .blade(at: t(22), clipIDs: [shot.id]))
+        let halves = c.clips("B-roll").map(\.id)
+        XCTAssertEqual(recorder.log.entries.map(\.clipIDs), [halves])
+        try c.apply(EditBatch(label: "Join", author: "claude", commands: [.removeClips(clipIDs: [halves[1]]), .trim(clipID: halves[0], edge: .end, to: t(25))]))
+        c.undo()
+        XCTAssertEqual(recorder.log.entries.map(\.label), ["Quieter"])
+        XCTAssertEqual(recorder.log.changes(in: c.project).map(\.subject), halves.map { .clip($0) })
+        c.undo()
+        c.undo()
+        XCTAssertTrue(recorder.log.isEmpty, "\(recorder.log)")
+    }
+
+    /// A clip an agent changed, then rebuilt with a new ID, is highlighted
+    /// again when the rebuild is undone, and goes when the change is.
+    func testUndoingARebuildThenTheChangeBeforeItLeavesNothing() throws {
+        let (f, c) = try Fixture.edited()
+        let recorder = ReviewRecorder(coordinator: c, url: url)
+        defer { recorder.close() }
+        let shot = f.clips("B-roll")[0]
+        try c.apply(EditBatch(label: "Quieter", author: "claude", commands: [.updateClip(clipID: shot.id, patch: .object(["audio": .object(["gainDB": .number(-6)])]))]))
+        var copy = try XCTUnwrap(c.project.clip(shot.id))
+        copy.id = "clip_rebuilt"
+        try c.apply(EditBatch(label: "Rebuild", author: "claude", commands: [.removeClips(clipIDs: [shot.id]), .insertClip(trackID: f.track("B-roll").id, clip: copy)]))
+        XCTAssertEqual(recorder.log.entries.map(\.clipIDs), [["clip_rebuilt"]], "the rebuild itself changed nothing")
+        c.undo()
+        XCTAssertEqual(recorder.log.entries.map(\.clipIDs), [[shot.id]])
+        c.undo()
+        XCTAssertTrue(recorder.log.isEmpty, "\(recorder.log)")
     }
 
     /// Undoing Mike's own edit after an agent's leaves the agent's edit.

@@ -83,6 +83,10 @@ public struct ReviewEntry: Codable, Equatable, Identifiable, Sendable {
     public var date: Date
     public var added: [String]
     public var changed: [String]
+    /// The clips in `added` and `changed` that have gone from the timeline
+    /// since. They stay listed, out of sight, so one an undo puts back is
+    /// highlighted again.
+    public var away: [String]
     public var transitions: [String]
     public var removals: [ReviewRemoval]
     /// Fingerprints of the changed clips and transitions, and of what the
@@ -98,6 +102,7 @@ public struct ReviewEntry: Codable, Equatable, Identifiable, Sendable {
         self.date = date
         added = changes.added
         changed = changes.changed
+        away = []
         transitions = changes.transitions
         removals = changes.removals
         before = changes.before
@@ -111,6 +116,7 @@ public struct ReviewEntry: Codable, Equatable, Identifiable, Sendable {
         date = try c.decode(.date, or: Date(timeIntervalSince1970: 0))
         added = try c.decode(.added, or: [])
         changed = try c.decode(.changed, or: [])
+        away = try c.decode(.away, or: [])
         transitions = try c.decode(.transitions, or: [])
         removals = try c.decode(.removals, or: [])
         before = try c.decode(.before, or: [:])
@@ -118,11 +124,15 @@ public struct ReviewEntry: Codable, Equatable, Identifiable, Sendable {
 
     /// Nothing left to show: its clips are gone or were put back.
     public var isEmpty: Bool {
-        added.isEmpty && changed.isEmpty && transitions.isEmpty && removals.isEmpty
+        clipIDs.isEmpty && transitions.isEmpty && removals.isEmpty
     }
 
-    /// The clips it highlights.
-    public var clipIDs: [String] { added + changed }
+    /// The clips it highlights: the ones on the timeline.
+    public var clipIDs: [String] {
+        guard !away.isEmpty else { return added + changed }
+        let away = Set(away)
+        return (added + changed).filter { !away.contains($0) }
+    }
 }
 
 /// The agent edits Mike hasn't reviewed yet, kept in
@@ -170,20 +180,31 @@ public struct ReviewLog: Codable, Equatable, Sendable {
     /// a highlighted clip put back unchanged with a new ID (an agent
     /// rebuilding a track) stays highlighted, and a removal whose anchor
     /// went is pinned again where its join is now.
+    ///
+    /// After an undo or a reload (`reverts`) only removals are pinned
+    /// again. The clips it puts back were all on the timeline before, and
+    /// the ones that were highlighted then are still listed (`away`), so
+    /// the rest are nobody's other half, however they line up: a clip a
+    /// join took out comes back looking like the far half of the clip that
+    /// was stretched over it.
     @discardableResult
-    public mutating func follow(from before: Project, to after: Project) -> Bool {
+    public mutating func follow(from before: Project, to after: Project, reverts: Bool = false) -> Bool {
         guard !entries.isEmpty else { return false }
         let remaining = Set(after.allTracks.flatMap { $0.clips.map(\.id) })
         let beforeIDs = Set(before.allTracks.flatMap { $0.clips.map(\.id) })
-        // Nothing new and nothing highlighted or pinned gone: nothing to carry.
+        // Highlights carry when something's new or a highlighted clip went,
+        // and marks when a clip they're pinned to went. Otherwise there's
+        // nothing to do.
         let tracked = Set(entries.flatMap(\.clipIDs))
         let anchors = Set(entries.flatMap { $0.removals.compactMap(\.anchorClipID) })
-        guard !remaining.subtracting(beforeIDs).isEmpty || !tracked.union(anchors).isSubset(of: remaining) else { return false }
+        let carries = !reverts && (!remaining.subtracting(beforeIDs).isEmpty || !tracked.isSubset(of: remaining))
+        guard carries || !anchors.isSubset(of: remaining) else { return false }
         let c = ReviewDiff.Correspondence(before, after)
         var changed = false
         // New clips that carry on a highlighted one: its right half, or it
         // put back the same.
-        var successors: [(new: String, old: String)] = c.pieces.map { ($0.key, $0.value) } + c.replacements.map { ($0.key, $0.value) }
+        var successors: [(new: String, old: String)] = []
+        if carries { successors = c.pieces.map { ($0.key, $0.value) } + c.replacements.map { ($0.key, $0.value) } }
         successors = successors.filter { tracked.contains($0.old) }.sorted { $0.new < $1.new }
         for (successor, original) in successors {
             for index in entries.indices {
@@ -210,11 +231,12 @@ public struct ReviewLog: Codable, Equatable, Sendable {
         return changed
     }
 
-    /// Drops what's no longer on the timeline to review: clips and
-    /// transitions that have gone. After an undo or a reload (`reverts`)
-    /// it also drops changes whose clips are back as they were before the
-    /// agent's batch, and removals whose clips came back, which is what
-    /// undoing the batch does. Entries with nothing left go.
+    /// Drops what's no longer on the timeline to review: transitions that
+    /// have gone. Clips that have gone are set aside (`away`) rather than
+    /// dropped, since an undo can put them back. After an undo or a reload
+    /// (`reverts`) it also drops changes whose clips are back as they were
+    /// before the agent's batch, and removals whose clips came back, which
+    /// is what undoing the batch does. Entries with nothing left to show go.
     @discardableResult
     public mutating func prune(in project: Project, reverts: Bool) -> Bool {
         guard !entries.isEmpty else { return false }
@@ -227,8 +249,8 @@ public struct ReviewLog: Codable, Equatable, Sendable {
                 guard reverts, let was = fingerprints[id] else { return false }
                 return objects.fingerprint(id) == was
             }
-            entry.added.removeAll { !objects.hasClip($0) }
-            entry.changed.removeAll { !objects.hasClip($0) || putBack($0) }
+            entry.changed.removeAll(where: putBack)
+            entry.away = (entry.added + entry.changed).filter { !objects.hasClip($0) }
             entry.transitions.removeAll { !objects.hasTransition($0) || putBack($0) }
             if reverts {
                 entry.removals.removeAll { !$0.from.isEmpty && $0.from.allSatisfy(putBack) }

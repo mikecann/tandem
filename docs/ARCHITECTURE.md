@@ -180,9 +180,12 @@ is news. The log is saved to `.tandem/<name>.review.json` after each
 change, so it survives restarts, and because headless commands keep it too
 the app finds their edits when it opens the project (agent batches a crash
 left in the journal are caught up then). Later edits by anyone carry the
-highlights along (both halves of a cut clip stay highlighted), an undo or
-headless undo drops what it put back, and Mark reviewed in the app clears
-the log. `status` reports it as `reviewPending`; agents can't clear it.
+highlights along (both halves of a cut clip stay highlighted, and a
+highlighted clip an edit takes off the timeline stays listed out of sight).
+An undo or headless undo drops what it put back, and the clips it puts back
+have the highlights they had before they went, never ones guessed from the
+clips around them. Mark reviewed in the app clears the log. `status`
+reports it as `reviewPending`; agents can't clear it.
 
 The app shows it from `TimelineDrawState.review`: a violet band on the
 ruler with a wedge at each stop, marks over the lanes in a view of their

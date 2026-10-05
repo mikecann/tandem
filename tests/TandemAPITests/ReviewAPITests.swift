@@ -60,6 +60,57 @@ final class ReviewAPITests: XCTestCase {
         XCTAssertEqual(redone.reviewPending?.map(\.label), ["Add push"])
     }
 
+    /// Restoring the cut between the take's pieces is a ripple trim: the
+    /// first piece runs on, its camera and screen with it, and the rest
+    /// moves along. Undoing it leaves nothing waiting.
+    func testAHeadlessUndoOfARippleTrimLeavesNothingWaiting() async throws {
+        let folder = TempFolder()
+        let url = try APIFixture.write(to: folder.url)
+        let client = ProjectClient(projectURL: url, author: "claude")
+        client.analysis = FakeAnalysis()
+        client.renderer = FakeRenderer()
+        let restored = try await client.call(ApplyRequest(label: "Restore the cut", commands: [.trim(clipID: "clip_voc1", edge: .end, to: t(32), ripple: true)]))
+        let waiting = try await client.call(StatusRequest())
+        XCTAssertEqual(waiting.reviewPending?.map(\.label), ["Restore the cut"])
+        XCTAssertEqual(Set(waiting.reviewPending?.first?.clipIDs ?? []), ["clip_voc1", "clip_cam1", "clip_scr1"])
+        _ = try await client.call(UndoRequest(expectedRevision: restored.revision))
+        let undone = try await client.call(StatusRequest())
+        XCTAssertEqual(undone.reviewPending, [])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: ProjectFile.reviewURL(for: url).path), "nothing left to highlight")
+    }
+
+    /// With the app closed, an agent restores the cut between the take's
+    /// pieces, joins them into one clip that plays the file straight
+    /// through, then undoes both. The second piece coming back on the first
+    /// undo is that clip put back, not the far half of the one the trim
+    /// lengthened, so once the trim is undone too nothing waits.
+    func testUndoingATrimAndTheJoinAfterItLeavesNothingWaiting() async throws {
+        let folder = TempFolder()
+        let url = try APIFixture.write(to: folder.url)
+        let start = try ProjectFile.load(from: url).project
+        let client = ProjectClient(projectURL: url, author: "claude")
+        client.analysis = FakeAnalysis()
+        client.renderer = FakeRenderer()
+        _ = try await client.call(ApplyRequest(label: "Restore the cut", commands: [.trim(clipID: "clip_voc1", edge: .end, to: t(32), ripple: true)]))
+        let joined = try await client.call(ApplyRequest(label: "Join", commands: [
+            .removeClips(clipIDs: ["clip_voc2"]),
+            .trim(clipID: "clip_voc1", edge: .end, to: t(62))
+        ]))
+        let both = try await client.call(StatusRequest())
+        XCTAssertEqual(both.reviewPending?.map(\.label), ["Restore the cut", "Join"])
+
+        let first = try await client.call(UndoRequest(expectedRevision: joined.revision))
+        let one = try await client.call(StatusRequest())
+        XCTAssertEqual(one.reviewPending?.map(\.label), ["Restore the cut"])
+        XCTAssertEqual(Set(one.reviewPending?.first?.clipIDs ?? []), ["clip_voc1", "clip_cam1", "clip_scr1"], "only what the trim changed")
+
+        _ = try await client.call(UndoRequest(expectedRevision: first.revision))
+        let two = try await client.call(StatusRequest())
+        XCTAssertEqual(try ProjectFile.load(from: url).project, start, "back where it started")
+        XCTAssertEqual(two.reviewPending, [])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: ProjectFile.reviewURL(for: url).path), "nothing left to highlight")
+    }
+
     /// An archive is a finished video: it starts with nothing to review.
     func testAnArchiveLeavesTheReviewLogBehind() throws {
         let f = try ArchiveFixture()

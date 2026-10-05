@@ -81,7 +81,7 @@ public final class ReviewRecorder: @unchecked Sendable {
             var log = _log
             var changed = false
             for (entry, before, after) in replayed {
-                changed = log.follow(from: before, to: after) || changed
+                changed = log.follow(from: before, to: after, reverts: entry.batch == nil) || changed
                 if let batch = entry.batch {
                     changed = log.record(label: batch.label, author: batch.author, revision: entry.revision, date: entry.date, before: before, after: after) || changed
                 } else {
@@ -123,7 +123,7 @@ public final class ReviewRecorder: @unchecked Sendable {
     private func handle(_ event: ProjectCoordinator.ChangeEvent) {
         guard !closed, let before = event.before, let after = event.after else { return }
         var log = _log
-        var changed = log.follow(from: before, to: after)
+        var changed = log.follow(from: before, to: after, reverts: event.kind == .undo || event.kind == .reload)
         switch event.kind {
         case .edit, .redo:
             changed = log.record(label: event.label, author: event.author, revision: event.revision, before: before, after: after) || changed
