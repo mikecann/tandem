@@ -69,9 +69,12 @@ do, and say why when you hand back.
   0.4 s everywhere else.
 - **The ending:** run on about 5 s after the sign-off, fade to black, and
   fade the music out with it.
-- **Mid-sentence pauses:** close them right up (about 0.08 s) so a sentence
-  sounds like one thought. The 0.4 s is for between sentences. Leave live
-  demo reactions alone.
+- **Mid-sentence pauses:** close his thinking pauses, 0.5 s or longer,
+  right up (to about 0.08 s), so a sentence sounds like one thought. Leave
+  shorter ones (a breath, a natural pause) as he said them: closing every
+  gap of 0.2 s or more made 818 cuts in a 38-minute video, one every 2.8 s,
+  and the picture jumped around (Mike, 2026-10-05). The 0.4 s is for
+  between sentences. Leave live demo reactions alone.
 - **Editor's notes:** Mike says them out loud in the take ("editor's note:
   cut that bit"). Read the transcript for them before cutting, and remove
   both the note and what it points at.
