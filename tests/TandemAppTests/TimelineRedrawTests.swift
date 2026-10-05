@@ -502,11 +502,15 @@ final class PinnedReachTests: XCTestCase {
         )
     }
 
-    /// Scrolled to 22 s, the take (0 to 60 s) and the B-roll shot (20 to
-    /// 25 s) start off the left edge: their name badges stay at the edge,
-    /// and the strip covers the longest.
+    /// Scrolled to 22 s, a title from 10 to 70 s starts off the left
+    /// edge: its words stay at the edge, and the strip covers them. Clips
+    /// of media have no labels to pin (their names are in the tooltip).
     func testLabelsPinnedAtTheEdgeWidenTheStrip() throws {
         let f = try AppFixture()
+        let text = try XCTUnwrap(f.project.track(named: "Text"))
+        try f.apply(EditBatch(label: "Title", commands: [.insertClip(trackID: text.id, clip: Clip(
+            id: "clip_title", content: .text(TextContent(text: "Is Convex just a Postgres wrapper?")), start: t(10), duration: t(60)
+        ))]))
         let reach = painter(f, pinX: 220).pinnedReach()
         XCTAssertGreaterThan(reach, 220 + 40, "a name badge past the edge")
         XCTAssertLessThan(reach, 220 + 200)
@@ -516,7 +520,7 @@ final class PinnedReachTests: XCTestCase {
 
     func testNothingPinnedLeavesNoStrip() throws {
         let f = try AppFixture()
-        // At 70 s the take and the music (0 to 60 s) are behind the edge.
+        // At 70 s everything is behind the edge.
         XCTAssertEqual(painter(f, pinX: 700).pinnedReach(), 700)
     }
 }

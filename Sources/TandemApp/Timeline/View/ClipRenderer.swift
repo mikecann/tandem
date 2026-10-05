@@ -362,6 +362,24 @@ struct ClipRenderer {
         }
     }
 
+    /// What a clip's hover tooltip adds after its name and times: its
+    /// layout, zoom, level and speed, which the timeline doesn't label.
+    func hoverDetails(for clip: Clip) -> [String] {
+        var lines: [String] = []
+        if let badge = badgeText(for: clip) { lines.append(badge) }
+        if let zooms = clip.keyframes["video.transform.scale"]?.compactMap({ $0.value.number }), let peak = zooms.max(), peak > 1.001 {
+            lines.append("Zooms to \(Int((peak * 100).rounded()))%")
+        }
+        if let levels = clip.keyframes["audio.gainDB"]?.compactMap(\.value.number), let low = levels.min(), let high = levels.max() {
+            let range = low == high ? String(format: "%.0f dB", low) : String(format: "Level %.0f to %.0f dB", low, high)
+            lines.append((low == high ? "Level " + range : range).replacingOccurrences(of: "-", with: "−"))
+        } else if let gain = clip.audio?.gainDB, gain != 0 {
+            lines.append(String(format: "Level %.0f dB", gain).replacingOccurrences(of: "-", with: "−"))
+        }
+        if clip.speed != 1 { lines.append("Speed \(Int((clip.speed * 100).rounded()))%") }
+        return lines
+    }
+
     private func drawZoomBand(from start: Time, to end: Time, clip: Clip, rect: CGRect, in context: CGContext) {
         let x0 = max(rect.minX, scale.x(clip.start + start))
         let x1 = min(rect.maxX, scale.x(clip.start + end))
@@ -372,8 +390,7 @@ struct ClipRenderer {
         context.setFillColor(Theme.amber.opacity(0.6).cg)
         context.fill(CGRect(x: band.minX, y: band.minY, width: 1, height: band.height))
         context.fill(CGRect(x: band.maxX - 1, y: band.minY, width: 1, height: band.height))
-        let peak = clip.keyframes["video.transform.scale"]?.compactMap { $0.value.number }.max() ?? 1
-        drawBadge("Zoom \(Int((peak * 100).rounded()))%", at: CGPoint(x: band.minX + 6, y: rect.minY + 4), color: Theme.amber, in: rect, context: context)
+        // How far it zooms is in the tooltip, with the clip's other details.
     }
 
     // MARK: - Labels
@@ -439,28 +456,15 @@ struct ClipRenderer {
         return reach.maxX.isFinite ? reach.maxX : nil
     }
 
-    /// Draws a clip's name and badges, or with `reach` set, only measures
-    /// them (with no context).
+    /// Draws a title's or graphic's words, or with `reach` set, only
+    /// measures them (with no context). Clips of media show their pictures
+    /// and sound and carry no label (Mike found them noise): their names,
+    /// layouts and levels are in the hover tooltip (`hoverDetails`).
     private func drawLabel(_ clip: Clip, lane: TimelineLane, rect: CGRect, style: Theme.ClipStyle, in context: CGContext?) {
         let left = max(rect.minX, pinX)
         let room = rect.maxX - left
-        guard room > 14 else { return }
+        guard room > 14, clip.mediaID == nil else { return }
         switch lane.style {
-        case .video, .broll:
-            var x = left + 4
-            if let badge = badgeText(for: clip) {
-                x = drawBadge(badge, at: CGPoint(x: x, y: rect.minY + 4), color: Theme.text, in: rect, context: context) + 5
-            }
-            let role = clip.mediaID.flatMap { project.media($0)?.role }
-            // Take clips with a layout badge read from their track, as in
-            // the design; everything else is named.
-            let isTake = role == .camera || role == .screen
-            let quiet = badgeText(for: clip) != nil || clip.keyframes["video.transform.scale"] != nil
-            if !(isTake && quiet) {
-                // Names sit in a badge like the layout labels, which reads on
-                // any thumbnail without the cost of a text shadow.
-                drawBadge(name(of: clip), at: CGPoint(x: x, y: rect.minY + 4), color: Theme.textSecondary, in: rect, context: context)
-            }
         case .text:
             drawText(name(of: clip), at: CGPoint(x: left + 6, y: rect.midY - 7), maxX: rect.maxX - 4, font: Theme.Fonts.ui(10.5), color: style.label)
         case .graphics:
@@ -470,59 +474,9 @@ struct ClipRenderer {
                 x += 18
             }
             drawText(name(of: clip), at: CGPoint(x: x, y: rect.midY - 7), maxX: rect.maxX - 4, font: Theme.Fonts.ui(10.5), color: style.label)
-        case .music:
-            var text = name(of: clip)
-            if let levels = clip.keyframes["audio.gainDB"]?.compactMap(\.value.number), let low = levels.min(), let high = levels.max() {
-                // Animated: the range it moves through.
-                let range = low == high ? String(format: "%.0f dB", low) : String(format: "%.0f to %.0f dB", low, high)
-                text += " · " + range.replacingOccurrences(of: "-", with: "−")
-            } else if let gain = clip.audio?.gainDB, gain != 0 {
-                text += " · " + String(format: "%.0f dB", gain).replacingOccurrences(of: "-", with: "−")
-            }
-            drawText(text, at: CGPoint(x: left + 8, y: rect.minY + 3), maxX: rect.maxX - 4, font: Theme.Fonts.ui(10, .medium), color: style.label)
-        case .sfx:
-            let font = Theme.Fonts.ui(9.5)
-            let text = name(of: clip)
-            guard rect.width >= 20 else { return }
-            if rect.height >= 28 {
-                // Tall enough for the waveform to read: the name sits at
-                // the top, like music's, off the middle where it peaks.
-                drawText(text, at: CGPoint(x: left + 6, y: rect.minY + 2), maxX: rect.maxX - 4, font: Theme.Fonts.ui(9.5, .medium), color: style.label)
-            } else {
-                let width = TextMetrics.width(of: text, font: font)
-                let x = rect.width > width + 8 ? rect.midX - width / 2 : left + 4
-                drawText(text, at: CGPoint(x: x, y: rect.midY - 6), maxX: rect.maxX - 3, font: font, color: style.label)
-            }
-        case .voice, .audio:
-            // Take sound reads from its track, like the design.
-            let role = clip.mediaID.flatMap { project.media($0)?.role }
-            if rect.height >= 30 && role != .camera && role != .screen {
-                drawText(name(of: clip), at: CGPoint(x: left + 6, y: rect.minY + 2), maxX: rect.maxX - 4, font: Theme.Fonts.ui(9.5, .medium), color: style.label.opacity(0.8))
-            }
-        case .transcript:
+        case .video, .broll, .music, .sfx, .voice, .audio, .transcript:
             break
         }
-    }
-
-    /// Draws a dark rounded badge and returns its right edge.
-    @discardableResult
-    func drawBadge(_ text: String, at origin: CGPoint, color: Swatch, in clipRect: CGRect, context: CGContext?) -> CGFloat {
-        let font = Theme.Fonts.ui(9.5, .semibold)
-        guard clipRect.maxX - origin.x > 30 else { return origin.x }
-        let size = CGSize(width: TextMetrics.width(of: text, font: font), height: 12)
-        // A badge that doesn't fit whole ("Pi") is noise; leave it out.
-        guard size.width + 10 <= clipRect.maxX - origin.x - 3 else { return origin.x }
-        let badge = CGRect(x: origin.x, y: origin.y, width: size.width + 10, height: 14)
-        if let reach {
-            reach.note(badge.maxX)
-            return badge.maxX
-        }
-        guard let context else { return badge.maxX }
-        context.addPath(CGPath(roundedRect: badge, cornerWidth: 3, cornerHeight: 3, transform: nil))
-        context.setFillColor(Theme.badge.cg)
-        context.fillPath()
-        drawText(text, at: CGPoint(x: badge.minX + 5, y: badge.minY + 0.5), maxX: badge.maxX - 3, font: font, color: color)
-        return badge.maxX
     }
 
     func drawText(_ text: String, at point: CGPoint, maxX: CGFloat, font: NSFont, color: Swatch, shadow: Bool = false) {
