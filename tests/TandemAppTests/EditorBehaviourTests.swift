@@ -246,8 +246,10 @@ final class EditorBehaviourTests: XCTestCase {
         XCTAssertEqual(gap.trackIDs.count, 3, "across camera, screen and voice")
         XCTAssertFalse(lanes.gapView.isHidden)
         XCTAssertEqual(lanes.gapView.boxes.count, 3)
+        XCTAssertEqual(lanes.gapView.buttons.count, 3, "an × on each, since any of them closes all three")
 
-        let button = lanes.gapView.button
+        // The voice's × closes it on all three.
+        let button = try XCTUnwrap(lanes.gapView.buttons.max { $0.midY < $1.midY })
         editor.click(editor.windowPoint(CGPoint(x: button.midX, y: button.midY), in: lanes))
         XCTAssertEqual(editor.clips("Camera").map(\.start.seconds), [0, 10], "closed: what was after it moved up")
         XCTAssertEqual(editor.clips("Voice").map(\.start.seconds), [0, 10])

@@ -340,12 +340,15 @@ final class TimelineLanesView: TimelineChildView {
         let scale = model.timeline.scale
         let x0 = scale.x(found.range.start)
         let x1 = scale.x(found.range.end)
-        gapView.boxes = found.trackIDs.compactMap { container.layoutCache.lane(forTrack: $0) }.map { lane in
+        let lanes = found.trackIDs.compactMap { container.layoutCache.lane(forTrack: $0) }
+        gapView.boxes = lanes.map { lane in
             CGRect(x: x0, y: lane.y - offset, width: x1 - x0, height: lane.height).insetBy(dx: 1, dy: 1)
         }
-        let anchor = container.layoutCache.lane(forTrack: found.trackID)
+        // An × on every track it closes on, since any of them closes all.
         let size: CGFloat = 18
-        gapView.button = CGRect(x: (x0 + x1) / 2 - size / 2, y: (anchor?.midY ?? 0) - offset - size / 2, width: size, height: size)
+        gapView.buttons = lanes.map { lane in
+            CGRect(x: (x0 + x1) / 2 - size / 2, y: lane.midY - offset - size / 2, width: size, height: size)
+        }
         gapView.frame = bounds
         gapView.isHidden = false
         gapView.needsDisplay = true
@@ -357,9 +360,9 @@ final class TimelineLanesView: TimelineChildView {
         gapView.isHidden = true
     }
 
-    /// Whether a press at `point` (view coordinates) is on the gap's ×.
+    /// Whether a press at `point` (view coordinates) is on one of the gap's ×s.
     private func pressesGapButton(_ point: CGPoint) -> Bool {
-        gap != nil && !gapView.isHidden && gapView.button.insetBy(dx: -4, dy: -4).contains(point)
+        gap != nil && !gapView.isHidden && gapView.buttons.contains { $0.insetBy(dx: -4, dy: -4).contains(point) }
     }
 
     func redrawAll() {
@@ -1575,12 +1578,12 @@ final class TranscriptEdgeView: NSView {
     }
 }
 
-/// The box over a gap, on each track Close gap would close it on, and the
-/// × that closes it. Clicks go through to the lanes, which find the ×
-/// themselves.
+/// The box over a gap on each track Close gap would close it on, each
+/// with an × that closes it on all of them. Clicks go through to the
+/// lanes, which find the ×s themselves.
 final class GapView: NSView {
     var boxes: [CGRect] = []
-    var button: CGRect = .zero
+    var buttons: [CGRect] = []
 
     override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
@@ -1599,17 +1602,19 @@ final class GapView: NSView {
             context.strokePath()
         }
         context.setLineDash(phase: 0, lengths: [])
-        context.addEllipse(in: button)
-        context.setFillColor(Theme.red.cg)
-        context.fillPath()
-        let cross = button.insetBy(dx: 6, dy: 6)
-        context.setStrokeColor(Theme.text.cg)
-        context.setLineWidth(1.6)
-        context.setLineCap(.round)
-        context.move(to: CGPoint(x: cross.minX, y: cross.minY))
-        context.addLine(to: CGPoint(x: cross.maxX, y: cross.maxY))
-        context.move(to: CGPoint(x: cross.maxX, y: cross.minY))
-        context.addLine(to: CGPoint(x: cross.minX, y: cross.maxY))
-        context.strokePath()
+        for button in buttons {
+            context.addEllipse(in: button)
+            context.setFillColor(Theme.red.cg)
+            context.fillPath()
+            let cross = button.insetBy(dx: 6, dy: 6)
+            context.setStrokeColor(Theme.text.cg)
+            context.setLineWidth(1.6)
+            context.setLineCap(.round)
+            context.move(to: CGPoint(x: cross.minX, y: cross.minY))
+            context.addLine(to: CGPoint(x: cross.maxX, y: cross.maxY))
+            context.move(to: CGPoint(x: cross.maxX, y: cross.minY))
+            context.addLine(to: CGPoint(x: cross.minX, y: cross.maxY))
+            context.strokePath()
+        }
     }
 }
