@@ -105,7 +105,7 @@ public final class ProjectCoordinator: @unchecked Sendable {
                 label: batch.label,
                 author: batch.author,
                 createdIDs: context.createdIDs,
-                warnings: context.warnings + issues.filter { $0.severity == .warning }.map(\.message)
+                warnings: context.warnings + ProjectValidator.newWarnings(issues, since: before)
             )
             if let key = batch.idempotencyKey { idempotencyResults[key] = result }
             journal?.append(batch: batch, revision: _revision, seed: context.seed)

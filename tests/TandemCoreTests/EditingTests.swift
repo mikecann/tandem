@@ -403,6 +403,21 @@ final class TransitionTests: XCTestCase {
         XCTAssertEqual(transition.fromClipID, c.clips("Camera")[1].id)
     }
 
+    /// A warning is said once, by the edit that brought it, not by every
+    /// edit after it.
+    func testAnEditIsOnlyWarnedAboutWhatItDid() throws {
+        let (f, c) = try Fixture.edited()
+        let music = f.clips("Music")[0].id
+        let fade = try c.run("Fade", .addTransition(
+            trackID: f.track("Music").id,
+            transition: Transition(id: "tr_fade", type: .fadeToBlack, duration: t(1), fromClipID: music, toClipID: nil)
+        ))
+        XCTAssertEqual(fade.warnings.filter { $0.contains("always crossfades") }.count, 1, "\(fade.warnings)")
+        let later = try c.run("Marker", .addMarker(marker: Marker(id: "mk_w", time: t(3), name: "Later")))
+        XCTAssertEqual(later.warnings, [], "nothing to do with the fade")
+        XCTAssertTrue(ProjectValidator.validate(c.project).contains { $0.message.contains("always crossfades") }, "validate still lists it")
+    }
+
     func testMovingClipsApartDropsTheirTransition() throws {
         let (f, c) = try Fixture.edited()
         try c.run("B-roll 2", .placeMedia(mediaIDs: ["med_broll"], at: t(25), sourceStart: t(6), duration: t(4)))

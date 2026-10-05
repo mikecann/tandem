@@ -484,7 +484,7 @@ public final class TandemService: @unchecked Sendable {
         return ApplyResult(
             revision: revision, label: batch.label, author: batch.author,
             createdIDs: context.createdIDs,
-            warnings: context.warnings + issues.filter { $0.severity == .warning }.map(\.message),
+            warnings: context.warnings + ProjectValidator.newWarnings(issues, since: project),
             dryRun: true, repeated: false,
             added: diff.added, removed: diff.removed, changed: diff.changed, duration: working.duration
         )

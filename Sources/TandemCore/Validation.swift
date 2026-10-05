@@ -18,6 +18,17 @@ public struct ValidationIssue: Codable, Equatable, Sendable {
 /// Checks the invariants every command must keep. The coordinator refuses a
 /// batch that leaves any `.error` behind; `tandem validate` prints them all.
 public enum ProjectValidator {
+    /// The warnings among `issues` (the project after an edit) that weren't
+    /// there before it, so an edit is told about what it did, not again
+    /// about something it never touched (a fade at the end of the video, on
+    /// every batch), which teaches agents to skim warnings. `tandem
+    /// validate` still lists them all.
+    public static func newWarnings(_ issues: [ValidationIssue], since before: Project) -> [String] {
+        func key(_ issue: ValidationIssue) -> String { "\(issue.objectID ?? "")|\(issue.message)" }
+        let old = Set(validate(before).filter { $0.severity == .warning }.map(key))
+        return issues.filter { $0.severity == .warning && !old.contains(key($0)) }.map(\.message)
+    }
+
     public static func validate(_ p: Project) -> [ValidationIssue] {
         var issues: [ValidationIssue] = []
         func error(_ message: String, _ id: String? = nil) { issues.append(ValidationIssue(.error, message, objectID: id)) }
