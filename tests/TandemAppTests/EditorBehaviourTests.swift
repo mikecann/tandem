@@ -232,6 +232,23 @@ final class EditorBehaviourTests: XCTestCase {
         added.cancel()
     }
 
+    func testTheSidebarFollowsWhatsNearThePlayhead() throws {
+        editor.model.apply(try XCTUnwrap(CommentEdits.add("Cut the umm", at: t(12), id: "mk_umm")))
+        editor.model.apply(EditBatch(label: "To-do", commands: [.addMarker(marker: Marker(id: "mk_todo", time: t(16), name: "B-roll: the SQLite file", kind: .todo, note: "Open it in TablePlus"))]))
+        editor.model.selection = []
+        editor.model.playback.seek(to: t(5))
+        editor.settle()
+        XCTAssertEqual(editor.model.nearPlayhead.items.map(\.id).filter { ["mk_umm", "mk_todo"].contains($0) }, ["mk_umm", "mk_todo"], "coming up")
+        XCTAssertFalse(editor.model.nearPlayhead.items.contains(where: \.isHere))
+        editor.model.playback.seek(to: t(12.5))
+        editor.settle()
+        XCTAssertEqual(editor.model.nearPlayhead.items.first(where: \.isHere)?.id, "mk_umm", "the playhead's on the comment")
+        // A row takes the playhead there.
+        let todo = try XCTUnwrap(editor.model.nearPlayhead.items.first { $0.id == "mk_todo" })
+        editor.model.goTo(todo.marker)
+        XCTAssertEqual(editor.model.playback.time, t(16))
+    }
+
     func testADoubleClickOnAnEmptyStretchOpensACommentThere() throws {
         XCTAssertTrue(editor.clips("Graphics").isEmpty, "the fixture's Graphics track is empty")
         editor.click(editor.point(onTrack: "Graphics", at: 14), count: 2)

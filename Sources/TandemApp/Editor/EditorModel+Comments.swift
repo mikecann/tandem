@@ -55,6 +55,20 @@ extension EditorModel {
 
 /// Markers and to-dos, in their strips under the ruler.
 extension EditorModel {
+    /// Works out what's near the playhead again, keeping the old value when
+    /// nothing's changed so the sidebar doesn't redraw.
+    func refreshNearPlayhead() {
+        let near = NearThePlayhead.at(playback.time, in: project, review: review)
+        if near != nearPlayhead { setNearPlayhead(near) }
+    }
+
+    /// Takes the playhead to a marker, comment or to-do in the sidebar.
+    func goTo(_ marker: Marker) {
+        playback.pause()
+        playback.seek(to: marker.time)
+        timeline.bringIntoView(marker.time)
+    }
+
     /// Asks for a marker's new name.
     func renameMarker(_ marker: Marker) {
         let noun = marker.kind == .todo ? "to-do" : "marker"

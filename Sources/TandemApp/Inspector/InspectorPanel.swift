@@ -173,6 +173,7 @@ private struct NothingSelected: View {
             .padding(.vertical, 12)
             .frame(maxWidth: .infinity, alignment: .leading)
             .overlay(alignment: .bottom) { Rectangle().fill(Theme.border.color).frame(height: 1) }
+            NearThePlayheadSection(model: model)
             InspectorSection(title: "Project", icon: Icons.project) {
                 InfoRow(label: "Canvas", value: "\(settings.width) × \(settings.height)")
                 InfoRow(label: "Frame rate", value: String(format: "%g fps", settings.frameRate.framesPerSecond))
@@ -196,6 +197,89 @@ private struct NothingSelected: View {
         ("1 to 4", "Full, PiP right, PiP left, split"),
         ("Z drag", "Zoom the screen in the viewer")
     ]
+}
+
+/// What's near the playhead while nothing's selected: the markers, to-dos
+/// and comments either side of it (click one to go there), and what the
+/// agents changed right here, so reviewing reads like a running list.
+private struct NearThePlayheadSection: View {
+    let model: EditorModel
+
+    var body: some View {
+        let near = model.nearPlayhead
+        InspectorSection(title: "Near the playhead", icon: "scope") {
+            if near.items.isEmpty && near.edits.isEmpty {
+                Text("Comments, to-dos and markers show here as the playhead passes them. Shift-C adds a comment.")
+                    .font(.ui(11.5))
+                    .foregroundStyle(Theme.textMuted.color)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            ForEach(near.items) { item in
+                NearRow(item: item) { model.goTo(item.marker) }
+            }
+            if !near.edits.isEmpty {
+                Text("Agent edits here")
+                    .font(.ui(11, .semibold))
+                    .foregroundStyle(Theme.agent.color)
+                    .padding(.top, 4)
+                ForEach(near.edits, id: \.revision) { edit in
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Text(ActivityLog.displayName(edit.author))
+                            .font(.ui(11.5, .semibold))
+                            .foregroundStyle(Theme.agent.color)
+                        Text(edit.label)
+                            .font(.ui(11.5))
+                            .foregroundStyle(Theme.text.color)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Spacer(minLength: 0)
+                        Text(TimelineReview.when(edit.date))
+                            .font(.ui(10.5))
+                            .foregroundStyle(Theme.textFaint.color)
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// One marker, to-do or comment near the playhead: its time and words in
+/// full (and a to-do's note), lit while the playhead is on it.
+private struct NearRow: View {
+    let item: NearThePlayhead.Item
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Image(systemName: item.strip.symbol)
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(item.strip.colour.color)
+                    .frame(width: 14)
+                Text(Timecode.clock(item.marker.time.seconds))
+                    .font(.system(size: 11).monospacedDigit())
+                    .foregroundStyle(Theme.textFaint.color)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(item.marker.name)
+                        .font(.ui(12, item.isHere ? .semibold : .regular))
+                        .foregroundStyle((item.isHere ? Theme.text : Theme.textSecondary).color)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if let note = item.marker.note, !note.isEmpty, item.strip != .comments {
+                        Text(note)
+                            .font(.ui(11))
+                            .foregroundStyle(Theme.textMuted.color)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.vertical, 5)
+            .padding(.horizontal, 6)
+            .background(RoundedRectangle(cornerRadius: 6).fill(item.isHere ? item.strip.colour.opacity(0.14).color : Color.clear))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .tip("Go to it")
+    }
 }
 
 // MARK: - Video

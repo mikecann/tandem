@@ -147,6 +147,7 @@ final class TimelineContainerView: NSView {
         }
         positionPlayhead()
         reviewOverlay.update()
+        model.refreshNearPlayhead()
         // A new track opens its name for typing.
         if model.timeline.renamingTrackID != nil { headers.syncRename() }
     }
@@ -264,6 +265,7 @@ final class TimelineContainerView: NSView {
         followPlayhead()
         lanes.playheadMoved(to: playheadTime)
         scroller.needsDisplay = true
+        model.refreshNearPlayhead()
     }
 
     func positionPlayhead() {

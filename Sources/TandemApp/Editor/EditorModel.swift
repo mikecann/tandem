@@ -171,6 +171,11 @@ final class EditorModel {
     private(set) var reviewLog = ReviewLog()
     /// The same, placed on the timeline as it is now.
     private(set) var review = TimelineReview.empty
+    /// What's near the playhead, for the sidebar while nothing's selected.
+    /// The timeline refreshes it as the playhead moves; it only changes
+    /// when the playhead passes something.
+    private(set) var nearPlayhead = NearThePlayhead.empty
+    func setNearPlayhead(_ near: NearThePlayhead) { nearPlayhead = near }
     @ObservationIgnored private var reviewToken: UUID?
 
     @ObservationIgnored private var lastScan: Date = .distantPast
