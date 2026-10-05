@@ -127,7 +127,7 @@ enum TransitionSounds {
             ids = clipIDs ?? []
         case .trim(let clipID, _, _, _, _), .slip(let clipID, _, _), .slide(let clipID, _), .setSpeed(let clipID, _, _, _),
              .updateClip(let clipID, _), .addEffect(let clipID, _, _), .updateEffect(let clipID, _, _), .removeEffect(let clipID, _),
-             .moveEffect(let clipID, _, _), .setKeyframes(let clipID, _, _), .zoomToRegion(let clipID, _, _, _):
+             .moveEffect(let clipID, _, _), .setKeyframes(let clipID, _, _), .zoomToRegion(let clipID, _, _, _), .join(let clipID):
             ids = [clipID]
         case .roll(let left, let right, _):
             ids = [left, right]

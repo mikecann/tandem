@@ -188,6 +188,13 @@ struct CLI {
                 label: args.options["label"], expectedRevision: try args.integer("expect")
             )
             return show(try await client().call(request), json: json)
+        case "join":
+            try args.expectPositionals(atMost: 0, command: name)
+            let request = JoinRequest(
+                from: try time(args, "from"), to: try time(args, "to"), apply: args.has("apply"),
+                label: args.options["label"], expectedRevision: try args.integer("expect")
+            )
+            return show(try await client().call(request), json: json)
         case "short":
             try args.expectPositionals(atMost: 0, command: name)
             let request = ShortRequest(apply: args.has("apply"), label: args.options["label"], expectedRevision: try args.integer("expect"))

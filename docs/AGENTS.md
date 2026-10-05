@@ -44,6 +44,7 @@ tandem transcript [<clip or media id>] [--from T] [--to T]
 tandem search "<phrase>"           where a phrase is said
 tandem pauses [--min 0.6]          silences between words
 tandem tighten [--min 0.6] [--keep 0.15] [--apply]
+tandem join [--from T] [--to T] [--apply]   join through-edits back into one clip
 tandem captions [--from T] [--to T] [--max-words 3] [--y 0.42] [--apply]
 tandem short [--apply]             lay out a 9:16 short from the same edit
 tandem cards [--insert] [--no-sounds] [--apply]   a section card at every section marker
@@ -154,7 +155,7 @@ args = ["mcp"]
 ```
 
 The tools mirror the operations: `status`, `timeline`, `media`,
-`transcript`, `search`, `pauses`, `tighten`, `captions`, `short`, `cards`, `apply`, `undo`, `redo`,
+`transcript`, `search`, `pauses`, `tighten`, `join`, `captions`, `short`, `cards`, `apply`, `undo`, `redo`,
 `history`, `validate`, `frame`, `screenshot`, `clip`, `export`, `archive`,
 `relink`, `loudness`, `watch` and `effects`, plus the asset library's `assets_search`,
 `assets_use`, `assets_credits`, `assets_generate` and `assets_providers`,
@@ -288,7 +289,8 @@ picture.
 
 Clips placed together from one take (camera picture, camera sound, screen)
 share a link group. Moves, trims, cuts, slips and speed changes apply to the
-whole group unless you pass `"includeLinked": false`. The timeline view shows
+whole group unless you pass `"includeLinked": false`. Joining a through-edit
+joins the linked clips across the same cut too. The timeline view shows
 the groups as `linked #1`, `linked #2`.
 
 ### Transitions
@@ -771,6 +773,36 @@ targeted track.
 {"blade": {"at": 12.5}}
 ```
 
+#### join
+
+Joins a through-edit, the opposite of a blade: the clip and the one right
+after it on its track become one clip, with this clip's ID, start and link
+group. It only joins when one clip plays exactly what the two did: the same
+file at the same speed, touching, the file carrying straight on where this
+clip stops (within half a frame of rounding), and the same settings
+(effects that differ only by ID count as the same). The clips linked to them
+across the same cut (camera, screen, voice) join too, so the take stays in
+step: each has to meet the cut and join, or nothing does. Keyframes keep
+their timeline times. It fails, saying why, for a transition or a fade on
+the cut, different settings, an animation that wouldn't carry on across the
+cut (one clip's animation only joins when it sits still, at the other
+clip's value, all through the other clip), or a locked track.
+
+```json
+{"join": {"clipID": "clip_k3f9x2mq"}}
+```
+
+#### joinThroughEdits
+
+Joins every through-edit (see `join`) with its cut in `range`, both ends
+included, or on the whole timeline, as one command: what `tandem join
+--apply` sends. Cuts that look like through-edits but would play
+differently joined are left, with a warning saying why.
+
+```json
+{"joinThroughEdits": {"range": {"start": 60, "duration": 60}}}
+```
+
 #### trim
 
 Moves a clip edge (`start` or `end`) to a timeline time. With `ripple` the
@@ -1158,6 +1190,30 @@ current timeline's times); `--json` prints it if you'd rather adjust it and
 `apply` it yourself. `--from` and `--to` limit it to part of the video. In
 MCP: `tighten {"min": 0.6, "keep": 0.15}`, then again with `"apply": true,
 "expectedRevision": <the plan's revision>`.
+
+### Join through-edits
+
+Putting cuts back with ripple trims (or cutting the take and changing your
+mind) leaves through-edits: cuts where the same file carries straight on,
+so nothing changes there, but the timeline still looks cut up. Join them
+rather than lifting and trimming clips by hand:
+
+```bash
+tandem join                                  # what it would join, and the cuts it leaves and why
+tandem join --apply                          # one undo step
+tandem join --from 2:00 --to 3:30 --apply    # only cuts in that stretch
+tandem apply '{"join": {"clipID": "clip_k3f9x2mq"}}'   # only the cut after that clip
+```
+
+Each joined clip keeps the first clip's ID and link group and plays exactly
+what the two did; the camera, screen and voice of a take join together,
+and hundreds of cuts join in one go. A cut is left, and listed with the
+reason, when joining would change what plays: a transition or a fade on
+it, clips with different settings (a gain, a crop, an effect), animation
+that wouldn't carry on across it, or a linked clip cut somewhere else (a
+split edit). Take away what's in the way first if that cut should go too.
+In MCP: `join {}`, then `join {"apply": true, "expectedRevision": <the
+plan's revision>}`.
 
 ### Caption a short
 
@@ -1751,6 +1807,7 @@ still when it's beside it. It's one undo step.
 | search | `tandem search "<phrase>"` | `POST /v1/search {"phrase"}` | `search` |
 | pauses | `tandem pauses [--min]` | `POST /v1/pauses {"min"}` | `pauses` |
 | tighten | `tandem tighten [--min] [--keep] [--apply]` | `POST /v1/tighten {"min", "keep", "apply"}` | `tighten` |
+| join | `tandem join [--from] [--to] [--apply]` | `POST /v1/join {"from", "to", "apply"}` | `join` |
 | captions | `tandem captions [--from] [--to] [--max-words] [--y] [--apply]` | `POST /v1/captions {"from", "to", "words", "y", "apply"}` | `captions` |
 | short | `tandem short [--apply]` | `POST /v1/short {"apply"}` | `short` |
 | cards | `tandem cards [--kicker] [--duration] [--insert] [--no-sounds] [--marker]... [--apply]` | `POST /v1/cards {"markers", "kicker", "duration", "insert", "sounds", "apply"}` | `cards` |

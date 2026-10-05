@@ -86,6 +86,8 @@ final class SchemaTests: XCTestCase {
             .addTrack(kind: .audio, name: "X", index: 1, id: "trk_x"),
             .rippleDeleteRange(range: TimeRange(start: t(1), duration: t(2)), trackIDs: ["trk_a"]),
             .blade(at: t(1), trackIDs: ["trk_a"], clipIDs: ["clip_a"]),
+            .join(clipID: "clip_a"),
+            .joinThroughEdits(range: TimeRange(start: t(1), duration: t(2))),
             .zoomToRegion(clipID: "clip_a", rect: Rect(x: 0, y: 0, width: 1, height: 1), at: t(1), duration: t(0.5)),
             .setKeyframes(clipID: "clip_a", parameter: "video.transform.position", keyframes: [Keyframe(time: t(0), value: .point(Point(x: 0.5, y: 0.5)), interpolation: .hold)]),
             .updateClip(clipID: "clip_a", patch: try JSONValue.from(clip)),

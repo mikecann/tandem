@@ -557,6 +557,18 @@ enum MCPTools {
             readOnly: false
         ),
         Tool(
+            name: "join", title: "Join through-edits",
+            description: "Finds through-edits, cuts where a clip carries straight on into the next piece of the same file with the same settings (putting cuts back with ripple trims leaves them), and joins each into one clip together with its linked camera, screen and voice clips, so the take is one clip again. What plays doesn't change. Cuts that would play differently joined (a transition or a fade on the cut, different settings, animation that wouldn't carry on) are listed with the reason and left. A dry run that returns the plan and the command unless apply: true. To join one cut, apply {\"join\": {\"clipID\": \"<the clip before the cut>\"}}.",
+            operation: .join,
+            properties: [
+                "from": time("Only cuts at or after this time."), "to": time("Only cuts at or before this time."),
+                "apply": S.boolean("Join them. Without it nothing changes."),
+                "label": S.string("Undo label."), "author": S.string("Who made the edit."),
+                "expectedRevision": S.integer("Refuse unless the project is at this revision.")
+            ],
+            readOnly: false
+        ),
+        Tool(
             name: "captions", title: "Add word captions",
             description: "Adds word-by-word captions from the transcripts (a few words at a time, the spoken word highlighted, Mike's shorts style) on a Captions track. A dry run that returns the plan and the commands unless apply: true.",
             operation: .captions,

@@ -111,6 +111,20 @@ public enum EditCommand: Codable, Equatable, Sendable {
     /// linked partners) are cut. Otherwise every clip under `at` on the given
     /// tracks, or on all targeted unlocked tracks.
     case blade(at: Time, trackIDs: [String]? = nil, clipIDs: [String]? = nil)
+    /// Joins a through-edit, the opposite of a blade: `clipID` and the clip
+    /// right after it on its track become one clip, when they play one
+    /// stretch of one file straight on (the same file and speed, touching,
+    /// the file carrying on where `clipID` stops, within half a frame) with
+    /// the same settings. The joined clip keeps `clipID`'s ID, start and
+    /// link group, and plays exactly what the two did. The clips linked to
+    /// them across the same cut (camera, screen, voice) join too. Fails,
+    /// saying why, when that would change what plays (`ThroughEdits`).
+    case join(clipID: String)
+    /// Joins every through-edit (see `join`) with its cut in `range`, both
+    /// ends included, or on the whole timeline, in one go. Cuts that look
+    /// like through-edits but can't be joined are left, with a warning
+    /// saying why. JSON: `{"joinThroughEdits": {}}`.
+    case joinThroughEdits(range: TimeRange? = nil)
     /// Moves a clip edge to `to` (a timeline time). With `ripple` the clip
     /// keeps its place and everything after it moves instead.
     case trim(clipID: String, edge: ClipEdge, to: Time, ripple: Bool? = nil, includeLinked: Bool? = nil)

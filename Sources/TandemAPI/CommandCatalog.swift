@@ -9,7 +9,7 @@ public enum CommandCase: String, CaseIterable, Codable, Sendable {
     case updateProject, updateSettings, addTrack, removeTrack, moveTrack, updateTrack
     case addMedia, updateMedia, removeMedia
     case placeMedia, insertClip, removeClips, rippleDeleteRange, closeGap, insertTime, insertTemplate, addSectionCards, fitSectionCards
-    case blade, trim, roll, slip, slide, setSpeed
+    case blade, join, joinThroughEdits, trim, roll, slip, slide, setSpeed
     case moveClips, updateClip, link, unlink, applyLayout, zoomToRegion, setFormatLayout, addMotion
     case addTransition, updateTransition, removeTransition
     case addEffect, updateEffect, removeEffect, moveEffect, setKeyframes
@@ -39,6 +39,8 @@ extension EditCommand {
         case .addSectionCards: return .addSectionCards
         case .fitSectionCards: return .fitSectionCards
         case .blade: return .blade
+        case .join: return .join
+        case .joinThroughEdits: return .joinThroughEdits
         case .trim: return .trim
         case .roll: return .roll
         case .slip: return .slip
@@ -97,6 +99,8 @@ public enum CommandText {
             return mode == .insert ? "Add section cards at \(markers), making room" : "Add section cards at \(markers)"
         case .fitSectionCards(let clipIDs): return clipIDs.map { "Fit \(count($0.count, "section card")) to their words" } ?? "Fit section cards to their words"
         case .blade(let at, _, _): return "Cut at \(at)"
+        case .join: return "Join a through-edit"
+        case .joinThroughEdits(let range): return range.map { "Join through-edits from \($0.start) to \($0.end)" } ?? "Join through-edits"
         case .trim(_, let edge, _, let ripple, _): return ripple == true ? "Ripple trim \(edge.rawValue)" : "Trim \(edge.rawValue)"
         case .roll: return "Roll edit"
         case .slip: return "Slip clip"
@@ -138,6 +142,7 @@ public enum CommandText {
             switch first.commandCase {
             case .rippleDeleteRange: return "\(commands.count) ripple deletes"
             case .blade: return "\(commands.count) cuts"
+            case .join: return "Join \(commands.count) through-edits"
             default: break
             }
         }

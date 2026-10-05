@@ -19,6 +19,7 @@ public enum ServiceOperation: String, CaseIterable, Codable, Sendable {
     case search
     case pauses
     case tighten
+    case join
     case captions
     case short
     case cards
@@ -50,6 +51,7 @@ public enum ServiceOperation: String, CaseIterable, Codable, Sendable {
         case .search: return SearchRequest.self
         case .pauses: return PausesRequest.self
         case .tighten: return TightenRequest.self
+        case .join: return JoinRequest.self
         case .captions: return CaptionsRequest.self
         case .short: return ShortRequest.self
         case .cards: return CardsRequest.self
@@ -76,7 +78,7 @@ public enum ServiceOperation: String, CaseIterable, Codable, Sendable {
     /// True for operations that change the project.
     public var edits: Bool {
         switch self {
-        case .apply, .undo, .redo, .tighten, .captions, .short, .cards, .media, .archive, .relink, .sync: return true
+        case .apply, .undo, .redo, .tighten, .join, .captions, .short, .cards, .media, .archive, .relink, .sync: return true
         default: return false
         }
     }

@@ -221,6 +221,14 @@ share a link group. Selection, moves, trims, blades, slips and speed changes
 apply to the whole group unless `includeLinked: false`. When linked clips are
 split at the same time, their right-hand parts form a new group together.
 
+Joining a through-edit (`join`, and `joinThroughEdits` for every one at
+once) is the opposite: two clips either side of a cut where the same file
+carries straight on become one clip with the left one's ID and group, and
+their linked clips across the same cut join with them. `ThroughEdits` only
+joins when one clip plays exactly what the two did (the same settings, no
+transition or fade on the cut, animation that carries on), so a join never
+changes the picture or the sound.
+
 ### Transitions
 
 A transition belongs to a track and joins two touching clips (`fromClipID`,

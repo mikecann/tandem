@@ -377,6 +377,7 @@ extension ServiceCall {
         case let apply as ApplyRequest: return apply.dryRun != true
         case is UndoRequest, is RedoRequest: return true
         case let tighten as TightenRequest: return tighten.apply == true
+        case let join as JoinRequest: return join.apply == true
         case let captions as CaptionsRequest: return captions.apply == true
         case let short as ShortRequest: return short.apply == true
         case let cards as CardsRequest: return cards.apply == true

@@ -59,6 +59,11 @@ public enum Editing {
             try fitSectionCards(&project, clipIDs: clipIDs, &context)
         case .blade(let at, let trackIDs, let clipIDs):
             try blade(&project, at: at, trackIDs: trackIDs, clipIDs: clipIDs, &context)
+        case .join(let clipID):
+            try ThroughEdits.join(&project, clipID: clipID)
+        case .joinThroughEdits(let range):
+            let report = ThroughEdits.joinAll(&project, in: range)
+            for warning in ThroughEdits.warnings(report, in: project) { context.warn(warning) }
         case .trim(let clipID, let edge, let to, let ripple, let includeLinked):
             try trim(&project, clipID: clipID, edge: edge, to: to, ripple: ripple ?? false, includeLinked: includeLinked ?? true, &context)
         case .roll(let leftClipID, let rightClipID, let delta):

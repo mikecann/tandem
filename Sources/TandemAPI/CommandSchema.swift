@@ -623,6 +623,18 @@ extension CommandSchema {
             example: #"{"blade": {"at": 12.5}}"#
         ),
         Entry(
+            command: .join,
+            summary: "Joins a through-edit, the opposite of a blade: the clip and the one right after it on its track become one clip, when they play one stretch of one file straight on (the same file and speed, touching, the file carrying on within half a frame) with the same settings. The joined clip keeps this clip's ID, start and link group and plays exactly what the two did; the clips linked to them across the same cut (camera, screen, voice) join too. Fails, saying why, when that would change what plays: a transition or a fade on the cut, different settings, or animation that wouldn't carry on.",
+            arguments: S.object(["clipID": S.string("The clip before the cut.")], required: ["clipID"]),
+            example: #"{"join": {"clipID": "clip_k3f9x2mq"}}"#
+        ),
+        Entry(
+            command: .joinThroughEdits,
+            summary: "Joins every through-edit (see join) with its cut in range, both ends included, or on the whole timeline, in one go. Cuts that look like through-edits but would play differently joined are left, with a warning saying why. tandem join (the join tool) lists both first.",
+            arguments: S.object(["range": S.ref("TimeRange")]),
+            example: #"{"joinThroughEdits": {"range": {"start": 60, "duration": 60}}}"#
+        ),
+        Entry(
             command: .trim,
             summary: "Moves a clip edge to a timeline time. With ripple the clip keeps its place and everything after it moves instead.",
             arguments: S.object([

@@ -572,7 +572,9 @@ final class RandomEditTests: XCTestCase {
                     .slip(clipID: clip.id, delta: small),
                     .slide(clipID: clip.id, delta: small),
                     .setSpeed(clipID: clip.id, speed: [0.5, 1, 2, 4][Int(rng.next() % 4)], ripple: true),
-                    .insertTime(at: time, duration: Time(seconds: 1))
+                    .insertTime(at: time, duration: Time(seconds: 1)),
+                    .join(clipID: clip.id),
+                    .joinThroughEdits(range: rng.next() % 2 == 0 ? nil : TimeRange(start: time, duration: Time(seconds: 10)))
                 ]
                 let command = commands[Int(rng.next() % UInt64(commands.count))]
                 attempted += 1
