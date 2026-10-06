@@ -15,11 +15,20 @@ struct ReviewChip: View {
                 StepButton(icon: "chevron.left", help: Shortcuts.help("Previous agent change", .previousAgentChange), shortcut: .previousAgentChange) {
                     actions.perform(.previousAgentChange)
                 }
-                Text(review.chipTitle)
-                    .font(.ui(11.5, .medium))
-                    .foregroundStyle(Theme.agent.color)
-                    .padding(.horizontal, 2)
-                    .tip(summary)
+                // The count goes round the changes: each click, the start of
+                // the next one, and after the last, the first.
+                Button {
+                    model.goToAgentChange(forward: true, wrap: true)
+                } label: {
+                    Text(review.chipTitle)
+                        .font(.ui(11.5, .medium))
+                        .foregroundStyle(Theme.agent.color)
+                        .padding(.horizontal, 2)
+                        .frame(height: 22)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .tip(summary)
                 StepButton(icon: "chevron.right", help: Shortcuts.help("Next agent change", .nextAgentChange), shortcut: .nextAgentChange) {
                     actions.perform(.nextAgentChange)
                 }
@@ -49,7 +58,7 @@ struct ReviewChip: View {
     /// The latest edits waiting, for hovering the count.
     private var summary: String {
         let entries = model.reviewLog.entries
-        var lines = ["Agent edits since you last marked them reviewed:"]
+        var lines = ["Click for the next change to review; after the last, it goes back to the first.", "", "Agent edits since you last marked them reviewed:"]
         lines += entries.suffix(8).map { "\(ActivityLog.displayName($0.author)) · \($0.label) · \(TimelineReview.when($0.date))" }
         if entries.count > 8 { lines.append("and \(entries.count - 8) earlier") }
         return lines.joined(separator: "\n")

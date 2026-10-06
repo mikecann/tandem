@@ -205,8 +205,17 @@ enum InputSimulator {
         switch gesture.kind {
         case .click(let count):
             for click in 1...max(1, count) {
-                if let down = mouse(.leftMouseDown, start, clicks: click) { target.mouseDown(with: down) }
-                if let up = mouse(.leftMouseUp, start, clicks: click) { target.mouseUp(with: up) }
+                guard let down = mouse(.leftMouseDown, start, clicks: click), let up = mouse(.leftMouseUp, start, clicks: click) else { continue }
+                // SwiftUI follows a press through the window's own events
+                // (a button acts as the press comes up over it); AppKit
+                // views take theirs straight.
+                if target is NSHostingViewMarker {
+                    window.sendEvent(down)
+                    window.sendEvent(up)
+                } else {
+                    target.mouseDown(with: down)
+                    target.mouseUp(with: up)
+                }
             }
         case .drag(let to, let steps):
             let end = windowPoint(to)

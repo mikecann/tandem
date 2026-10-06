@@ -181,6 +181,28 @@ final class EditorBehaviourTests: XCTestCase {
         XCTAssertEqual(ranges, [[0, 10], [10, 50]], "the ten seconds went and the rest closed up")
     }
 
+    // MARK: - Reviewing
+
+    func testClickingTheReviewCountGoesRoundTheChangesToReview() throws {
+        for (label, at) in [("A", 8.0), ("B", 40.0)] {
+            try editor.model.session.coordinator.apply(EditBatch(label: label, author: "claude", commands: [
+                .placeMedia(mediaIDs: ["med_broll"], at: t(at), duration: t(1))
+            ]))
+        }
+        // The review log hears agent edits on its own queue.
+        for _ in 0..<100 where editor.model.review.stops.count < 2 { editor.settle(0.02) }
+        XCTAssertEqual(editor.model.review.stops.map(\.time.seconds), [8, 40])
+        editor.model.playback.seek(to: t(20))
+        editor.settle()
+        let count = try XCTUnwrap(editor.point(ofTip: "Click for the next change to review"))
+        editor.click(count)
+        XCTAssertEqual(editor.model.playhead.seconds, 40, accuracy: 0.001, "the start of the next change")
+        editor.click(count)
+        XCTAssertEqual(editor.model.playhead.seconds, 8, accuracy: 0.001, "after the last, back to the first")
+        editor.click(count)
+        XCTAssertEqual(editor.model.playhead.seconds, 40, accuracy: 0.001)
+    }
+
     // MARK: - Selecting and moving
 
     func testSelectForwardPicksEverythingAfterThePlayheadAndADragMovesItAll() {

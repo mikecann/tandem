@@ -181,6 +181,21 @@ final class EditorHarness {
         return CGPoint(x: inWindow.x, y: frameHeight - inWindow.y)
     }
 
+    /// The middle of the toolbar control whose tooltip starts with
+    /// `prefix`, found by its `.tip` anchor, in window points from the top
+    /// left: how a test finds a SwiftUI button to click.
+    func point(ofTip prefix: String) -> CGPoint? {
+        func find(_ view: NSView) -> NSView? {
+            if view is TipAnchorView, view.toolTip?.hasPrefix(prefix) == true { return view }
+            for subview in view.subviews {
+                if let found = find(subview) { return found }
+            }
+            return nil
+        }
+        guard let root = window.contentView?.superview ?? window.contentView, let anchor = find(root) else { return nil }
+        return windowPoint(CGPoint(x: anchor.bounds.midX, y: anchor.bounds.midY), in: anchor)
+    }
+
     func click(_ point: CGPoint, count: Int = 1, modifiers: NSEvent.ModifierFlags = []) {
         run(InputSimulator.Gesture(kind: .click(count: count), at: point, modifiers: modifiers))
     }

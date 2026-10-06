@@ -5,12 +5,19 @@ import TandemCore
 /// stretch to the next, and marking them all reviewed.
 extension EditorModel {
     /// Moves the playhead to the start of the next (or previous) change an
-    /// agent made and scrolls it into view. False when there's none that
-    /// way, which beeps.
+    /// agent made and scrolls it into view. With `wrap` (clicking the
+    /// review chip's count) it goes round: after the last, the first. False
+    /// when there's none that way, which beeps.
     @discardableResult
-    func goToAgentChange(forward: Bool) -> Bool {
+    func goToAgentChange(forward: Bool, wrap: Bool = false) -> Bool {
         let now = playback.time
-        guard let stop = forward ? review.stop(after: now) : review.stop(before: now) else {
+        var found = forward ? review.stop(after: now) : review.stop(before: now)
+        var wrapped = false
+        if found == nil, wrap, let first = forward ? review.stops.first : review.stops.last {
+            found = first
+            wrapped = true
+        }
+        guard let stop = found else {
             if review.stops.isEmpty {
                 show(.info, "No agent changes to review.")
             } else {
@@ -23,7 +30,8 @@ extension EditorModel {
         timeline.bringIntoView(stop.time)
         if let latest = stop.edits.last {
             let others = stop.edits.count > 1 ? " and \(stop.edits.count - 1) more" : ""
-            show(.info, "\(ActivityLog.displayName(latest.author)): \(latest.label)\(others)")
+            let round = wrapped && review.stops.count > 1 ? "Back to the first change. " : ""
+            show(.info, "\(round)\(ActivityLog.displayName(latest.author)): \(latest.label)\(others)")
         }
         return true
     }

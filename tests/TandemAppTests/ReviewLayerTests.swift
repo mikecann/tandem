@@ -192,6 +192,18 @@ final class ReviewModelTests: XCTestCase {
         XCTAssertEqual(model.playhead, t(8))
     }
 
+    func testTheChipsCountGoesRoundTheChangesToReview() throws {
+        try agent("A", [.placeMedia(mediaIDs: ["med_broll"], at: t(8), duration: t(1))])
+        try agent("B", [.placeMedia(mediaIDs: ["med_broll"], at: t(50), duration: t(1))])
+        model.playback.seek(to: t(30))
+        XCTAssertTrue(model.goToAgentChange(forward: true, wrap: true))
+        XCTAssertEqual(model.playhead, t(50), "the start of the next one")
+        XCTAssertTrue(model.goToAgentChange(forward: true, wrap: true))
+        XCTAssertEqual(model.playhead, t(8), "after the last, back to the first")
+        XCTAssertTrue(model.goToAgentChange(forward: true, wrap: true))
+        XCTAssertEqual(model.playhead, t(50))
+    }
+
     func testMarkReviewedClearsTheHighlightsAndTheLog() throws {
         try agent("Add push", [.placeMedia(mediaIDs: ["med_broll"], at: t(20), duration: t(2))])
         let url = try XCTUnwrap(model.session.review.url)
