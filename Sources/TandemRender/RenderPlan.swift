@@ -30,6 +30,9 @@ struct PlannedSegment: Equatable {
     var sourceStart: Time
     var speed: Double
     var freeze: Bool
+    /// The picture of video with alpha, which only shares composition
+    /// tracks with other such pictures (see `assignTracks`).
+    var alpha = false
     /// Index of the composition track within its pool (video or audio).
     var track: Int = 0
     /// Sound only: volume breakpoints on the timeline, linear gain.
@@ -152,15 +155,17 @@ enum RenderPlanner {
                 // picture that much later in the file; the matte follows.
                 let delay = item.pictureDelay ?? .zero
                 let sourceStart = (clip.freezeFrame ? clip.sourceStart : clip.sourceStart - head.scaled(by: clip.speed)) + delay
+                // The proxy and the converted copy keep the file's alpha.
                 let picture = PlannedSegment(
                     clipID: clip.id, mediaID: item.id, role: .picture, timeline: visible,
-                    sourceStart: sourceStart, speed: clip.speed, freeze: clip.freezeFrame
+                    sourceStart: sourceStart, speed: clip.speed, freeze: clip.freezeFrame, alpha: item.hasAlpha
                 )
                 videoSegments.append(picture)
                 if let cutout = clip.video?.cutout, cutout.enabled {
                     if assets?.matteURL(for: item, cutout: cutout) != nil {
                         var matte = picture
                         matte.role = .matte
+                        matte.alpha = false
                         videoSegments.append(matte)
                     } else {
                         warnings.add("No cutout matte for \(item.path) yet, showing the full frame.")
@@ -343,19 +348,30 @@ enum RenderPlanner {
     /// track that's free when it starts. Clips joined by a transition
     /// overlap, so they land on different tracks (the classic A/B roll).
     /// Returns the number of tracks used.
+    ///
+    /// Pictures with alpha only go on tracks with other pictures with
+    /// alpha. AVFoundation decodes a track's files with one decoder while
+    /// their codec and size match, and a plain HEVC decoder drops the alpha
+    /// of HEVC with alpha, even across a gap or when reading starts after
+    /// the plain file. Every proxy is 1080p HEVC, so an overlay's proxy on a
+    /// track after a camera's showed black wherever it was clear, while
+    /// playing and in `tandem check` (issue #10). Alpha after alpha, and
+    /// plain after alpha, decode fine.
     static func assignTracks(_ segments: inout [PlannedSegment]) -> Int {
         let order = segments.indices.sorted {
             segments[$0].timeline.start == segments[$1].timeline.start ? $0 < $1 : segments[$0].timeline.start < segments[$1].timeline.start
         }
         var ends: [Time] = []
+        var alpha: [Bool] = []
         for i in order {
             let range = segments[i].timeline
-            if let free = ends.firstIndex(where: { $0 <= range.start }) {
+            if let free = ends.indices.first(where: { ends[$0] <= range.start && alpha[$0] == segments[i].alpha }) {
                 segments[i].track = free
                 ends[free] = range.end
             } else {
                 segments[i].track = ends.count
                 ends.append(range.end)
+                alpha.append(segments[i].alpha)
             }
         }
         return ends.count

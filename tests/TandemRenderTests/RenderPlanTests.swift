@@ -242,6 +242,36 @@ final class RenderPlanTests: XCTestCase {
         XCTAssertEqual(plan.videoSegments.first?.timeline, TimeRange(start: t(1), end: t(4)), "and the clip where it was")
     }
 
+    /// A composition track keeps its decoder from one file to the next
+    /// while the codec and size stay the same, and a plain HEVC decoder
+    /// drops the alpha of HEVC with alpha. Every proxy is 1080p HEVC, so an
+    /// overlay's proxy after a camera's played black (issue #10). Pictures
+    /// with alpha share tracks only with each other.
+    func testPicturesWithAlphaGetCompositionTracksOfTheirOwn() {
+        let overlay = MediaItem(id: "med_over", path: "overlay.mov", kind: .video, role: .graphic, duration: t(60), width: 3840, height: 2160, hasVideo: true, hasAlpha: true)
+        let sticker = MediaItem(id: "med_stk", path: "sticker.mov", kind: .video, role: .sticker, duration: t(60), width: 512, height: 512, hasVideo: true, hasAlpha: true)
+        var cam = mediaClip("clip_c", "med_cam", start: 0, duration: 4)
+        cam.video = VideoProperties(cutout: Cutout())
+        let assets = FakeAssets()
+        assets.mattes["med_cam"] = URL(fileURLWithPath: "/tmp/matte.mov")
+        let camera = Track(kind: .video, name: "Camera", clips: [cam, mediaClip("clip_s", "med_scr", start: 6, duration: 4)])
+        let graphics = Track(kind: .video, name: "Graphics", clips: [
+            mediaClip("clip_o", "med_over", start: 4, duration: 2, source: 0),
+            mediaClip("clip_k", "med_stk", start: 7, duration: 1, source: 0)
+        ])
+        var edit = project(video: [camera, graphics])
+        edit.media += [overlay, sticker]
+        let plan = RenderPlanner.plan(edit, format: nil, assets: assets)
+
+        let alpha = Set(["med_over", "med_stk"])
+        let withAlpha = Set(plan.videoSegments.filter { $0.role == .picture && alpha.contains($0.mediaID) }.map(\.track))
+        let without = Set(plan.videoSegments.filter { $0.role == .matte || !alpha.contains($0.mediaID) }.map(\.track))
+        XCTAssertEqual(plan.videoSegments.count, 5, "four pictures and the camera's matte")
+        XCTAssertTrue(withAlpha.isDisjoint(with: without), "pictures with alpha \(withAlpha), the rest \(without)")
+        XCTAssertEqual(withAlpha.count, 1, "the overlay and the sticker take turns on one track")
+        XCTAssertEqual(plan.videoTrackCount, 3)
+    }
+
     func testImagesAndGraphicsGetNoCompositionTracks() {
         let still = Clip(id: "clip_i", content: .media(mediaID: "med_img"), start: .zero, duration: t(2))
         let graphic = Clip(id: "clip_g", content: .graphic(GraphicContent(template: "remotion:Bar")), start: t(2), duration: t(2))

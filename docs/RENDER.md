@@ -46,6 +46,17 @@ Project ──RenderPlanner──▶ RenderPlan (pure)
   different tracks (A/B). Cutout mattes get their own segments with the same
   time mapping. A tiny black movie underlies everything, so the video spans
   the whole timeline even with only titles or a trailing gap.
+- Pictures with alpha only share composition tracks with each other.
+  AVFoundation decodes a track's files with one decoder while their codec
+  and size match, and a plain HEVC decoder drops the alpha of HEVC with
+  alpha: it hands over 4:2:0, or BGRA with alpha 255 when that's all it's
+  asked for, even across a gap or when reading starts after the plain file.
+  Every proxy is 1080p HEVC, so an overlay's proxy on a track after a
+  camera's or screen's played black wherever the overlay was clear, and
+  `tandem check` found its clear frames black (issue #10). Originals of the
+  same codec and size did it too, in exports; frame grabs decoded them
+  right. Alpha after alpha keeps each file's alpha and its straight or
+  premultiplied mode, and plain after alpha decodes fine.
 - A two-sided transition is centred on the cut (the outgoing clip plays on
   for half, the incoming one starts half early from its handle, holding its
   first frame where the file has none before, as the outgoing one holds its

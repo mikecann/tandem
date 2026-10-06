@@ -82,6 +82,73 @@ final class AlphaVideoTests: XCTestCase {
         }
     }
 
+    /// Every proxy is 1080p HEVC, so an overlay's proxy (HEVC with alpha)
+    /// can follow a camera's (plain HEVC) on one composition track.
+    /// AVFoundation keeps a track's decoder while the codec and size stay
+    /// the same, and the plain decoder drops the alpha: the overlay played
+    /// black over the track below, and `tandem check` found its clear
+    /// frames black (issue #10).
+    func testAnOverlaysProxyAfterAPlainProxyStillShowsTheTrackBelow() async throws {
+        let media = try TestMedia()
+        try await media.movie("blue.mov", seconds: 1, draw: { TestMedia.fill($1, 0, 0, 1) })
+        let big = CGSize(width: 2400, height: 1350)
+        let cameraURL = try await media.movie("camera.mov", seconds: 0.5, size: big, draw: { TestMedia.fill($1, 1, 0, 0, size: big) })
+        // Clear for its first six frames, as a motion graphic often starts.
+        let overlayURL = try await media.alphaOverlay("overlay.mov", codec: "hevc", width: 2400, height: 1350, seconds: 0.5, clearFrames: 6)
+        let camera = try await MediaScanner.probe(cameraURL, folder: media.projectFolder, id: "med_cam")
+        let overlay = try await MediaScanner.probe(overlayURL, folder: media.projectFolder, id: "med_over")
+        let project = smallProject(video: [
+            Track(kind: .video, name: "V1", clips: [Clip(id: "clip_bg", content: .media(mediaID: "med_bg"), start: .zero, duration: t(1))]),
+            Track(kind: .video, name: "V2", clips: [
+                Clip(id: "clip_cam", content: .media(mediaID: "med_cam"), start: .zero, duration: t(0.5)),
+                Clip(id: "clip_over", content: .media(mediaID: "med_over"), start: t(0.5), duration: t(0.5))
+            ])
+        ], media: [media.item("med_bg", "blue.mov", seconds: 1), camera, overlay])
+        let analysis = MediaAnalysis(folder: media.projectFolder, encoderLock: EncoderLock())
+        for item in [camera, overlay] {
+            let state = await analysis.waitFor(.proxy, for: item)
+            XCTAssertEqual(state, .ready, item.path)
+        }
+        let context = RenderContext(project: project, folder: media.projectFolder, analysis: analysis, useProxies: true)
+
+        // The check reads the proxies.
+        let frames = try await FrameScanner.scan(context, ranges: [TimeRange(start: t(0.5), end: t(1))], width: 192)
+        XCTAssertEqual(frames.count, 15)
+        let black = frames.filter(\.isBlack).map { String(format: "%.3f", $0.time.seconds) }
+        XCTAssertEqual(black, [], "frames the check finds black")
+
+        // So does the viewer while it plays.
+        let clear = try await playerFrame(context, at: t(0.6))
+        assertColor(clear[160, 90], [0, 0, 255], tolerance: 12, "the track below through a clear frame, playing")
+        let drawn = try await playerFrame(context, at: t(0.9))
+        assertColor(drawn[53, 90], [255, 255, 255], tolerance: 12, "the overlay, playing")
+        assertColor(drawn[266, 90], [0, 0, 255], tolerance: 12, "the track below beside it, playing")
+    }
+
+    /// The same from the originals, read as an export reads them: HEVC with
+    /// alpha after plain HEVC of the same size on one composition track
+    /// came out black where it's clear. (A frame grab decoded it right.)
+    func testAnHEVCOverlayAfterPlainHEVCOfTheSameSizeShowsTheTrackBelow() async throws {
+        let media = try TestMedia()
+        try await media.movie("blue.mov", seconds: 1, draw: { TestMedia.fill($1, 0, 0, 1) })
+        try await media.movie("camera.mov", seconds: 0.5, codec: .hevc, draw: { TestMedia.fill($1, 1, 0, 0) })
+        try await media.alphaOverlay("overlay.mov", codec: "hevc", width: 320, height: 180, seconds: 0.5, clearFrames: 6)
+        var overlay = media.item("med_over", "overlay.mov", role: .graphic, seconds: 0.5)
+        overlay.hasAlpha = true
+        let project = smallProject(video: [
+            Track(kind: .video, name: "V1", clips: [Clip(id: "clip_bg", content: .media(mediaID: "med_bg"), start: .zero, duration: t(1))]),
+            Track(kind: .video, name: "V2", clips: [
+                Clip(id: "clip_cam", content: .media(mediaID: "med_cam"), start: .zero, duration: t(0.5)),
+                Clip(id: "clip_over", content: .media(mediaID: "med_over"), start: t(0.5), duration: t(0.5))
+            ])
+        ], media: [media.item("med_bg", "blue.mov", seconds: 1), media.item("med_cam", "camera.mov", seconds: 0.5), overlay])
+        let context = RenderContext(project: project, folder: media.projectFolder)
+
+        let frames = try await FrameScanner.scan(context, ranges: [TimeRange(start: t(0.5), end: t(1))], width: 192)
+        XCTAssertEqual(frames.count, 15)
+        XCTAssertEqual(frames.filter(\.isBlack).map { String(format: "%.3f", $0.time.seconds) }, [], "frames read as an export reads them")
+    }
+
     /// The frame a paused player shows at `time`, built as the viewer
     /// builds it.
     func playerFrame(_ context: RenderContext, at time: Time) async throws -> Bitmap {
@@ -111,11 +178,12 @@ extension TestMedia {
     /// guesses for these untagged files. `prores` (ProRes 4444) and `qtrle`
     /// (QuickTime Animation, which macOS can't decode) come from ffmpeg
     /// with straight alpha; `hevc` (HEVC with alpha) from AVAssetWriter,
-    /// premultiplied. Skips the test when ffmpeg isn't installed.
-    func alphaOverlay(_ name: String, codec: String, width: Int, height: Int, seconds: Double) async throws -> URL {
+    /// premultiplied. The first `clearFrames` frames are clear all over.
+    /// Skips the test when ffmpeg isn't installed.
+    func alphaOverlay(_ name: String, codec: String, width: Int, height: Int, seconds: Double, clearFrames: Int = 0) async throws -> URL {
         let url = folder.appendingPathComponent(name)
         guard codec != "hevc" else {
-            try await writeHEVCWithAlpha(to: url, width: width, height: height, frames: Int(seconds * 30))
+            try await writeHEVCWithAlpha(to: url, width: width, height: height, frames: Int(seconds * 30), clearFrames: clearFrames)
             return url
         }
         guard let ffmpeg = FFmpeg.locate() else { throw XCTSkip("ffmpeg isn't installed") }
@@ -124,12 +192,12 @@ extension TestMedia {
             : ["-c:v", "prores_ks", "-profile:v", "4444", "-pix_fmt", "yuva444p10le", "-alpha_bits", "16"]
         try ffmpeg.run([
             "-y", "-v", "error", "-f", "lavfi",
-            "-i", "color=c=white:s=\(width)x\(height):d=\(seconds):r=30,format=rgba,geq=r='255':g='255':b='255':a='if(lt(X,W/3),255,if(lt(X,2*W/3),128,0))'"
+            "-i", "color=c=white:s=\(width)x\(height):d=\(seconds):r=30,format=rgba,geq=r='255':g='255':b='255':a='if(lt(N,\(clearFrames)),0,if(lt(X,W/3),255,if(lt(X,2*W/3),128,0)))'"
         ] + encoder + [url.path])
         return url
     }
 
-    private func writeHEVCWithAlpha(to url: URL, width: Int, height: Int, frames: Int) async throws {
+    private func writeHEVCWithAlpha(to url: URL, width: Int, height: Int, frames: Int, clearFrames: Int) async throws {
         let writer = try AVAssetWriter(outputURL: url, fileType: .mov)
         let input = AVAssetWriterInput(mediaType: .video, outputSettings: [AVVideoCodecKey: AVVideoCodecType.hevcWithAlpha, AVVideoWidthKey: width, AVVideoHeightKey: height])
         let adaptor = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: input, sourcePixelBufferAttributes: [
@@ -139,10 +207,11 @@ extension TestMedia {
         XCTAssertTrue(writer.startWriting(), "\(writer.error as Any)")
         writer.startSession(atSourceTime: .zero)
         // One premultiplied BGRA row, copied down every frame.
-        var row = [UInt8](repeating: 0, count: width * 4)
+        let clearRow = [UInt8](repeating: 0, count: width * 4)
+        var drawnRow = clearRow
         for x in 0..<(2 * width / 3) {
             let value: UInt8 = x < width / 3 ? 255 : 128
-            for c in 0..<4 { row[x * 4 + c] = value }
+            for c in 0..<4 { drawnRow[x * 4 + c] = value }
         }
         for i in 0..<frames {
             while !input.isReadyForMoreMediaData { try await Task.sleep(nanoseconds: 1_000_000) }
@@ -152,7 +221,7 @@ extension TestMedia {
             CVPixelBufferLockBaseAddress(buffer, [])
             let base = try XCTUnwrap(CVPixelBufferGetBaseAddress(buffer))
             let stride = CVPixelBufferGetBytesPerRow(buffer)
-            row.withUnsafeBytes { bytes in
+            (i < clearFrames ? clearRow : drawnRow).withUnsafeBytes { bytes in
                 for y in 0..<height { (base + y * stride).copyMemory(from: bytes.baseAddress!, byteCount: bytes.count) }
             }
             CVPixelBufferUnlockBaseAddress(buffer, [])

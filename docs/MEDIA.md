@@ -278,7 +278,9 @@ Notes on each:
   AVAssetWriter. The HEVC-with-alpha encoder takes the mode from the first
   frame's tag (premultiplied when there's none, as Core Image assumes), so
   the proxy blends like the original. The file says `hvc1` with the
-  ContainsAlphaChannel extension, not `muxa`.
+  ContainsAlphaChannel extension, not `muxa`. That makes it look like any
+  other proxy to a composition track's decoder, so the render plan keeps
+  pictures with alpha on tracks of their own (docs/RENDER.md).
 
   Only those proxies changed, so the proxy version stays 3. Their cache key
   adds `"alpha":"1"` (`AnalysisSettings.canonical(for:item:)`, from the

@@ -21,21 +21,23 @@ final class TestMedia {
 
     var projectFolder: ProjectFolder { ProjectFolder(root: folder) }
 
-    /// A movie at 30 fps. `draw` paints each frame (y down); `sound` gives
-    /// the sample (both channels) at each sample index, or nil for no audio.
+    /// A movie at 30 fps, H.264 unless `codec` says otherwise. `draw` paints
+    /// each frame (y down); `sound` gives the sample (both channels) at each
+    /// sample index, or nil for no audio.
     @discardableResult
     func movie(
         _ name: String,
         seconds: Double,
         size: CGSize = CGSize(width: 320, height: 180),
         fps: Int32 = 30,
+        codec: AVVideoCodecType = .h264,
         draw: @escaping (Int, CGContext) -> Void,
         sound: ((Int) -> Float)? = nil
     ) async throws -> URL {
         let url = folder.appendingPathComponent(name)
         let writer = try AVAssetWriter(outputURL: url, fileType: .mov)
         let video = AVAssetWriterInput(mediaType: .video, outputSettings: [
-            AVVideoCodecKey: AVVideoCodecType.h264,
+            AVVideoCodecKey: codec,
             AVVideoWidthKey: Int(size.width),
             AVVideoHeightKey: Int(size.height),
             AVVideoCompressionPropertiesKey: [AVVideoAverageBitRateKey: 20_000_000, AVVideoMaxKeyFrameIntervalKey: 10],
