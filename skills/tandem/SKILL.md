@@ -71,9 +71,19 @@ do, and say why when you hand back.
   A cut that removes a retake or a stumble should leave about 0.4 s of real
   silence across the join too, not trim right up to the words.
 - **Longer gaps where they earn it:** the end of a paragraph, letting a
-  point land, or while the screen shows something happening (a build
-  finishing, a result appearing). In demos, keep about a second there and
-  0.4 s everywhere else.
+  point land, or while something animates on screen (a build finishing, a
+  result appearing, a diagram moving). Never cut a pause while a demo
+  animation plays, even if he isn't talking. But cut silent holds where
+  nothing meaningful happens: clicking around, flicking between pages, the
+  Dock popping up, him looking blank before the next section. He flagged
+  about 15 of those 1 to 3 s holds as "awkward silence" in Build Your Own
+  Convex. Look at the frames: a mean frame difference can't tell an
+  animation from a click or a page flick. One exception: a celebration line
+  ("Congratulations, party time") cuts straight on, even over confetti; he
+  doesn't want to sit there silently smiling.
+- **No clips under 2 s,** where all it takes is putting back a pause of a
+  second or less between sentences. Never bring back a thinking pause or a
+  long silence to do it.
 - **The ending:** run on about 5 s after the sign-off, fade to black, and
   fade the music out with it.
 - **Mid-sentence pauses:** close his thinking pauses, 0.5 s or longer,
@@ -88,8 +98,8 @@ do, and say why when you hand back.
 
 ## How Mike likes the rest of the edit
 
-From his review comments on the Daytona video (October 2026). The reasons
-matter more than the numbers.
+From his review comments on the Daytona and Build Your Own Convex videos
+(October 2026). The reasons matter more than the numbers.
 
 - **Sync first.** His webcam picture lags his USB mic, so lips and voice
   drift apart (it spoiled the first Daytona upload and the ESLint video). A
@@ -132,6 +142,21 @@ matter more than the numbers.
   liked the typewriter reveal with a typing sound.
 - **Demos where speed is the point** play in real time, with no cuts, so
   viewers can see how fast it really is.
+- **Page changes in an explainer or slides** slide: a slide-left transition
+  on the Screen track only, with the light swoosh, so he stays put in his
+  corner ("don't slide me, just slide the screen"). It breaks the sections
+  up visually. Check the page flip isn't within half the slide's length of
+  the cut, or a borrowed frame shows the wrong page. For a flip inside a
+  clip, freeze 0.35 s either side of it (`freezeFrame` clips) and slide
+  between them.
+- **Screen recordings fill the frame,** for people watching on a phone:
+  one static `zoomToRegion` per page, fitted to the content with a small
+  margin, at most 1.5x, and no zoom changes within a page.
+- **Check cuts against the voice, not the transcript alone.** Word times
+  can be off by up to 0.5 s ("since when?" ended half a second after the
+  transcript said, and a drawn-out "Aaall... right" started 0.9 s early).
+  Most of his "word gets cut off" comments were this. `tandem pauses` has
+  the voice's real edges; listen with `tandem clip` when unsure.
 - **Before uploading,** watch the start of the export, where sync problems
   show first. The export's limiter takes about 8 dB off his voice's peaks to
   reach -14 LUFS, and he hears that as artificial. The project's
@@ -140,6 +165,10 @@ matter more than the numbers.
 
 ## Rules
 
+- Tandem's media times are the file's own timestamps, but `ffmpeg -ss`
+  counts from the file's start. Add the stream's `start_time` (ffprobe)
+  when you analyse a source with ffmpeg: Record It's camera files start at
+  0.1 s and its screen files at 0.33 s, enough to clip a word.
 - Change the project only through `tandem` (apply, undo, and tools run
   with `--apply`). Never edit `.tandem` files or anything in a `.tandem/`
   folder by hand or with scripts.

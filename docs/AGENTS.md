@@ -317,6 +317,14 @@ come with a light swoosh unless Mike picks otherwise (Tandem > Settings).
 
 ## Reading the project
 
+Times in a clip's source range (`sourceStart`, the `[in-out]` of the
+timeline view, transcript word times) are the file's own timestamps, as
+AVFoundation reads them. `ffmpeg -ss` counts from the file's start
+instead, so when you analyse a source with ffmpeg, add the stream's
+`start_time` (`ffprobe -show_entries stream=start_time`). Record It's
+camera files start at 0.1 s and its screen files at 0.33 s: left out,
+that's enough to clip a word.
+
 `tandem timeline` (MCP `timeline`) is the view to start from:
 
 ```
