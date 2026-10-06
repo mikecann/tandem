@@ -105,6 +105,28 @@ final class PipelineTests: XCTestCase {
         assertColor(try await grab(context, 2.8)[160, 90], [0, 255, 0], tolerance: 8)
     }
 
+    /// A push up at the end of an overlay with nothing after it: the
+    /// overlay leaves upwards and the track below shows where it was, as
+    /// Filmora does.
+    func testAPushAtAnOverlaysEndRevealsTheTrackBelow() async throws {
+        let media = try TestMedia()
+        try await media.movie("red.mov", seconds: 4, draw: { TestMedia.fill($1, 1, 0, 0) })
+        try await media.movie("green.mov", seconds: 4, draw: { TestMedia.fill($1, 0, 1, 0) })
+        let below = Clip(id: "clip_below", content: .media(mediaID: "med_r"), start: .zero, duration: t(3))
+        let overlay = Clip(id: "clip_over", content: .media(mediaID: "med_g"), start: .zero, duration: t(2))
+        let out = Transition(type: .push, direction: .up, duration: t(1), fromClipID: "clip_over", toClipID: nil)
+        let project = smallProject(
+            video: [Track(kind: .video, name: "V1", clips: [below]), Track(kind: .video, name: "V2", clips: [overlay], transitions: [out])],
+            media: [media.item("med_r", "red.mov", seconds: 4), media.item("med_g", "green.mov", seconds: 4)]
+        )
+        let context = RenderContext(project: project, folder: media.projectFolder)
+        assertColor(try await grab(context, 0.5)[160, 170], [0, 255, 0], tolerance: 8, "the overlay, before it goes")
+        let leaving = try await grab(context, 1.75)
+        assertColor(leaving[160, 10], [0, 255, 0], tolerance: 8, "what's left of it, at the top")
+        assertColor(leaving[160, 170], [255, 0, 0], tolerance: 8, "the track below, where it was")
+        assertColor(try await grab(context, 2.5)[160, 90], [255, 0, 0], tolerance: 8, "gone")
+    }
+
     /// A transition on a cut where neither clip has frames past it: the
     /// first clip is used to its last frame and the second from its first.
     /// Each holds its edge frame, so the dissolve blends the two the whole

@@ -243,6 +243,25 @@ enum TimelineEdits {
         return best.map { ($0.0, $0.1) }
     }
 
+    /// The start or end of a clip on `track` nearest `time`, within
+    /// `reach`, with no clip against it: where a transition goes on its
+    /// own, playing over whatever's below. `atEnd` says which.
+    static func nearestLoneEdge(on track: Track, to time: Time, reach: Time) -> (clip: Clip, atEnd: Bool)? {
+        let starts = Set(track.clips.map(\.start))
+        let ends = Set(track.clips.map(\.end))
+        var best: (clip: Clip, atEnd: Bool, distance: Int64)?
+        for clip in track.clips {
+            for (edge, atEnd) in [(clip.start, false), (clip.end, true)] {
+                // A clip against it makes it a cut, not an edge.
+                guard !(atEnd ? starts.contains(edge) : ends.contains(edge)) else { continue }
+                let distance = abs(edge.flicks - time.flicks)
+                guard distance <= reach.flicks, best.map({ distance < $0.distance }) ?? true else { continue }
+                best = (clip, atEnd, distance)
+            }
+        }
+        return best.map { ($0.clip, $0.atEnd) }
+    }
+
     /// Cmd-D: a dissolve on the cut nearest the playhead, on the selected
     /// clip's track or else the first track (top down) with a cut in reach,
     /// playing `sound` (its type's, copied into the project) if it has one.

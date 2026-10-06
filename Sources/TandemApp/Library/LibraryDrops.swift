@@ -11,7 +11,9 @@ enum LibraryDrops {
     /// reach), playing `sound` (its type's, copied into the project). A cut
     /// that already has one gets the new type instead, and its sound
     /// follows the type (`TransitionSoundEdits`); `soundFor` says what
-    /// each type plays.
+    /// each type plays. With no cut in reach, a clip's start or end with
+    /// nothing against it takes the transition on its own, as in Filmora:
+    /// an overlay pushes in, or out over the tracks below.
     static func transition(
         _ type: TransitionType, at time: Time, trackID: String?, in project: Project, reach: Time = Time(seconds: 1), id: String = IDs.make("tr"),
         sound: TransitionSoundDefaults.Resolved? = nil,
@@ -34,6 +36,26 @@ enum LibraryDrops {
             let transition = Transition(id: id, type: type, duration: type.defaultDuration, fromClipID: left.id, toClipID: right.id)
             let prepared = sound?.prepared(for: project)
             return EditBatch(label: "Add \(type.displayName.lowercased())", commands: (prepared?.addMedia ?? []) + [
+                .addTransition(trackID: track.id, transition: transition, sound: prepared?.sound)
+            ])
+        }
+        for track in tracks where !track.locked {
+            guard let (clip, atEnd) = TimelineEdits.nearestLoneEdge(on: track, to: time, reach: reach) else { continue }
+            let alone = track.transitions.first { atEnd ? ($0.fromClipID == clip.id && $0.toClipID == nil) : ($0.toClipID == clip.id && $0.fromClipID == nil) }
+            if let existing = alone {
+                guard existing.type != type else { return nil }
+                return EditBatch(label: "Change to \(type.displayName.lowercased())", commands: TransitionSoundEdits.typeChange(
+                    existing, to: type, in: project, oldSound: soundFor(existing.type), newSound: soundFor(type), resolved: sound
+                ))
+            }
+            let transition = Transition(
+                id: id, type: type, duration: min(type.defaultDuration, clip.duration),
+                fromClipID: atEnd ? clip.id : nil, toClipID: atEnd ? nil : clip.id
+            )
+            let prepared = sound?.prepared(for: project)
+            let file = clip.mediaID.flatMap { project.media($0) }.map { ($0.path as NSString).lastPathComponent }
+            let name = clip.name ?? file ?? "the clip"
+            return EditBatch(label: "Add \(type.displayName.lowercased()) at the \(atEnd ? "end" : "start") of \(name)", commands: (prepared?.addMedia ?? []) + [
                 .addTransition(trackID: track.id, transition: transition, sound: prepared?.sound)
             ])
         }

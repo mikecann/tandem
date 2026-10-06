@@ -334,6 +334,15 @@ final class EditorBehaviourTests: XCTestCase {
         XCTAssertEqual(transitions.first?.toClipID, right.id)
     }
 
+    func testATransitionDroppedAtAnOverlaysEndGoesOnItAlone() throws {
+        let broll = editor.clip("B-roll")
+        editor.drop("tandem-transition:push", at: editor.point(of: broll.id, at: broll.end.seconds - 0.2))
+        let transition = try XCTUnwrap(editor.project.track(named: "B-roll")?.transitions.first)
+        XCTAssertEqual(transition.type, .push)
+        XCTAssertEqual(transition.fromClipID, broll.id)
+        XCTAssertNil(transition.toClipID, "it leaves over what's below")
+    }
+
     // MARK: - The inspector
 
     func testSelectingASoundEffectTurnsTheInspectorToAudio() {

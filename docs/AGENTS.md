@@ -296,7 +296,10 @@ the groups as `linked #1`, `linked #2`.
 ### Transitions
 
 A transition joins two touching clips on one track, or sits at one clip's
-head or tail. A transition between two clips is centred on the cut, so each
+head or tail. On its own at an overlay's tail (`fromClipID` only), a push or
+slide moves the overlay off screen and the tracks below show where it was,
+as in Filmora (a B-roll pushed out upwards, leaving Mike playing below); at a
+head (`toClipID` only) it comes in. A transition between two clips is centred on the cut, so each
 clip plays half its length past the cut. Where a clip has no frames there
 (its file used to the last frame, or from the first) that edge frame holds
 for the rest, as in Premiere and Filmora, and the edit's warnings say how
