@@ -45,6 +45,9 @@ final class PlaybackController {
         didSet { if oldValue != useProxies { scheduleRebuild(delay: 0) } }
     }
 
+    /// Keeps the screen saver and the lock screen away while it plays.
+    @ObservationIgnored let keepAwake = KeepAwake()
+
     /// The layers the viewer hosts: the two players (one hidden) and the
     /// paused still above them. The controller shows and hides them.
     @ObservationIgnored let playerLayers: [AVPlayerLayer]
@@ -135,6 +138,7 @@ final class PlaybackController {
     nonisolated static let muted = ProcessInfo.processInfo.environment["TANDEM_MUTED"] == "1"
 
     func invalidate() {
+        keepAwake.hold(false)
         clock?.invalidate()
         clock = nil
         rebuildWork?.cancel()
@@ -515,6 +519,7 @@ final class PlaybackController {
         if newRate > 0 && time >= duration { seek(to: .zero) }
         if newRate < 0 && time <= .zero { return }
         rate = newRate
+        keepAwake.hold(true)
         stillWork?.cancel()
         hideStill()
         if hasComposition {
@@ -535,6 +540,7 @@ final class PlaybackController {
 
     func pause() {
         rate = 0
+        keepAwake.hold(false)
         for player in players { player.pause() }
         clock?.invalidate()
         clock = nil
@@ -597,6 +603,7 @@ final class PlaybackController {
 
     private func reachedEnd() {
         rate = 0
+        keepAwake.hold(false)
         time = duration
         scheduleStill()
     }

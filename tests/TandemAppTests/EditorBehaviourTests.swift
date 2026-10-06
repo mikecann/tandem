@@ -1,4 +1,5 @@
 import AppKit
+import IOKit.pwr_mgt
 import XCTest
 @testable import TandemAPI
 @testable import TandemApp
@@ -179,28 +180,6 @@ final class EditorBehaviourTests: XCTestCase {
         editor.press("shift+delete")
         let ranges = editor.clips("Camera").map { [$0.start.seconds, $0.end.seconds] }
         XCTAssertEqual(ranges, [[0, 10], [10, 50]], "the ten seconds went and the rest closed up")
-    }
-
-    // MARK: - Reviewing
-
-    func testClickingTheReviewCountGoesRoundTheChangesToReview() throws {
-        for (label, at) in [("A", 8.0), ("B", 40.0)] {
-            try editor.model.session.coordinator.apply(EditBatch(label: label, author: "claude", commands: [
-                .placeMedia(mediaIDs: ["med_broll"], at: t(at), duration: t(1))
-            ]))
-        }
-        // The review log hears agent edits on its own queue.
-        for _ in 0..<100 where editor.model.review.stops.count < 2 { editor.settle(0.02) }
-        XCTAssertEqual(editor.model.review.stops.map(\.time.seconds), [8, 40])
-        editor.model.playback.seek(to: t(20))
-        editor.settle()
-        let count = try XCTUnwrap(editor.point(ofTip: "Click for the next change to review"))
-        editor.click(count)
-        XCTAssertEqual(editor.model.playhead.seconds, 40, accuracy: 0.001, "the start of the next change")
-        editor.click(count)
-        XCTAssertEqual(editor.model.playhead.seconds, 8, accuracy: 0.001, "after the last, back to the first")
-        editor.click(count)
-        XCTAssertEqual(editor.model.playhead.seconds, 40, accuracy: 0.001)
     }
 
     // MARK: - Selecting and moving
@@ -469,6 +448,32 @@ final class EditorBehaviourTests: XCTestCase {
         XCTAssertTrue(editor.model.selection.contains(editor.clip("Camera").id))
     }
 
+    // MARK: - Playing
+
+    func testPlayingKeepsTheScreenAwakeAndPausingLetsItSleep() {
+        XCTAssertFalse(displaySleepHeld(), "nothing held before playing")
+        editor.press("space")
+        XCTAssertTrue(editor.model.playback.isPlaying)
+        XCTAssertTrue(displaySleepHeld(), "no screen saver or lock screen while it plays")
+        editor.press("space")
+        XCTAssertFalse(editor.model.playback.isPlaying)
+        XCTAssertFalse(displaySleepHeld(), "paused, the Mac can sleep again")
+        editor.press("l")
+        XCTAssertTrue(displaySleepHeld(), "J K L count as playing too")
+        editor.press("k")
+        XCTAssertFalse(displaySleepHeld())
+    }
+
+    /// Whether this process holds a power assertion keeping the display
+    /// awake, as macOS sees it.
+    private func displaySleepHeld() -> Bool {
+        var assertions: Unmanaged<CFDictionary>?
+        guard IOPMCopyAssertionsByProcess(&assertions) == kIOReturnSuccess,
+              let byProcess = assertions?.takeRetainedValue() as? [NSNumber: [[String: Any]]] else { return false }
+        let mine = byProcess[NSNumber(value: getpid())] ?? []
+        return mine.contains { ($0[kIOPMAssertionTypeKey] as? String) == kIOPMAssertionTypePreventUserIdleDisplaySleep }
+    }
+
     // MARK: - Transitions
 
     func testATransitionDroppedOnACutGoesBetweenTheTwoClips() throws {
@@ -532,6 +537,26 @@ final class EditorBehaviourTests: XCTestCase {
         let from = editor.point(of: broll.id)
         editor.drag(from, to: CGPoint(x: from.x + 40, y: from.y))
         XCTAssertTrue(editor.model.review.isEmpty)
+    }
+
+    func testClickingTheReviewCountGoesRoundTheChangesToReview() throws {
+        for (label, at) in [("A", 8.0), ("B", 40.0)] {
+            try editor.model.session.coordinator.apply(EditBatch(label: label, author: "claude", commands: [
+                .placeMedia(mediaIDs: ["med_broll"], at: t(at), duration: t(1))
+            ]))
+        }
+        // The review log hears agent edits on its own queue.
+        for _ in 0..<100 where editor.model.review.stops.count < 2 { editor.settle(0.02) }
+        XCTAssertEqual(editor.model.review.stops.map(\.time.seconds), [8, 40])
+        editor.model.playback.seek(to: t(20))
+        editor.settle()
+        let count = try XCTUnwrap(editor.point(ofTip: "Click for the next change to review"))
+        editor.click(count)
+        XCTAssertEqual(editor.model.playhead.seconds, 40, accuracy: 0.001, "the start of the next change")
+        editor.click(count)
+        XCTAssertEqual(editor.model.playhead.seconds, 8, accuracy: 0.001, "after the last, back to the first")
+        editor.click(count)
+        XCTAssertEqual(editor.model.playhead.seconds, 40, accuracy: 0.001)
     }
 
     // MARK: - Keys on the buttons
