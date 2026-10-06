@@ -57,6 +57,17 @@ final class EditorBehaviourTests: XCTestCase {
         XCTAssertEqual(editor.model.selection, ending)
     }
 
+    func testBladeAtThePlayheadPicksOutThePiecesBeforeTheCutForDelete() {
+        editor.model.playback.seek(to: t(10))
+        editor.press("cmd+b")
+        XCTAssertEqual(editor.clips("Camera").map(\.start.seconds), [0, 10], "cut in place")
+        let pieces = Set(editor.model.project.allTracks.flatMap(\.clips).filter { $0.end == t(10) }.map(\.id))
+        XCTAssertTrue(pieces.count > 2, "\(pieces)")
+        XCTAssertEqual(editor.model.selection, pieces, "every piece before the cut, as the scissors and the blade tool do")
+        editor.press("delete")
+        XCTAssertEqual(editor.clips("Camera").map(\.start.seconds), [10], "Delete took the piece before the cut")
+    }
+
     func testThePlayheadsScissorsCutThereAndDragThePlayhead() throws {
         timeline.cutButton.store = try scissorsStore()
         editor.model.playback.seek(to: t(10))

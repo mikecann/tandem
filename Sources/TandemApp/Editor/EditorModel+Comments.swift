@@ -55,9 +55,10 @@ extension EditorModel {
 
 /// Markers and to-dos, in their strips under the ruler.
 extension EditorModel {
-    /// The playhead's scissors: cuts the selected clips under the playhead,
-    /// or every clip under it, then picks out the pieces before the cut, as
-    /// the blade tool does, so Delete takes them straight away.
+    /// The playhead's scissors and Blade at playhead (⌘B): cuts the selected
+    /// clips under the playhead, or every clip under it, then picks out the
+    /// pieces before the cut, as the blade tool does, so Delete takes them
+    /// straight away.
     @discardableResult
     func cutAtPlayhead() -> Bool {
         let time = playback.time

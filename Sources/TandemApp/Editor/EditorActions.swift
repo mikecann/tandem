@@ -105,7 +105,9 @@ final class EditorActions {
 
         // Editing
         case .bladeAtPlayhead:
-            return apply(TimelineEdits.bladeAtPlayhead(project, playhead: playhead, selection: model.selection), otherwise: "Nothing under the playhead to cut.")
+            // The same cut as the playhead's scissors, picking out the
+            // pieces before it for Delete.
+            return model.cutAtPlayhead()
         case .rippleTrimStart, .rippleTrimEnd:
             let edge: ClipEdge = command == .rippleTrimStart ? .start : .end
             guard let result = TimelineEdits.rippleTrimToPlayhead(project, playhead: playhead, edge: edge, selection: model.selection) else {
