@@ -760,7 +760,14 @@ final class TimelineLanesView: TimelineChildView {
                 let reach = model.timeline.scale.duration(forPixels: Theme.Metrics.snapDistance)
                 if model.snapping, abs(time.flicks - model.playback.time.flicks) <= reach.flicks { time = model.playback.time }
                 // Shift cuts every targeted track, like Premiere's razor.
-                model.apply(TimelineEdits.blade(model.project, clipID: id, at: time, allTracks: mods.shift))
+                let before = model.project
+                guard model.apply(TimelineEdits.blade(model.project, clipID: id, at: time, allTracks: mods.shift)) != nil else { return }
+                // The piece before the cut is picked out, so Delete takes
+                // it straight away; the tool stays the blade.
+                model.selection = mods.shift
+                    ? TimelineEdits.piecesBefore(time, cutFrom: before, in: model.project)
+                    : SelectionRules.members(of: id, in: model.project, linkedSelection: model.linkedSelection, option: mods.option)
+                model.focusedClipID = id
             }
             return
         }

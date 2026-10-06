@@ -137,6 +137,13 @@ enum TimelineEdits {
         return EditBatch(label: "Blade", commands: [.blade(at: time, clipIDs: [clipID])])
     }
 
+    /// The pieces before a cut at `time`: the clips that ran across it in
+    /// `before` and now end there (a cut leaves the left piece its ID).
+    static func piecesBefore(_ time: Time, cutFrom before: Project, in after: Project) -> Set<String> {
+        let spanned = before.allTracks.flatMap(\.clips).filter { $0.start < time && time < $0.end }
+        return Set(spanned.map(\.id).filter { after.clip($0)?.end == time })
+    }
+
     static func trim(_ project: Project, clipID: String, edge: ClipEdge, to time: Time, ripple: Bool, includeLinked: Bool) -> EditBatch? {
         guard let clip = project.clip(clipID) else { return nil }
         let current = edge == .start ? clip.start : clip.end
