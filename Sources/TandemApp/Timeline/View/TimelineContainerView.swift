@@ -23,6 +23,9 @@ final class TimelineContainerView: NSView {
     /// Agent changes waiting for review, marked over the lanes.
     let reviewOverlay = ReviewOverlayView()
     private let playheadView = PlayheadView()
+    /// The scissors on the playhead, as in Filmora: a click cuts there, a
+    /// drag moves the playhead.
+    let cutButton = PlayheadCutButton()
     private(set) var artwork: MediaArtwork
     private var loops: [ObservationLoop] = []
     /// The lane layout for the project being shown (which may be a drag
@@ -58,6 +61,8 @@ final class TimelineContainerView: NSView {
         reviewOverlay.container = self
         addSubview(reviewOverlay)
         addSubview(playheadView)
+        cutButton.container = self
+        addSubview(cutButton)
         model.timeline.showCommentBox = { [weak self] request in
             self?.showCommentBox(request)
         }
@@ -277,6 +282,14 @@ final class TimelineContainerView: NSView {
         // Down to the scroll bar, which marks the playhead itself.
         let frame = CGRect(x: (x - width / 2).rounded(), y: Theme.Metrics.rulerHeight - Theme.Metrics.playheadHeadHeight + 2, width: width, height: max(0, bounds.height - Theme.Metrics.timelineScrollerHeight - Theme.Metrics.rulerHeight + Theme.Metrics.playheadHeadHeight - 2))
         if playheadView.frame != frame { playheadView.frame = frame }
+        // The scissors sit on the line at the top of the tracks, under the
+        // transcript so they never hide the word being said.
+        let size = PlayheadCutButton.size
+        let firstTrack = layoutCache.lanes.first { !$0.isTranscript }?.y ?? 0
+        let top = lanes.frame.minY + max(0, firstTrack - contentOrigin.y) + 4
+        let button = CGRect(x: (x - size / 2).rounded(), y: top.rounded(), width: size, height: size)
+        if cutButton.frame != button { cutButton.frame = button }
+        cutButton.isHidden = !visible || button.maxY > lanes.frame.maxY - 4
     }
 
     /// Pages the view along while playing, like Premiere.
@@ -508,5 +521,63 @@ final class ClipOutlineView: NSView {
         }
         CATransaction.commit()
         isHidden = outlines.isEmpty
+    }
+}
+
+/// The scissors on the playhead, at the top of the tracks, as in Filmora.
+/// A click cuts at the playhead (Blade at playhead: the selected clips, or
+/// every clip under it); a drag moves the playhead instead.
+@MainActor
+final class PlayheadCutButton: TimelineChildView {
+    static let size: CGFloat = 18
+    private var pressX: CGFloat = 0
+    private var dragging = false
+    private var symbol: NSImage?
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        let key = Shortcuts.symbol(for: .bladeAtPlayhead).map { " (\($0))" } ?? ""
+        toolTip = "Cut at the playhead\(key). Drag to move the playhead."
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    override func draw(_ dirtyRect: NSRect) {
+        guard let context = NSGraphicsContext.current?.cgContext else { return }
+        context.addEllipse(in: bounds.insetBy(dx: 0.5, dy: 0.5))
+        context.setFillColor(Theme.red.cg)
+        context.fillPath()
+        if symbol == nil {
+            let config = NSImage.SymbolConfiguration(pointSize: 9.5, weight: .bold).applying(.init(paletteColors: [Theme.text.ns]))
+            symbol = NSImage(systemSymbolName: "scissors", accessibilityDescription: "Cut")?.withSymbolConfiguration(config)
+        }
+        if let symbol {
+            let size = symbol.size
+            symbol.draw(in: CGRect(x: bounds.midX - size.width / 2, y: bounds.midY - size.height / 2, width: size.width, height: size.height), from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+        }
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        pressX = event.locationInWindow.x
+        dragging = false
+        container?.model.playback.pause()
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard let container else { return }
+        guard dragging || abs(event.locationInWindow.x - pressX) >= 3 else { return }
+        dragging = true
+        let model = container.model
+        let x = container.lanes.convert(event.locationInWindow, from: nil).x
+        model.playback.seek(to: model.timeline.scale.time(atX: x, rate: model.frameRate))
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        defer { dragging = false }
+        guard !dragging else { return }
+        container?.model.cutAtPlayhead()
     }
 }

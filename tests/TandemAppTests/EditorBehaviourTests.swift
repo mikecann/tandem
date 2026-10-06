@@ -37,6 +37,26 @@ final class EditorBehaviourTests: XCTestCase {
         XCTAssertEqual(editor.model.tool, .select)
     }
 
+    func testThePlayheadsScissorsCutThereAndDragThePlayhead() throws {
+        editor.model.playback.seek(to: t(10))
+        editor.settle()
+        let button = timeline.cutButton
+        XCTAssertFalse(button.isHidden)
+        let transcript = try XCTUnwrap(timeline.layoutCache.lanes.first(where: \.isTranscript))
+        XCTAssertGreaterThanOrEqual(button.frame.minY, timeline.lanes.frame.minY + transcript.maxY, "under the transcript, not over its words")
+        let centre = editor.windowPoint(CGPoint(x: button.bounds.midX, y: button.bounds.midY), in: button)
+        editor.click(centre)
+        XCTAssertEqual(editor.clips("Camera").map(\.start.seconds), [0, 10], "cut at the playhead")
+        XCTAssertEqual(editor.clips("Voice").map(\.start.seconds), [0, 10], "every clip under it")
+
+        // A drag moves the playhead and cuts nothing.
+        let after = editor.windowPoint(CGPoint(x: button.bounds.midX, y: button.bounds.midY), in: button)
+        editor.drag(after, to: CGPoint(x: after.x + editor.x(at: 20) - editor.x(at: 10), y: after.y))
+        XCTAssertEqual(editor.model.playback.time.seconds, 20, accuracy: 0.3)
+        XCTAssertEqual(editor.clips("Camera").count, 2)
+        XCTAssertEqual(timeline.cutButton.frame.midX, timeline.lanes.frame.minX + CGFloat(editor.model.timeline.scale.x(editor.model.playback.time)), accuracy: 1.5, "the scissors follow the playhead")
+    }
+
     func testRippleDeleteTakesOutAPieceAndClosesTheGap() throws {
         let camera = editor.clip("Camera").id
         editor.model.apply(EditBatch(label: "Cuts", commands: [.blade(at: t(20), clipIDs: [camera]), .blade(at: t(10), clipIDs: [camera])]))

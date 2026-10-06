@@ -55,6 +55,17 @@ extension EditorModel {
 
 /// Markers and to-dos, in their strips under the ruler.
 extension EditorModel {
+    /// Cuts at the playhead: the selected clips, or every clip under it
+    /// (the playhead's scissors and Blade at playhead).
+    @discardableResult
+    func cutAtPlayhead() -> Bool {
+        guard let batch = TimelineEdits.bladeAtPlayhead(project, playhead: playback.time, selection: selection) else {
+            show(.info, "Nothing under the playhead to cut.")
+            return false
+        }
+        return apply(batch) != nil
+    }
+
     /// Works out what's near the playhead again, keeping the old value when
     /// nothing's changed so the sidebar doesn't redraw.
     func refreshNearPlayhead() {
