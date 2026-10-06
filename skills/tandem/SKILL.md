@@ -142,13 +142,15 @@ From his review comments on the Daytona and Build Your Own Convex videos
   liked the typewriter reveal with a typing sound.
 - **Demos where speed is the point** play in real time, with no cuts, so
   viewers can see how fast it really is.
-- **Page changes in an explainer or slides** slide: a slide-left transition
-  on the Screen track only, with the light swoosh, so he stays put in his
-  corner ("don't slide me, just slide the screen"). It breaks the sections
-  up visually. Check the page flip isn't within half the slide's length of
-  the cut, or a borrowed frame shows the wrong page. For a flip inside a
-  clip, freeze 0.35 s either side of it (`freezeFrame` clips) and slide
-  between them.
+- **Page changes in an explainer or slides** push: a 0.7 s push in its
+  default direction on the Screen track only, with the light swoosh
+  (`"sound": {"gainDB": -23.3, "offset": -0.39}`), so he stays put in his
+  corner ("don't slide me, just slide the screen"). Pushes, not slides:
+  "pushes are better than slides" (BYOC v2). It breaks the sections up
+  visually. Check the page flip isn't within half the push's length of the
+  cut, or a borrowed frame shows the wrong page. For a flip inside a clip,
+  freeze 0.35 s either side of it (`freezeFrame` clips) and push between
+  them.
 - **Screen recordings fill the frame,** for people watching on a phone:
   one static `zoomToRegion` per page, fitted to the content with a small
   margin, at most 1.5x, and no zoom changes within a page.
