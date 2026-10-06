@@ -48,6 +48,8 @@ enum Theme {
     // MARK: - Accents
 
     static let amber = Swatch(0xFFB224)
+    /// Amber held down: the playhead's scissors while pressed or dragged.
+    static let amberPressed = Swatch(0xF59E0B)
     /// Text and icons drawn on amber.
     static let onAmber = Swatch(0x0C0D0F)
     static let green = Swatch(0x5CC98F)

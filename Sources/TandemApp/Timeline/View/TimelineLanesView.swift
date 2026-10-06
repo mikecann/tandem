@@ -605,6 +605,14 @@ final class TimelineLanesView: TimelineChildView {
 
     /// The cursor for what a press here would do (`CursorKind.timeline`).
     private func updateCursor(at windowPoint: CGPoint, flags: NSEvent.ModifierFlags) {
+        // The playhead's scissors have their own tooltip and cursor; the
+        // clip under them mustn't put its own over the top.
+        if container?.cutButton.isUnder(windowPoint) == true {
+            hideGap()
+            if toolTip != nil { toolTip = nil }
+            CursorKind.arrow.set()
+            return
+        }
         guard let model, let tester = tester(for: model.project) else { return }
         let local = convert(windowPoint, from: nil)
         let point = CGPoint(x: local.x, y: local.y + offset)

@@ -38,6 +38,7 @@ final class EditorBehaviourTests: XCTestCase {
     }
 
     func testThePlayheadsScissorsCutThereAndDragThePlayhead() throws {
+        timeline.cutButton.store = try scissorsStore()
         editor.model.playback.seek(to: t(10))
         editor.settle()
         let button = timeline.cutButton
@@ -55,6 +56,64 @@ final class EditorBehaviourTests: XCTestCase {
         XCTAssertEqual(editor.model.playback.time.seconds, 20, accuracy: 0.3)
         XCTAssertEqual(editor.clips("Camera").count, 2)
         XCTAssertEqual(timeline.cutButton.frame.midX, timeline.lanes.frame.minX + CGFloat(editor.model.timeline.scale.x(editor.model.playback.time)), accuracy: 1.5, "the scissors follow the playhead")
+    }
+
+    func testThePlayheadsScissorsSlideUpAndDownTheLineAndSayWhatTheyDo() throws {
+        let store = try scissorsStore()
+        let button = timeline.cutButton
+        button.store = store
+        editor.model.playback.seek(to: t(10))
+        editor.settle()
+        let centre = editor.windowPoint(CGPoint(x: button.bounds.midX, y: button.bounds.midY), in: button)
+
+        // Hovering shows arrows either side and says what a click and a drag do.
+        editor.hover(centre)
+        XCTAssertTrue(button.showsArrows)
+        let tip = try XCTUnwrap(button.toolTip)
+        XCTAssertTrue(tip.hasPrefix("Click to cut"), tip)
+        XCTAssertTrue(tip.hasSuffix("\nDrag to move the playhead"), tip)
+
+        // Down onto the camera: the pill follows the pointer, the playhead
+        // stays put and nothing is cut.
+        let camera = editor.point(onTrack: "Camera", at: 10)
+        editor.drag(centre, to: CGPoint(x: centre.x, y: camera.y))
+        let moved = editor.windowPoint(CGPoint(x: button.bounds.midX, y: button.bounds.midY), in: button)
+        XCTAssertEqual(moved.y, camera.y, accuracy: 1, "the pill came down with the pointer")
+        XCTAssertEqual(editor.model.playback.time.seconds, 10, accuracy: 0.05)
+        XCTAssertEqual(editor.clips("Camera").count, 1, "a drag never cuts")
+        XCTAssertFalse(button.dragging)
+        let kept = try XCTUnwrap(PlayheadCutButton.restingY(in: store), "kept for next time")
+        XCTAssertEqual(kept, button.frame.minY - timeline.lanes.frame.minY, accuracy: 0.5)
+
+        // The clip under the pill keeps its tooltip to itself, but not beside it.
+        timeline.lanes.mouseMoved(with: try mouseMoved(at: moved))
+        XCTAssertNil(timeline.lanes.toolTip)
+        timeline.lanes.mouseMoved(with: try mouseMoved(at: editor.point(onTrack: "Camera", at: 14)))
+        XCTAssertTrue(timeline.lanes.toolTip?.hasPrefix("Camera") == true, timeline.lanes.toolTip ?? "no tooltip")
+
+        // It stays there as the playhead moves on, and a click still cuts.
+        editor.model.playback.seek(to: t(20))
+        editor.settle()
+        let later = editor.windowPoint(CGPoint(x: button.bounds.midX, y: button.bounds.midY), in: button)
+        XCTAssertEqual(later.y, camera.y, accuracy: 1)
+        editor.click(later)
+        XCTAssertEqual(editor.clips("Camera").map(\.start.seconds), [0, 20])
+    }
+
+    /// A preferences store of the scissors' own, so they start in their
+    /// usual place and leave Mike's alone.
+    private func scissorsStore() throws -> UserDefaults {
+        let suite = "tandem-tests-scissors"
+        UserDefaults.standard.removePersistentDomain(forName: suite)
+        addTeardownBlock { UserDefaults.standard.removePersistentDomain(forName: suite) }
+        return try XCTUnwrap(UserDefaults(suiteName: suite))
+    }
+
+    /// The pointer moving over `point` (window points from the top left).
+    private func mouseMoved(at point: CGPoint) throws -> NSEvent {
+        let height = (editor.window.contentView?.superview ?? editor.window.contentView)?.bounds.height ?? 0
+        return try XCTUnwrap(NSEvent.mouseEvent(with: .mouseMoved, location: CGPoint(x: point.x, y: height - point.y), modifierFlags: [], timestamp: 0,
+                                                windowNumber: editor.window.windowNumber, context: nil, eventNumber: 0, clickCount: 0, pressure: 0))
     }
 
     func testRippleDeleteTakesOutAPieceAndClosesTheGap() throws {

@@ -282,13 +282,22 @@ final class TimelineContainerView: NSView {
         // Down to the scroll bar, which marks the playhead itself.
         let frame = CGRect(x: (x - width / 2).rounded(), y: Theme.Metrics.rulerHeight - Theme.Metrics.playheadHeadHeight + 2, width: width, height: max(0, bounds.height - Theme.Metrics.timelineScrollerHeight - Theme.Metrics.rulerHeight + Theme.Metrics.playheadHeadHeight - 2))
         if playheadView.frame != frame { playheadView.frame = frame }
-        // The scissors sit on the line at the top of the tracks, under the
-        // transcript so they never hide the word being said.
+        // The scissors ride the line where Mike left them, or at the top of
+        // the tracks, under the transcript so they never hide the word
+        // being said.
         let size = PlayheadCutButton.size
-        let firstTrack = layoutCache.lanes.first { !$0.isTranscript }?.y ?? 0
-        let top = lanes.frame.minY + max(0, firstTrack - contentOrigin.y) + 4
-        let button = CGRect(x: (x - size / 2).rounded(), y: top.rounded(), width: size, height: size)
-        if cutButton.frame != button { cutButton.frame = button }
+        let top: CGFloat
+        if let resting = cutButton.restingY {
+            top = min(max(resting, 4), lanes.frame.height - size.height - 4)
+        } else {
+            let firstTrack = layoutCache.lanes.first { !$0.isTranscript }?.y ?? 0
+            top = max(0, firstTrack - contentOrigin.y) + 4
+        }
+        let button = CGRect(x: (x - size.width / 2).rounded(), y: (lanes.frame.minY + top).rounded(), width: size.width, height: size.height)
+        if cutButton.frame != button {
+            cutButton.frame = button
+            cutButton.moved()
+        }
         cutButton.isHidden = !visible || button.maxY > lanes.frame.maxY - 4
     }
 
@@ -524,60 +533,186 @@ final class ClipOutlineView: NSView {
     }
 }
 
-/// The scissors on the playhead, at the top of the tracks, as in Filmora.
+/// The scissors on the playhead, as in Filmora: an amber pill on the line.
 /// A click cuts at the playhead (Blade at playhead: the selected clips, or
-/// every clip under it); a drag moves the playhead instead.
+/// every clip under it). A drag moves the playhead with the pointer's x and
+/// slides the pill up or down the line with its y; it stays where it's left
+/// (`restingY`, kept between launches). Hovering shows arrows either side,
+/// and dragging swaps the scissors for a move sign.
 @MainActor
 final class PlayheadCutButton: TimelineChildView {
-    static let size: CGFloat = 18
-    private var pressX: CGFloat = 0
-    private var dragging = false
-    private var symbol: NSImage?
+    static let size = CGSize(width: 22, height: 34)
+    /// Where the pill was left on the line, in the app's preferences.
+    static let restingKey = "playheadScissorsY"
+
+    /// Points down from the top of the tracks where Mike left the pill, or
+    /// nil for the top of the tracks, under the transcript.
+    var restingY: CGFloat?
+    var store: UserDefaults = AppDefaults.store {
+        didSet { restingY = Self.restingY(in: store) }
+    }
+
+    var hovering = false { didSet { if hovering != oldValue { stateChanged() } } }
+    var pressed = false { didSet { if pressed != oldValue { stateChanged() } } }
+    var dragging = false { didSet { if dragging != oldValue { stateChanged() } } }
+    /// The arrows either side that say it can be dragged.
+    var showsArrows: Bool { !arrows.isHidden }
+
+    private let arrows = CAShapeLayer()
+    private var trackingArea: NSTrackingArea?
+    /// Where the press was, how far from the line, and where the pill sat.
+    private var press = (point: CGPoint.zero, fromLine: CGFloat(0), restingY: CGFloat(0))
 
     override init(frame: NSRect) {
         super.init(frame: frame)
-        let key = Shortcuts.symbol(for: .bladeAtPlayhead).map { " (\($0))" } ?? ""
-        toolTip = "Cut at the playhead\(key). Drag to move the playhead."
+        restingY = Self.restingY(in: store)
+        // The arrows sit outside the pill.
+        clipsToBounds = false
+        let size = Self.size
+        let path = CGMutablePath()
+        path.addLines(between: [CGPoint(x: -3, y: size.height / 2 - 4), CGPoint(x: -3, y: size.height / 2 + 4), CGPoint(x: -8, y: size.height / 2)])
+        path.closeSubpath()
+        path.addLines(between: [CGPoint(x: size.width + 3, y: size.height / 2 - 4), CGPoint(x: size.width + 3, y: size.height / 2 + 4), CGPoint(x: size.width + 8, y: size.height / 2)])
+        path.closeSubpath()
+        arrows.path = path
+        arrows.fillColor = Theme.amber.cg
+        arrows.isHidden = true
+        layer?.addSublayer(arrows)
+        updateTip()
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
+    static func restingY(in store: UserDefaults) -> CGFloat? {
+        (store.object(forKey: restingKey) as? NSNumber).map { CGFloat($0.doubleValue) }
+    }
+
+    /// Whether the pointer at `windowPoint` is on the pill.
+    func isUnder(_ windowPoint: CGPoint) -> Bool {
+        !isHidden && window != nil && bounds.contains(convert(windowPoint, from: nil))
+    }
+
+    /// The pill moved, maybe out from under a pointer that's standing
+    /// still (the playhead playing on), which AppKit doesn't always say.
+    func moved() {
+        guard hovering, !dragging, let window else { return }
+        if !isUnder(window.mouseLocationOutsideOfEventStream) { hovering = false }
+    }
+
+    private func stateChanged() {
+        needsDisplay = true
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        arrows.isHidden = !hovering || dragging
+        CATransaction.commit()
+    }
+
+    /// "Click to cut (⌘B)", with whatever key the keymap gives it now.
+    private func updateTip() {
+        let key = Shortcuts.symbol(for: .bladeAtPlayhead).map { " (\($0))" } ?? ""
+        let tip = "Click to cut\(key)\nDrag to move the playhead"
+        if toolTip != tip { toolTip = tip }
+    }
+
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let trackingArea { removeTrackingArea(trackingArea) }
+        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect, .cursorUpdate], owner: self)
+        addTrackingArea(area)
+        trackingArea = area
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        updateTip()
+        hovering = true
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        guard !dragging else { return }
+        hovering = false
+    }
+
+    override func cursorUpdate(with event: NSEvent) {
+        CursorKind.arrow.set()
+    }
 
     override func draw(_ dirtyRect: NSRect) {
         guard let context = NSGraphicsContext.current?.cgContext else { return }
-        context.addEllipse(in: bounds.insetBy(dx: 0.5, dy: 0.5))
-        context.setFillColor(Theme.red.cg)
+        let pill = bounds.insetBy(dx: 0.5, dy: 0.5)
+        context.addPath(CGPath(roundedRect: pill, cornerWidth: pill.width / 2, cornerHeight: pill.width / 2, transform: nil))
+        context.setFillColor((pressed || dragging ? Theme.amberPressed : Theme.amber).cg)
         context.fillPath()
-        if symbol == nil {
-            let config = NSImage.SymbolConfiguration(pointSize: 9.5, weight: .bold).applying(.init(paletteColors: [Theme.text.ns]))
-            symbol = NSImage(systemSymbolName: "scissors", accessibilityDescription: "Cut")?.withSymbolConfiguration(config)
-        }
-        if let symbol {
-            let size = symbol.size
-            symbol.draw(in: CGRect(x: bounds.midX - size.width / 2, y: bounds.midY - size.height / 2, width: size.width, height: size.height), from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
-        }
+        guard let symbol = dragging ? Self.move : Self.scissors else { return }
+        let size = symbol.size
+        symbol.draw(in: CGRect(x: (bounds.midX - size.width / 2).rounded(), y: (bounds.midY - size.height / 2).rounded(), width: size.width, height: size.height),
+                    from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
     }
 
+    /// Scissors standing up, blades at the top, like Filmora's.
+    private static let scissors: NSImage? = {
+        let config = NSImage.SymbolConfiguration(pointSize: 12, weight: .semibold).applying(.init(paletteColors: [Theme.onAmber.ns]))
+        guard let symbol = NSImage(systemSymbolName: "scissors", accessibilityDescription: "Cut")?.withSymbolConfiguration(config) else { return nil }
+        let lying = symbol.size
+        return NSImage(size: NSSize(width: lying.height, height: lying.width), flipped: false) { rect in
+            // The symbol's blades point right; a quarter turn puts them up.
+            let turn = NSAffineTransform()
+            turn.translateX(by: rect.midX, yBy: rect.midY)
+            turn.rotate(byDegrees: 90)
+            turn.translateX(by: -lying.width / 2, yBy: -lying.height / 2)
+            turn.concat()
+            symbol.draw(in: CGRect(origin: .zero, size: lying))
+            return true
+        }
+    }()
+
+    private static let move: NSImage? = {
+        let config = NSImage.SymbolConfiguration(pointSize: 11, weight: .bold).applying(.init(paletteColors: [Theme.onAmber.ns]))
+        return NSImage(systemSymbolName: "arrow.up.and.down.and.arrow.left.and.right", accessibilityDescription: "Move")?.withSymbolConfiguration(config)
+    }()
+
     override func mouseDown(with event: NSEvent) {
-        pressX = event.locationInWindow.x
+        guard let container else { return }
+        let point = event.locationInWindow
+        press = (point, point.x - convert(CGPoint(x: bounds.midX, y: 0), to: nil).x, frame.minY - container.lanes.frame.minY)
+        pressed = true
         dragging = false
-        container?.model.playback.pause()
+        container.model.playback.pause()
     }
 
     override func mouseDragged(with event: NSEvent) {
         guard let container else { return }
-        guard dragging || abs(event.locationInWindow.x - pressX) >= 3 else { return }
+        let point = event.locationInWindow
+        guard dragging || hypot(point.x - press.point.x, point.y - press.point.y) >= 3 else { return }
         dragging = true
+        // Up and down slides the pill along the line (window y grows up)...
+        let rise = point.y - press.point.y
+        if restingY != nil || abs(rise) >= 3 { restingY = press.restingY - rise }
+        // ...and left and right moves the playhead, keeping the pill under
+        // the pointer where it was picked up.
         let model = container.model
-        let x = container.lanes.convert(event.locationInWindow, from: nil).x
+        let x = container.lanes.convert(CGPoint(x: point.x - press.fromLine, y: point.y), from: nil).x
         model.playback.seek(to: model.timeline.scale.time(atX: x, rate: model.frameRate))
+        container.positionPlayhead()
     }
 
     override func mouseUp(with event: NSEvent) {
-        defer { dragging = false }
-        guard !dragging else { return }
+        defer {
+            pressed = false
+            dragging = false
+            hovering = isUnder(event.locationInWindow)
+        }
+        if dragging {
+            guard let container, restingY != nil else { return }
+            // Keep where it is, inside the tracks, not where the pointer went.
+            restingY = frame.minY - container.lanes.frame.minY
+            store.set(Double(restingY ?? 0), forKey: Self.restingKey)
+            return
+        }
+        // The second click of a double-click has nothing left to cut.
+        guard event.clickCount < 2 else { return }
         container?.model.cutAtPlayhead()
     }
 }
