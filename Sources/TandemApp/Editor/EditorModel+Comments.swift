@@ -55,15 +55,25 @@ extension EditorModel {
 
 /// Markers and to-dos, in their strips under the ruler.
 extension EditorModel {
-    /// Cuts at the playhead: the selected clips, or every clip under it
-    /// (the playhead's scissors and Blade at playhead).
+    /// The playhead's scissors: cuts the selected clips under the playhead,
+    /// or every clip under it, then picks out the pieces before the cut, as
+    /// the blade tool does, so Delete takes them straight away.
     @discardableResult
     func cutAtPlayhead() -> Bool {
-        guard let batch = TimelineEdits.bladeAtPlayhead(project, playhead: playback.time, selection: selection) else {
+        let time = playback.time
+        guard let batch = TimelineEdits.bladeAtPlayhead(project, playhead: time, selection: selection) else {
             show(.info, "Nothing under the playhead to cut.")
             return false
         }
-        return apply(batch) != nil
+        let before = project
+        let chosen = selection
+        guard apply(batch) != nil else { return false }
+        // A cut keeps each left piece's ID, so the selected clips it cut are
+        // their own pieces before it; selected clips elsewhere drop out.
+        let pieces = TimelineEdits.piecesBefore(time, cutFrom: before, in: project)
+        let cutChosen = pieces.intersection(chosen)
+        selection = cutChosen.isEmpty ? pieces : cutChosen
+        return true
     }
 
     /// Works out what's near the playhead again, keeping the old value when

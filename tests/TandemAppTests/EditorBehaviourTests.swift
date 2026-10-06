@@ -69,6 +69,9 @@ final class EditorBehaviourTests: XCTestCase {
         editor.click(centre)
         XCTAssertEqual(editor.clips("Camera").map(\.start.seconds), [0, 10], "cut at the playhead")
         XCTAssertEqual(editor.clips("Voice").map(\.start.seconds), [0, 10], "every clip under it")
+        let pieces = Set(editor.model.project.allTracks.flatMap(\.clips).filter { $0.end == t(10) }.map(\.id))
+        XCTAssertTrue(pieces.count > 2, "\(pieces)")
+        XCTAssertEqual(editor.model.selection, pieces, "every piece before the cut, ready for Delete, as the blade tool does")
 
         // A drag moves the playhead and cuts nothing.
         let after = editor.windowPoint(CGPoint(x: button.bounds.midX, y: button.bounds.midY), in: button)
@@ -76,6 +79,24 @@ final class EditorBehaviourTests: XCTestCase {
         XCTAssertEqual(editor.model.playback.time.seconds, 20, accuracy: 0.3)
         XCTAssertEqual(editor.clips("Camera").count, 2)
         XCTAssertEqual(timeline.cutButton.frame.midX, timeline.lanes.frame.minX + CGFloat(editor.model.timeline.scale.x(editor.model.playback.time)), accuracy: 1.5, "the scissors follow the playhead")
+    }
+
+    func testThePlayheadsScissorsCutTheSelectedClipAndPickOutThePieceBefore() throws {
+        timeline.cutButton.store = try scissorsStore()
+        let camera = editor.clip("Camera")
+        editor.click(editor.point(of: camera.id, at: 40))
+        let selected = editor.model.selection
+        XCTAssertTrue(selected.contains(camera.id) && selected.count > 1, "the camera and its sound")
+        editor.model.playback.seek(to: t(30))
+        editor.settle()
+        let button = timeline.cutButton
+        editor.click(editor.windowPoint(CGPoint(x: button.bounds.midX, y: button.bounds.midY), in: button))
+        XCTAssertEqual(editor.clips("Camera").map(\.start.seconds), [0, 30])
+        XCTAssertEqual(editor.clips("Music").count, 1, "only the selected clips are cut")
+        XCTAssertEqual(editor.model.selection, selected, "the selected clips' pieces before the cut")
+        XCTAssertTrue(selected.allSatisfy { editor.model.project.clip($0)?.end == t(30) })
+        editor.press("delete")
+        XCTAssertEqual(editor.clips("Camera").map(\.start.seconds), [30], "Delete took the piece before the cut")
     }
 
     func testThePlayheadsScissorsSlideUpAndDownTheLineAndSayWhatTheyDo() throws {
