@@ -534,7 +534,8 @@ Changes the project's name or metadata.
 #### updateSettings
 
 Changes the canvas size, frame rate, sample rate, the master's loudness
-target (`loudnessTarget`, -14 LUFS) or true peak ceiling (-1 dBTP), the
+target (`loudnessTarget`, -14 LUFS) or true peak ceiling (-1 dBTP), which
+every export preset masters to, the
 speech level (`speechLoudness`, -20 LUFS, between -40 and -10), or adds
 alternate formats like the 9:16 short. Changing the speech level moves every
 clip normalised to the old level to the new one; clips with a level of
@@ -1554,7 +1555,9 @@ Zoom the screen clip into the top-right quarter at 1:12 and back out at
 ### Level the voice
 
 Speech is levelled per take to the project's speech level, -20 LUFS, and
-export brings the whole mix to -14 LUFS with true peaks under -1 dBTP. So
+export brings the whole mix to the project's `loudnessTarget` (-14 LUFS
+unless set) with true peaks under its `truePeakCeiling` (-1 dBTP), and says
+what it mastered to. So
 the speech level sets how the voice sits against the music and sound
 effects (and how loud the app plays), not how loud the video is. Placing
 media levels new speech by itself; a project imported with its own gains,

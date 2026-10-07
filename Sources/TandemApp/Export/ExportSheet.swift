@@ -133,8 +133,9 @@ struct ExportSheetOverlay: View {
             }
             SheetRow(label: "Loudness") {
                 VStack(alignment: .leading, spacing: 3) {
-                    if let target = preset.loudnessTarget {
-                        Text(String(format: "Master to %.0f LUFS, peaks under %.0f dB", target, preset.truePeakCeiling ?? -1).replacingOccurrences(of: "-", with: "−"))
+                    let mastered = preset.mastered(by: model.project.settings)
+                    if let target = mastered.loudnessTarget {
+                        Text("Master to \(ExportPlan.decibels(target)) LUFS, peaks under \(ExportPlan.decibels(mastered.truePeakCeiling ?? -1)) dB".replacingOccurrences(of: "-", with: "−"))
                     } else {
                         Text("Left as mixed")
                     }

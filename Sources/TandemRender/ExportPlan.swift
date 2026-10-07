@@ -40,6 +40,11 @@ public struct ExportPlan: Equatable, Sendable {
     /// "1080x1920 H.264 at 20 Mbps"
     public var summary: String { "\(width)x\(height) \(codec.displayName) at \(Self.megabits(videoBitrate))" }
 
+    /// "-16", "-16.5": a loudness or a ceiling, in whole decibels when it is.
+    public static func decibels(_ value: Double) -> String {
+        value == value.rounded() ? String(format: "%.0f", value) : String(format: "%.1f", value)
+    }
+
     /// "20 Mbps", "11.3 Mbps".
     public static func megabits(_ bitsPerSecond: Int) -> String {
         let tenths = (Double(bitsPerSecond) / 100_000).rounded()
@@ -76,10 +81,22 @@ extension ExportPreset {
     /// `format` (an alternate format ID, or "main" for the canvas) picks
     /// the frame instead of the preset's own. Throws `ExportPlanError` when
     /// the project doesn't have that frame.
+    /// The preset with the project's loudness: the master's target and its
+    /// limiter's ceiling come from the project (`loudnessTarget` and
+    /// `truePeakCeiling`, which `updateSettings` sets), whatever the
+    /// preset's own. A preset that leaves the mix as it is still does.
+    public func mastered(by settings: ProjectSettings) -> ExportPreset {
+        guard loudnessTarget != nil else { return self }
+        var mastered = self
+        mastered.loudnessTarget = settings.loudnessTarget
+        mastered.truePeakCeiling = settings.truePeakCeiling
+        return mastered
+    }
+
     public func plan(for settings: ProjectSettings, format requested: String? = nil) throws -> ExportPlan {
         let format = try OutputFrames.resolve(requested ?? self.format, in: settings)
         let frame = OutputFrames.size(of: format, in: settings)
-        var planned = self
+        var planned = mastered(by: settings)
         planned.format = format ?? OutputFrames.main
         var width = frame.width
         var height = frame.height

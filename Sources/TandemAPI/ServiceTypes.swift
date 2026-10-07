@@ -748,6 +748,10 @@ public struct ExportOutcome: Codable, Sendable {
     /// The alternate format rendered, like `portrait`; nil for the canvas.
     public var format: String?
     public var duration: Time
+    /// The loudness it mastered to (the project's `loudnessTarget`), and
+    /// the limiter's ceiling; nil when the mix was left as it is.
+    public var loudnessTarget: Double?
+    public var truePeakCeiling: Double?
     /// Measured on the mix before AAC encoding.
     public var integratedLUFS: Double?
     public var truePeakDBTP: Double?
@@ -778,6 +782,8 @@ public struct ExportOutcome: Codable, Sendable {
         audioBitrate = try c.decodeIfPresent(Int.self, forKey: .audioBitrate)
         format = try c.decodeIfPresent(String.self, forKey: .format)
         duration = try c.decode(Time.self, forKey: .duration)
+        loudnessTarget = try c.decodeIfPresent(Double.self, forKey: .loudnessTarget)
+        truePeakCeiling = try c.decodeIfPresent(Double.self, forKey: .truePeakCeiling)
         integratedLUFS = try c.decodeIfPresent(Double.self, forKey: .integratedLUFS)
         truePeakDBTP = try c.decodeIfPresent(Double.self, forKey: .truePeakDBTP)
         elapsed = try c.decode(Double.self, forKey: .elapsed)

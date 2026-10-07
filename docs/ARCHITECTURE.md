@@ -365,8 +365,9 @@ Audio rules:
   why -20.
 - `voiceIsolation` mixes the cached isolated voice with the original.
 - Every hard cut on an audio track gets a 3 ms micro-fade so nothing clicks.
-- Export measures the mix and applies gain to hit the master loudness target
-  (-14 LUFS) under the true-peak ceiling (-1 dBTP), limiting 0.5 dB under
+- Export measures the mix and applies gain to hit the project's master
+  loudness target (-14 LUFS unless set) under its true-peak ceiling (-1
+  dBTP), limiting 0.5 dB under
   it so the AAC file stays under too.
 
 Export presets set the quality, not the shape. `ExportPreset.plan(for:)`

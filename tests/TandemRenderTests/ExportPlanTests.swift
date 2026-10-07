@@ -217,6 +217,24 @@ final class ExportPlanTests: XCTestCase {
         XCTAssertEqual(format.format, "portrait")
     }
 
+    /// The project says how loud the master is (mikecann/tandem#3): Mike
+    /// asked for -16 after -14 limited his voice by about 8 dB.
+    func testTheProjectSetsTheMastersLoudness() throws {
+        var settings = canvas(3840, 2160, formats: [.portrait])
+        settings.loudnessTarget = -16
+        settings.truePeakCeiling = -1.5
+        for preset in ExportPreset.all {
+            let planned = try preset.plan(for: settings).preset
+            XCTAssertEqual(planned.loudnessTarget, -16, preset.name)
+            XCTAssertEqual(planned.truePeakCeiling, -1.5, preset.name)
+            XCTAssertEqual(try planned.plan(for: settings).preset, planned, "planning again changes nothing")
+        }
+        let asMixed = ExportPreset(name: "As mixed", codec: .h264, videoBitrate: 4_000_000, loudnessTarget: nil, truePeakCeiling: nil)
+        XCTAssertNil(try asMixed.plan(for: settings).preset.loudnessTarget, "a preset that leaves the mix alone still does")
+        XCTAssertEqual(ExportPlan.decibels(-16), "-16")
+        XCTAssertEqual(ExportPlan.decibels(-16.5), "-16.5")
+    }
+
     func testBitrateText() {
         XCTAssertEqual(ExportPlan.megabits(20_000_000), "20 Mbps")
         XCTAssertEqual(ExportPlan.megabits(11_300_000), "11.3 Mbps")

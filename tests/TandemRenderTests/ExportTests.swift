@@ -142,6 +142,25 @@ final class ExportTests: XCTestCase {
         XCTAssertLessThanOrEqual(meter.truePeak, -1)
     }
 
+    /// The preset says -14, the project -16: the export masters to the
+    /// project's (mikecann/tandem#3).
+    func testTheMasterFollowsTheProjectsLoudnessTarget() async throws {
+        let media = try TestMedia()
+        try await media.movie("quiet.mov", seconds: 2.5, draw: { TestMedia.fill($1, 0, 0, 0) }, sound: { i in
+            Float(pow(10, -30.0 / 20) * sin(2 * Double.pi * 1000 * Double(i) / 48_000))
+        })
+        let item = media.item("med_q", "quiet.mov", seconds: 2.5, audio: true)
+        let sound = Clip(id: "clip_a", content: .media(mediaID: "med_q"), start: .zero, duration: t(2.5))
+        var project = smallProject(video: [], audio: [Track(kind: .audio, name: "A1", clips: [sound])], media: [item])
+        project.settings.loudnessTarget = -16
+        let out = media.folder.appendingPathComponent("sixteen.m4v")
+        let result = try await Exporter(context: RenderContext(project: project, folder: media.projectFolder), preset: preset(loudness: -14), output: out).run()
+        XCTAssertEqual(try XCTUnwrap(result.integratedLUFS), -16, accuracy: 0.5)
+        var meter = LoudnessMeter(sampleRate: 48_000, channels: 2)
+        meter.process(interleaved: try await decodeAudio(out))
+        XCTAssertEqual(meter.integrated, -16, accuracy: 0.5)
+    }
+
     /// AAC overshoots the limited mix by a tenth of a dB or more, which put
     /// finished files over -1 dBTP when measured with ffmpeg. The limiter
     /// aims under the ceiling by enough that the file itself stays under.

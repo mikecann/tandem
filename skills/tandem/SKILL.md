@@ -160,10 +160,10 @@ From his review comments on the Daytona and Build Your Own Convex videos
   Most of his "word gets cut off" comments were this. `tandem pauses` has
   the voice's real edges; listen with `tandem clip` when unsure.
 - **Before uploading,** watch the start of the export, where sync problems
-  show first. The export's limiter takes about 8 dB off his voice's peaks to
-  reach -14 LUFS, and he hears that as artificial. The project's
-  `loudnessTarget` is ignored by the YouTube presets for now
-  (mikecann/tandem#3).
+  show first. The limiter takes about 8 dB off his voice's peaks to reach
+  -14 LUFS, and he hears that as artificial, so he asked for -16 after
+  Daytona: `updateSettings {"patch": {"loudnessTarget": -16}}`. Every
+  export preset masters to the project's target and says what it used.
 
 ## Rules
 

@@ -737,6 +737,8 @@ public final class TandemService: @unchecked Sendable {
                 outcome.videoBitrate = plan.videoBitrate
                 outcome.audioBitrate = preset.audioBitrate
                 outcome.format = plan.format
+                outcome.loudnessTarget = preset.loudnessTarget
+                outcome.truePeakCeiling = preset.truePeakCeiling
                 return outcome
             } catch {
                 let wrapped = ServiceError.wrap(error)

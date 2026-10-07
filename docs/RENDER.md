@@ -329,7 +329,8 @@ Speech is levelled per take, then export masters the whole mix.
   speech clip to it and clears its gain, as one undo step. Changing the
   setting moves the clips normalised to the old level. Music (-31 dB with a
   2 s fade out) and sound effects (-15 dB) keep plain gains.
-- Export then brings the mix to -14 LUFS under -1 dBTP, so the speech level
+- Export then brings the mix to the project's loudness target (-14 LUFS
+  unless set) under its ceiling (-1 dBTP), so the speech level
   decides the balance against music and sound effects, and how loud the
   viewer plays (it plays the mix before the master), not how loud the video
   is.
@@ -385,9 +386,12 @@ reading of LoudnessGain; it now uses the speech level.
 4. `<output>.tandem` is written beside the file: the project with absolute
    media paths and `export.*` metadata.
 
-The preset's `loudnessTarget` and `truePeakCeiling` are used as given (nil
-leaves the mix alone), less the AAC margin on the ceiling. To follow a project's own settings, build the preset
-from `project.settings`. The encoder lock is held at `.export` priority
+The loudness target and true peak ceiling come from the project's settings:
+`ExportPreset.plan(for:)` puts them on every preset that masters
+(`mastered(by:)`), so a project at -16 LUFS exports at -16 whatever the
+preset says (mikecann/tandem#3). A preset with nil loudness leaves the mix
+alone. The exporter takes the planned values, less the AAC margin on the
+ceiling. The encoder lock is held at `.export` priority
 while encoding, released on every exit including cancel and errors (not
 held during the loudness passes, which don't encode). Outputs must be
 .mp4, .mov or .m4v and can't be one of the project's media files.

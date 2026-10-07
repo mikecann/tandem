@@ -297,7 +297,14 @@ extension ExportOutcome: ReadableResult {
         }
         var text = "Wrote \(path) (\(used), \(duration) long) in \(String(format: "%.1f", elapsed))s."
         if let lufs = integratedLUFS, let peak = truePeakDBTP {
-            text += String(format: " Loudness %.1f LUFS, true peak %.1f dBTP.", lufs, peak)
+            text += String(format: " Loudness %.1f LUFS, true peak %.1f dBTP", lufs, peak)
+            if let target = loudnessTarget {
+                // The project's target, so a -16 master doesn't read as a miss.
+                text += " (mastered to \(ExportPlan.decibels(target)) LUFS"
+                if let ceiling = truePeakCeiling { text += ", peaks under \(ExportPlan.decibels(ceiling)) dBTP" }
+                text += ")"
+            }
+            text += "."
         }
         return ([text] + warnings.map { "Warning: \($0)" }).joined(separator: "\n")
     }
