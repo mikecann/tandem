@@ -1097,11 +1097,13 @@ final class TimelineLanesView: TimelineChildView {
             }
         }
         menu.addSubmenu("Speed", icon: "speedometer") { sub in
-            for speed in [0.5, 0.75, 1, 1.25, 1.5, 2] {
-                sub.add("\(Int(speed * 100))%", checked: abs(clip.speed - speed) < 0.001) {
-                    model.apply(EditBatch(label: "Speed \(Int(speed * 100))%", commands: [.setSpeed(clipID: clipID, speed: speed, ripple: true)]))
+            for speed in ClipSpeed.presets {
+                sub.add(ClipSpeed.title(speed), checked: abs(clip.speed - speed) < 0.001) {
+                    model.apply(ClipSpeed.batch(clipID: clipID, speed: speed))
                 }
             }
+            sub.addItem(.separator())
+            sub.add("Custom…", checked: !ClipSpeed.isPreset(clip.speed)) { model.customSpeed(clipID: clipID) }
         }
         // With the dissolve's sound, if Mike gave it one in Settings.
         if track.clip(endingAt: clip.start, excluding: clip.id) != nil, !track.transitions.contains(where: { $0.toClipID == clip.id }) {

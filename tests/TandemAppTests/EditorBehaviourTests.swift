@@ -13,6 +13,7 @@ import XCTest
 @MainActor
 final class EditorBehaviourTests: XCTestCase {
     private var editor: EditorHarness!
+    private var realSpeedPrompt: (@MainActor (String, String?) -> String?)?
 
     override func setUp() async throws {
         guard NSScreen.screens.first != nil else { throw XCTSkip("no screen") }
@@ -20,6 +21,8 @@ final class EditorBehaviourTests: XCTestCase {
     }
 
     override func tearDown() async throws {
+        if let realSpeedPrompt { ClipSpeed.ask = realSpeedPrompt }
+        realSpeedPrompt = nil
         editor?.close()
         editor = nil
     }
@@ -236,6 +239,47 @@ final class EditorBehaviourTests: XCTestCase {
         XCTAssertTrue(later.components(separatedBy: "\n").contains("Freeze frame (off)"), later)
         let voice = try editor.menu(at: editor.point(of: editor.clip("Voice").id, at: 5))
         XCTAssertFalse(voice.contains("Freeze frame"), voice)
+    }
+
+    // MARK: - Speed
+
+    /// A modal alert can't be clicked here, so the test answers Custom…'s
+    /// question itself, the way Mike types into the box. `tearDown` puts
+    /// the real box back.
+    private func answerSpeedPrompt(with answers: [String?]) -> () -> [(typed: String, problem: String?)] {
+        var answers = answers
+        var asked: [(typed: String, problem: String?)] = []
+        if realSpeedPrompt == nil { realSpeedPrompt = ClipSpeed.ask }
+        ClipSpeed.ask = { typed, problem in
+            asked.append((typed, problem))
+            return answers.isEmpty ? nil : answers.removeFirst()
+        }
+        return { asked }
+    }
+
+    func testCustomSpeedAsksForAPercentageAndSetsIt() throws {
+        let broll = editor.clip("B-roll") // 5 s at 20
+        let asked = answerSpeedPrompt(with: ["fast", "250%"])
+        let at = editor.point(of: broll.id)
+        let menu = try editor.menu(at: at)
+        XCTAssertTrue(menu.components(separatedBy: "\n").contains("  Custom…"), "in the Speed submenu: \(menu)")
+        editor.choose("Custom…", at: at)
+        XCTAssertEqual(asked().map(\.typed), ["100", "fast"], "it starts at the clip's speed, then keeps what was typed")
+        XCTAssertEqual(asked().map(\.problem), [nil, ClipSpeed.Problem.notANumber.message], "asked again, saying why")
+        XCTAssertEqual(editor.clip("B-roll").speed, 2.5)
+        XCTAssertEqual(editor.clip("B-roll").duration, t(2), "five seconds of B-roll at 250%")
+        XCTAssertEqual(editor.model.undoLabel, "Speed 250%")
+        let after = try editor.menu(at: editor.point(of: broll.id))
+        XCTAssertTrue(after.components(separatedBy: "\n").contains("  ✓ Custom…"), "not a preset: \(after)")
+    }
+
+    func testCustomSpeedSaysWhenItsOutOfRangeAndCancelLeavesTheClip() throws {
+        let broll = editor.clip("B-roll")
+        let asked = answerSpeedPrompt(with: ["20000%", nil])
+        editor.choose("Custom…", at: editor.point(of: broll.id))
+        XCTAssertEqual(asked().map(\.problem), [nil, ClipSpeed.Problem.outOfRange.message])
+        XCTAssertEqual(editor.clip("B-roll").speed, 1, "cancelled")
+        XCTAssertEqual(editor.model.undoLabel, "Build")
     }
 
     // MARK: - Selecting and moving

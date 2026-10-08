@@ -665,7 +665,7 @@ extension CommandSchema {
             command: .setSpeed,
             summary: "Changes speed, keeping the same media, so the clip gets shorter or longer. Linked clips change with it.",
             arguments: S.object([
-                "clipID": S.string(), "speed": S.number("2 plays twice as fast.", minimum: 0, maximum: 100),
+                "clipID": S.string(), "speed": S.number("2 plays twice as fast.", minimum: 0, maximum: Editing.maximumSpeed),
                 "ripple": S.boolean("Move later clips to fit."), "includeLinked": includeLinked
             ], required: ["clipID", "speed"]),
             example: #"{"setSpeed": {"clipID": "clip_k3f9x2mq", "speed": 1.5, "ripple": true}}"#
