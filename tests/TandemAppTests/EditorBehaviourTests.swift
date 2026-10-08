@@ -4,6 +4,7 @@ import XCTest
 @testable import TandemAPI
 @testable import TandemApp
 @testable import TandemCore
+import TandemRender
 
 /// Things Mike does in the editor, done the way he does them (keys, clicks,
 /// drags and drops in a real window) and checked by what they change.
@@ -567,11 +568,46 @@ final class EditorBehaviourTests: XCTestCase {
     /// Whether this process holds a power assertion keeping the display
     /// awake, as macOS sees it.
     private func displaySleepHeld() -> Bool {
+        assertionHeld(kIOPMAssertionTypePreventUserIdleDisplaySleep)
+    }
+
+    /// Whether this process holds one keeping the Mac itself awake (the
+    /// display may still sleep).
+    private func systemSleepHeld() -> Bool {
+        assertionHeld(kIOPMAssertionTypePreventUserIdleSystemSleep)
+    }
+
+    private func assertionHeld(_ type: String) -> Bool {
         var assertions: Unmanaged<CFDictionary>?
         guard IOPMCopyAssertionsByProcess(&assertions) == kIOReturnSuccess,
               let byProcess = assertions?.takeRetainedValue() as? [NSNumber: [[String: Any]]] else { return false }
         let mine = byProcess[NSNumber(value: getpid())] ?? []
-        return mine.contains { ($0[kIOPMAssertionTypeKey] as? String) == kIOPMAssertionTypePreventUserIdleDisplaySleep }
+        return mine.contains { ($0[kIOPMAssertionTypeKey] as? String) == type }
+    }
+
+    // MARK: - Exporting
+
+    func testExportingKeepsTheMacAwakeUntilItsDone() {
+        XCTAssertFalse(systemSleepHeld(), "nothing held before exporting")
+        // A small timeline of its own, through the window's export queue as
+        // the Export button sends it: the harness's media are only names.
+        let black = Clip(content: .solid(color: .black), start: .zero, duration: t(3))
+        let project = Project(name: "Awake", settings: ProjectSettings(width: 320, height: 180), videoTracks: [Track(kind: .video, name: "V1", clips: [black])])
+        let preset = ExportPreset(name: "Test", codec: .h264, videoBitrate: 2_000_000, loudnessTarget: nil, truePeakCeiling: nil)
+        let exports = editor.model.exports
+        exports.enqueue(preset: preset, output: editor.folder.appendingPathComponent("exports/Awake.mp4"), context: RenderContext(project: project, folder: editor.model.folder))
+        var heldWhileExporting = false
+        let deadline = Date().addingTimeInterval(60)
+        while exports.jobs.last?.isFinished == false, Date() < deadline {
+            if systemSleepHeld() { heldWhileExporting = true }
+            RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+        }
+        guard case .done = exports.jobs.last?.state else {
+            return XCTFail("the export didn't finish: \(String(describing: exports.jobs.last?.state))")
+        }
+        XCTAssertTrue(heldWhileExporting, "the Mac doesn't idle to sleep while it exports")
+        XCTAssertFalse(systemSleepHeld(), "done, it can sleep again")
+        XCTAssertFalse(displaySleepHeld(), "the display was free to sleep all along")
     }
 
     // MARK: - Transitions

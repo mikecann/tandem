@@ -1,4 +1,5 @@
 import AVFoundation
+import IOKit.pwr_mgt
 import XCTest
 import TandemCore
 import TandemMedia
@@ -417,5 +418,64 @@ final class ExportTests: XCTestCase {
         } catch {
             XCTAssertEqual(error as? RenderError, .cancelled)
         }
+    }
+
+    /// A long export carries on when the Mac is left alone: it holds a
+    /// PreventUserIdleSystemSleep assertion while it runs, so the Mac
+    /// doesn't sleep partway through, though the display still can. It
+    /// lets go when the export finishes, is cancelled or fails. The app's
+    /// export queue and the CLI and API all export through `Exporter`.
+    func testTheMacStaysAwakeWhileAnExportRuns() async throws {
+        let media = try TestMedia()
+        try await media.movie("red.mov", seconds: 3, draw: { TestMedia.fill($1, 1, 0, 0) }, sound: tone(440))
+        let item = media.item("med_r", "red.mov", seconds: 3, audio: true)
+        let clip = Clip(id: "clip_r", content: .media(mediaID: "med_r"), start: .zero, duration: t(3))
+        let sound = Clip(id: "clip_s", content: .media(mediaID: "med_r"), start: .zero, duration: t(3))
+        let project = smallProject(video: [Track(kind: .video, name: "V1", clips: [clip])], audio: [Track(kind: .audio, name: "A1", clips: [sound])], media: [item])
+        let context = RenderContext(project: project, folder: media.projectFolder)
+        XCTAssertFalse(HeldAssertions.held(kIOPMAssertionTypePreventUserIdleSystemSleep), "nothing held before")
+
+        final class Seen: @unchecked Sendable {
+            let lock = NSLock()
+            var held: [Bool] = []
+        }
+        let seen = Seen()
+        _ = try await Exporter(context: context, preset: preset(), output: media.folder.appendingPathComponent("awake.mp4")).run { _ in
+            let held = HeldAssertions.held(kIOPMAssertionTypePreventUserIdleSystemSleep)
+            seen.lock.withLock { seen.held.append(held) }
+        }
+        XCTAssertFalse(seen.held.isEmpty)
+        XCTAssertTrue(seen.held.allSatisfy { $0 }, "held all the way through: \(seen.held)")
+        XCTAssertFalse(HeldAssertions.held(kIOPMAssertionTypePreventUserIdleSystemSleep), "done, the Mac can sleep again")
+        XCTAssertFalse(HeldAssertions.held(kIOPMAssertionTypePreventUserIdleDisplaySleep), "the display was free to sleep all along")
+
+        let cancelled = Exporter(context: context, preset: preset(loudness: nil), output: media.folder.appendingPathComponent("cancelled.mp4"))
+        do {
+            _ = try await cancelled.run { progress in
+                if progress > 0.3 { cancelled.cancel() }
+            }
+            XCTFail("expected cancellation")
+        } catch {
+            XCTAssertEqual(error as? RenderError, .cancelled)
+        }
+        XCTAssertFalse(HeldAssertions.held(kIOPMAssertionTypePreventUserIdleSystemSleep), "let go when cancelled")
+
+        do {
+            _ = try await Exporter(context: context, preset: preset(), output: media.folder.appendingPathComponent("red.mov")).run()
+            XCTFail("the source can't be exported over")
+        } catch {
+            XCTAssertFalse(HeldAssertions.held(kIOPMAssertionTypePreventUserIdleSystemSleep), "let go when it fails")
+        }
+    }
+}
+
+/// The power assertions this process holds, as macOS sees them.
+enum HeldAssertions {
+    static func held(_ type: String) -> Bool {
+        var assertions: Unmanaged<CFDictionary>?
+        guard IOPMCopyAssertionsByProcess(&assertions) == kIOReturnSuccess,
+              let byProcess = assertions?.takeRetainedValue() as? [NSNumber: [[String: Any]]] else { return false }
+        let mine = byProcess[NSNumber(value: getpid())] ?? []
+        return mine.contains { ($0[kIOPMAssertionTypeKey] as? String) == type }
     }
 }
