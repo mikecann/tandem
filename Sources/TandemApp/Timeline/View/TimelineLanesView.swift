@@ -1056,11 +1056,10 @@ final class TimelineLanesView: TimelineChildView {
         }
         if TimelineEdits.canFreeze(clip, in: model.project) {
             // At the playhead, as the key does, so only while it's on the
-            // clip. The key shows when it would freeze this clip too.
-            let playhead = model.playback.time
-            let freezes = TimelineEdits.freezeFrame(model.project, clipID: clipID, at: playhead) != nil
-            let sameAsKey = TimelineEdits.freezeTarget(model.project, playhead: playhead, selection: selection)?.id == clipID
-            menu.add("Freeze frame", icon: Icons.command(.freezeFrame), command: sameAsKey ? .freezeFrame : nil, enabled: freezes) {
+            // clip. Then it holds the whole picture there, just as the key
+            // does, so the key shows.
+            let freezes = TimelineEdits.freezeFrame(model.project, clipID: clipID, at: model.playback.time) != nil
+            menu.add("Freeze frame", icon: Icons.command(.freezeFrame), command: freezes ? .freezeFrame : nil, enabled: freezes) {
                 model.freezeFrame(clipID: clipID)
             }
         }

@@ -77,9 +77,10 @@ extension EditorModel {
         return true
     }
 
-    /// Freeze frame (⌥F, or a clip's menu with `clipID`): holds the frame
-    /// at the playhead for five seconds, as Filmora does, then picks out
-    /// the freeze so its length can be trimmed straight away.
+    /// Freeze frame (⌥F, or a clip's menu with `clipID`): holds the picture
+    /// at the playhead for five seconds, as Filmora does with a clip, then
+    /// picks out the freezes (linked) so their length can be trimmed
+    /// together straight away.
     @discardableResult
     func freezeFrame(clipID: String? = nil) -> Bool {
         let time = playback.time
@@ -95,7 +96,7 @@ extension EditorModel {
             return false
         }
         guard apply(batch) != nil else { return false }
-        selection = [freezeID]
+        selection = Set(project.linkedClipIDs(of: freezeID))
         return true
     }
 

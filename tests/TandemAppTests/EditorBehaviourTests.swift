@@ -188,29 +188,48 @@ final class EditorBehaviourTests: XCTestCase {
 
     // MARK: - Freeze frames
 
-    func testOptionFFreezesTheFrameAtThePlayheadAndPicksItOutToTrim() {
+    func testOptionFFreezesThePictureAtThePlayheadAndPicksItOutToTrim() {
         editor.model.playback.seek(to: t(10))
         editor.press("option+f")
         XCTAssertEqual(editor.clips("Camera").map(\.start.seconds), [0, 10, 15], "cut, held for five seconds, then the rest")
-        let freeze = editor.clip("Camera", 1)
-        XCTAssertTrue(freeze.freezeFrame)
-        XCTAssertEqual(freeze.duration, t(5))
-        XCTAssertEqual(freeze.sourceStart, t(10))
+        XCTAssertEqual(editor.clips("Screen").map(\.start.seconds), [0, 10, 15], "the screen under the camera holds too")
+        let freezes = [editor.clip("Camera", 1), editor.clip("Screen", 1)]
+        XCTAssertTrue(freezes.allSatisfy(\.freezeFrame))
+        XCTAssertEqual(freezes.map(\.duration), [t(5), t(5)])
+        XCTAssertEqual(freezes.map(\.sourceStart), [t(10), t(10.5)], "each holds its own frame")
         XCTAssertEqual(editor.clips("Voice").map(\.start.seconds), [0, 15], "the sound waits for it")
         XCTAssertEqual(editor.clip("B-roll").start.seconds, 25, "everything later moved too")
-        XCTAssertEqual(editor.model.selection, [freeze.id], "picked out, ready to trim")
+        XCTAssertEqual(editor.model.selection, Set(freezes.map(\.id)), "picked out together, ready to trim")
         XCTAssertEqual(editor.model.undoLabel, "Freeze frame")
 
-        // Trimmed straight away: W at 12 ripple trims the picked freeze.
+        // Trimmed straight away: W at 12 ripple trims the freezes together.
         editor.model.playback.seek(to: t(12))
         editor.press("w")
         XCTAssertEqual(editor.clips("Camera").map(\.start.seconds), [0, 10, 12], "two seconds of freeze, and the rest closed up")
+        XCTAssertEqual(editor.clips("Screen").map(\.start.seconds), [0, 10, 12], "the screen's freeze with it")
         XCTAssertEqual(editor.clips("Voice").map(\.start.seconds), [0, 12])
 
         editor.press("cmd+z")
         editor.press("cmd+z")
         XCTAssertEqual(editor.clips("Camera").count, 1, "one undo for the freeze")
+        XCTAssertEqual(editor.clips("Screen").count, 1)
         XCTAssertEqual(editor.clips("Voice").count, 1)
+    }
+
+    func testDraggingAFreezesEdgeMovesTheOthersWithIt() {
+        editor.model.playback.seek(to: t(10))
+        editor.press("option+f")
+        let camera = editor.clip("Camera", 1)
+        // The ripple trim tool, on the camera freeze's end, back to 13.
+        editor.press("b")
+        let edge = editor.point(of: camera.id, at: 14.95)
+        editor.drag(edge, to: CGPoint(x: editor.x(at: 13), y: edge.y))
+        XCTAssertEqual(editor.clip("Camera", 1).end.seconds, 13, accuracy: 0.1)
+        XCTAssertEqual(editor.clip("Screen", 1).end, editor.clip("Camera", 1).end, "the screen's freeze moved with it")
+        XCTAssertEqual(editor.clip("Camera", 2).start, editor.clip("Camera", 1).end, "the rest closed up")
+        XCTAssertEqual(editor.clip("Screen", 2).start, editor.clip("Camera", 1).end)
+        XCTAssertEqual(editor.clips("Voice").last?.start, editor.clip("Camera", 1).end, "and the sound with it")
+        editor.press("v")
     }
 
     func testFreezeFrameSaysSoWhenTheresNoVideoUnderThePlayhead() {
@@ -232,8 +251,10 @@ final class EditorBehaviourTests: XCTestCase {
         let freeze = editor.clip("B-roll", 1)
         XCTAssertTrue(freeze.freezeFrame)
         XCTAssertEqual(freeze.sourceStart, t(3), "the frame at the playhead, 2 s in from 1 s into its file")
-        XCTAssertEqual(editor.model.selection, [freeze.id])
-        XCTAssertEqual(editor.clips("Camera").map(\.start.seconds), [0, 27], "the take waits too")
+        XCTAssertEqual(editor.clips("Camera").map(\.start.seconds), [0, 22, 27], "the take under it holds too")
+        XCTAssertEqual(editor.clips("Screen").map(\.start.seconds), [0, 22, 27])
+        XCTAssertEqual(editor.clips("Voice").map(\.start.seconds), [0, 27], "and its sound waits")
+        XCTAssertEqual(editor.model.selection, Set(["B-roll", "Camera", "Screen"].map { editor.clip($0, 1).id }))
 
         // Off the playhead it's there but off; sound has no picture to freeze.
         let later = try editor.menu(at: editor.point(of: editor.clip("B-roll", 2).id))

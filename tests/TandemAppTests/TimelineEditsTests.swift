@@ -199,34 +199,35 @@ final class CutEditTests: XCTestCase {
 }
 
 final class FreezeFrameEditTests: XCTestCase {
-    /// Filmora's freeze frame: the clip is cut at the playhead and the
-    /// frame there holds for five seconds. Everything after moves five
-    /// seconds later on every track, so the take's sound waits with it.
-    func testAFreezeFrameHoldsThePlayheadsFrameForFiveSecondsAndPushesTheRestLater() throws {
+    /// Filmora's freeze frame, for the whole picture: the camera over the
+    /// screen, each cut at the playhead and holding its own frame there for
+    /// five seconds. Everything after moves five seconds later on every
+    /// track, so the take's sound waits with them.
+    func testAFreezeFrameHoldsTheWholePictureForFiveSecondsAndPushesTheRestLater() throws {
         let f = try AppFixture()
         let before = f.project
         let camera = f.clip("Camera")
+        let screen = f.clip("Screen")
         let batch = try XCTUnwrap(TimelineEdits.freezeFrame(f.project, playhead: t(10), selection: [], freezeID: "clip_frz"))
         XCTAssertEqual(batch.label, "Freeze frame")
         try f.apply(batch)
 
-        XCTAssertEqual(f.clips("Camera").map(\.range), [
-            TimeRange(start: t(0), end: t(10)),
-            TimeRange(start: t(10), end: t(15)),
-            TimeRange(start: t(15), end: t(65))
-        ])
-        let freeze = f.clip("Camera", 1)
-        XCTAssertEqual(freeze.id, "clip_frz")
-        XCTAssertTrue(freeze.freezeFrame)
-        XCTAssertEqual(freeze.mediaID, "med_camera")
-        XCTAssertEqual(freeze.sourceStart, t(10), "the frame at the playhead")
-        XCTAssertNil(freeze.linkGroup, "a held frame has no sound to link to")
+        let held = [TimeRange(start: t(0), end: t(10)), TimeRange(start: t(10), end: t(15)), TimeRange(start: t(15), end: t(65))]
+        XCTAssertEqual(f.clips("Camera").map(\.range), held)
+        XCTAssertEqual(f.clips("Screen").map(\.range), held, "the screen under the camera holds too, rather than going black")
+        let cameraFreeze = f.clip("Camera", 1)
+        let screenFreeze = f.clip("Screen", 1)
+        XCTAssertEqual(cameraFreeze.id, "clip_frz", "the clip Mike froze")
+        XCTAssertTrue(cameraFreeze.freezeFrame && screenFreeze.freezeFrame)
+        XCTAssertEqual(cameraFreeze.sourceStart, t(10), "the camera's frame at the playhead")
+        XCTAssertEqual(screenFreeze.mediaID, "med_screen")
+        XCTAssertEqual(screenFreeze.sourceStart, t(10.5), "the screen's own frame there: it started half a second earlier")
         XCTAssertEqual(f.clip("Camera", 0).id, camera.id)
+        XCTAssertEqual(f.clip("Screen", 0).id, screen.id)
         XCTAssertEqual(f.clip("Camera", 2).sourceStart, t(10), "the rest plays on from the frame that held")
 
-        let gap = [TimeRange(start: t(0), end: t(10)), TimeRange(start: t(15), end: t(65))]
-        XCTAssertEqual(f.clips("Voice").map(\.range), gap, "the camera's sound waits five seconds")
-        XCTAssertEqual(f.clips("Screen").map(\.range), gap)
+        XCTAssertEqual(f.clips("Voice").map(\.range), [TimeRange(start: t(0), end: t(10)), TimeRange(start: t(15), end: t(65))], "the camera's sound waits five seconds")
+        XCTAssertEqual(Set(f.project.linkedClipIDs(of: "clip_frz")), [cameraFreeze.id, screenFreeze.id], "the freezes are linked, in a group of their own")
         let rest = Set(["Camera", "Screen", "Voice"].map { f.clips($0).last!.id })
         XCTAssertEqual(Set(f.project.linkedClipIDs(of: f.clip("Camera", 2).id)), rest, "the rest of the take stays linked")
         XCTAssertEqual(f.clip("B-roll").start, t(25), "later clips move five seconds")
@@ -238,8 +239,49 @@ final class FreezeFrameEditTests: XCTestCase {
         XCTAssertEqual(f.project, before, "one undo puts it all back")
     }
 
+    /// The freezes are linked, so a ripple trim of one moves the others'
+    /// edges with it and the tracks stay in sync.
+    func testARippleTrimOfOneFreezeTrimsThemAll() throws {
+        let f = try AppFixture()
+        try f.apply(TimelineEdits.freezeFrame(f.project, playhead: t(10), selection: [], freezeID: "clip_frz"))
+        try f.coordinator.apply(EditBatch(label: "Shorter", commands: [.trim(clipID: "clip_frz", edge: .end, to: t(12), ripple: true)]))
+        let shorter = [TimeRange(start: t(0), end: t(10)), TimeRange(start: t(10), end: t(12)), TimeRange(start: t(12), end: t(62))]
+        XCTAssertEqual(f.clips("Camera").map(\.range), shorter)
+        XCTAssertEqual(f.clips("Screen").map(\.range), shorter, "the screen's freeze moved with the camera's")
+        XCTAssertEqual(f.clips("Voice").map(\.range), [TimeRange(start: t(0), end: t(10)), TimeRange(start: t(12), end: t(62))])
+        assertValid(f.project)
+    }
+
+    /// Every picture under the playhead holds, whichever clip Mike picked:
+    /// a B-roll shot over the take is cut there too, rather than playing
+    /// on over the freeze and coming out of step with the take. A track
+    /// with nothing there isn't touched, and a title over it plays on.
+    func testEveryPictureUnderThePlayheadHolds() throws {
+        let f = try AppFixture()
+        let title = Clip(id: "clip_title", content: .text(TextContent(text: "Hi")), start: t(21), duration: t(3))
+        try f.coordinator.apply(EditBatch(label: "Title", commands: [.insertClip(trackID: f.track("Text").id, clip: title)]))
+        // At 22 the B-roll (20 to 25, from 1 s into its file) covers the
+        // camera, and Mike picked the camera.
+        let camera = f.clip("Camera").id
+        try f.apply(TimelineEdits.freezeFrame(f.project, playhead: t(22), selection: [camera], freezeID: "clip_frz"))
+        XCTAssertEqual(f.clip("Camera", 1).id, "clip_frz")
+        XCTAssertEqual(f.clips("B-roll").map(\.range), [
+            TimeRange(start: t(20), end: t(22)),
+            TimeRange(start: t(22), end: t(27)),
+            TimeRange(start: t(27), end: t(30))
+        ])
+        XCTAssertTrue(f.clip("B-roll", 1).freezeFrame)
+        XCTAssertEqual(f.clip("B-roll", 1).sourceStart, t(3), "the B-roll's own frame")
+        XCTAssertEqual(Set(f.project.linkedClipIDs(of: "clip_frz")), Set(["Screen", "Camera", "B-roll"].map { f.clip($0, 1).id }))
+        XCTAssertTrue(f.clips("Graphics").isEmpty, "nothing there, nothing to hold")
+        XCTAssertEqual(f.clip("Text").range, title.range, "the title plays on over it")
+        XCTAssertEqual(f.clip("Music").range, TimeRange(start: t(0), end: t(60)))
+        assertValid(f.project)
+    }
+
     /// A selected video clip under the playhead (the top one), otherwise
-    /// the top video clip that shows there.
+    /// the top video clip that shows there, decides whether there's
+    /// anything to freeze.
     func testItFreezesTheSelectedVideoClipThereOrTheTopOne() throws {
         let f = try AppFixture()
         let broll = f.clip("B-roll").id
@@ -254,33 +296,47 @@ final class FreezeFrameEditTests: XCTestCase {
         XCTAssertNil(TimelineEdits.freezeFrame(f.project, playhead: t(60), selection: []))
     }
 
-    /// Only a moving picture freezes: a title, a still and sound are
-    /// passed over for the video under them, and a freeze frame doesn't
-    /// freeze again.
-    func testOnlyMovingPicturesFreeze() throws {
+    /// Only a moving picture starts a freeze: a title, a still and sound
+    /// are passed over for the video under them. Once it starts, a still
+    /// under the playhead holds as well, and so does a frame that was
+    /// already held, so nothing under the freeze goes black.
+    func testOnlyMovingPicturesStartAFreezeButStillsAndHeldFramesHoldToo() throws {
         let f = try AppFixture()
         let still = MediaItem(id: "med_logo", path: "images/logo.png", kind: .image, role: .image, width: 800, height: 600)
         let title = Clip(id: "clip_title", content: .text(TextContent(text: "Hi")), start: t(8), duration: t(4))
         try f.coordinator.apply(EditBatch(label: "Over the camera", commands: [
             .addMedia(item: still),
             .placeMedia(mediaIDs: ["med_logo"], at: t(8), duration: t(4), videoTrackID: f.track("Graphics").id),
-            .insertClip(trackID: f.track("Text").id, clip: title)
+            .insertClip(trackID: f.track("Text").id, clip: title),
+            // The screen held on one frame, as an agent might have left it.
+            .updateClip(clipID: f.clip("Screen").id, patch: .object(["freezeFrame": .bool(true)]))
         ]))
         let logo = f.clip("Graphics").id
         let camera = f.clip("Camera").id
         XCTAssertEqual(TimelineEdits.freezeTarget(f.project, playhead: t(10), selection: [])?.id, camera, "under the title and the still")
-        XCTAssertEqual(TimelineEdits.freezeTarget(f.project, playhead: t(10), selection: ["clip_title", logo])?.id, camera)
+        XCTAssertEqual(TimelineEdits.freezeTarget(f.project, playhead: t(10), selection: ["clip_title", logo, f.clip("Screen").id])?.id, camera)
         XCTAssertNil(TimelineEdits.freezeFrame(f.project, clipID: "clip_title", at: t(10)))
         XCTAssertNil(TimelineEdits.freezeFrame(f.project, clipID: logo, at: t(10)))
+        XCTAssertNil(TimelineEdits.freezeFrame(f.project, clipID: f.clip("Screen").id, at: t(10)), "it's already still")
         XCTAssertNil(TimelineEdits.freezeFrame(f.project, clipID: f.clip("Voice").id, at: t(10)), "sound has no picture")
 
-        try f.apply(TimelineEdits.freezeFrame(f.project, clipID: camera, at: t(20), freezeID: "clip_frz"))
-        XCTAssertNil(TimelineEdits.freezeFrame(f.project, clipID: "clip_frz", at: t(22)), "it's already still")
+        try f.apply(TimelineEdits.freezeFrame(f.project, clipID: camera, at: t(10), freezeID: "clip_frz"))
+        XCTAssertEqual(f.clips("Graphics").map(\.range), [
+            TimeRange(start: t(8), end: t(10)),
+            TimeRange(start: t(10), end: t(15)),
+            TimeRange(start: t(15), end: t(17))
+        ], "the still holds through the freeze")
+        XCTAssertEqual(f.clip("Graphics", 1).mediaID, "med_logo")
+        XCTAssertEqual(f.clips("Screen").map(\.start), [t(0), t(10), t(15)])
+        XCTAssertEqual(f.clips("Screen").map(\.sourceStart), [t(0.5), t(0.5), t(0.5)], "the held screen holds on")
+        XCTAssertEqual(f.clip("Text").range, title.range, "a title plays on over it")
+        XCTAssertEqual(f.project.linkedClipIDs(of: "clip_frz").count, 3, "the screen, the camera and the still")
         assertValid(f.project)
     }
 
-    /// What shows is what freezes: a hidden track or a clip that's off
-    /// doesn't, unless it's selected, and a locked track can't change.
+    /// What shows is what decides: a hidden track or a clip that's off
+    /// only counts when it's selected, and a locked track can't change,
+    /// so it plays on, out of step, with a warning.
     func testHiddenOffAndLockedClipsArePassedOver() throws {
         let f = try AppFixture()
         let broll = f.clip("B-roll").id
@@ -292,11 +348,18 @@ final class FreezeFrameEditTests: XCTestCase {
         try f.coordinator.apply(EditBatch(label: "Lock", commands: [.updateTrack(trackID: f.track("Screen").id, patch: .object(["locked": .bool(true)]))]))
         XCTAssertNil(TimelineEdits.freezeTarget(f.project, playhead: t(22), selection: []))
         XCTAssertNil(TimelineEdits.freezeFrame(f.project, clipID: f.clip("Screen").id, at: t(22)), "a locked track can't change")
+
+        let g = try AppFixture()
+        try g.coordinator.apply(EditBatch(label: "Lock", commands: [.updateTrack(trackID: g.track("Screen").id, patch: .object(["locked": .bool(true)]))]))
+        let result = try g.apply(TimelineEdits.freezeFrame(g.project, playhead: t(10), selection: [], freezeID: "clip_frz"))
+        XCTAssertEqual(g.clips("Camera").count, 3)
+        XCTAssertEqual(g.clips("Screen").count, 1, "the locked screen plays on")
+        XCTAssertTrue(result.warnings.contains { $0.contains("Locked track \"Screen\"") }, "\(result.warnings)")
     }
 
-    /// Freeze frame on a clip's menu freezes that clip at the playhead,
-    /// so the playhead has to be on it. A B-roll shot freezes like the
-    /// camera does: the take moves five seconds later too.
+    /// Freeze frame on a clip's menu freezes at the playhead, so the
+    /// playhead has to be on the clip. Picking a B-roll shot holds the
+    /// take under it too, and the take's sound waits.
     func testTheMenusFreezeFrameFreezesThatClipAtThePlayhead() throws {
         let f = try AppFixture()
         let broll = f.clip("B-roll") // 20 to 25, from 1 s into its file
@@ -309,14 +372,15 @@ final class FreezeFrameEditTests: XCTestCase {
             TimeRange(start: t(27), end: t(30))
         ])
         XCTAssertEqual(f.project.clip("clip_frz")?.sourceStart, t(3))
-        XCTAssertEqual(f.clips("Camera").map(\.range), [TimeRange(start: t(0), end: t(22)), TimeRange(start: t(27), end: t(65))])
+        let take = [TimeRange(start: t(0), end: t(22)), TimeRange(start: t(22), end: t(27)), TimeRange(start: t(27), end: t(65))]
+        XCTAssertEqual(f.clips("Camera").map(\.range), take)
+        XCTAssertEqual(f.clips("Screen").map(\.range), take)
         XCTAssertEqual(f.clips("Voice").map(\.range), [TimeRange(start: t(0), end: t(22)), TimeRange(start: t(27), end: t(65))])
         assertValid(f.project)
 
-        // On its first frame there's nothing to cut: the freeze goes in
+        // On its first frame there's nothing to cut: its hold goes in
         // before it.
-        let first = try XCTUnwrap(TimelineEdits.freezeFrame(f.project, clipID: broll.id, at: t(20), freezeID: "clip_first"))
-        try f.apply(first)
+        try f.apply(TimelineEdits.freezeFrame(f.project, clipID: broll.id, at: t(20), freezeID: "clip_first"))
         XCTAssertEqual(f.clips("B-roll").map(\.start), [t(20), t(25), t(27), t(32)])
         XCTAssertEqual(f.project.clip("clip_first")?.sourceStart, t(1))
         assertValid(f.project)
