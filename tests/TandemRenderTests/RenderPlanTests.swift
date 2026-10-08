@@ -347,6 +347,28 @@ final class RenderPlanTests: XCTestCase {
         XCTAssertEqual(env["clip_b"]!.first?.gain, 1)
     }
 
+    /// Sound only shares a composition track with sound in the same audio
+    /// format: a tapped track that changes format part way stalls
+    /// AVFoundation's reader. The assembler fills the formats in.
+    func testSoundInDifferentFormatsKeepsToTracksOfItsOwn() {
+        func segment(_ id: String, _ start: Double, _ end: Double, _ format: String) -> PlannedSegment {
+            var s = PlannedSegment(clipID: id, mediaID: "m", role: .sound, timeline: TimeRange(start: t(start), end: t(end)), sourceStart: .zero, speed: 1, freeze: false)
+            s.format = format
+            return s
+        }
+        var segments = [
+            segment("aac_1", 0, 2, "aac 2 ch"), segment("pcm_1", 2, 3, "lpcm 1 ch"), segment("aac_2", 3, 5, "aac 2 ch"),
+            segment("aac_3", 5, 6, "aac 2 ch"), segment("pcm_2", 6, 7, "lpcm 1 ch")
+        ]
+        let count = RenderPlanner.assignTracks(&segments)
+        let track = Dictionary(uniqueKeysWithValues: segments.map { ($0.clipID, $0.track) })
+        XCTAssertEqual(count, 2)
+        XCTAssertEqual(track["aac_1"], track["aac_2"])
+        XCTAssertEqual(track["aac_2"], track["aac_3"])
+        XCTAssertEqual(track["pcm_1"], track["pcm_2"])
+        XCTAssertNotEqual(track["aac_1"], track["pcm_1"])
+    }
+
     func testAClipAfterAMutedOneStillFadesIn() {
         var a = mediaClip("clip_a", "med_cam", start: 0, duration: 2, source: 10)
         a.audio = AudioProperties(muted: true)
@@ -433,7 +455,7 @@ final class RenderPlanTests: XCTestCase {
     }
 }
 
-/// Linear interpolation of an envelope, the way AVAudioMix ramps it.
+/// Linear interpolation of an envelope, the way the gain tap applies it.
 func gainAt(_ envelope: [GainPoint], _ time: Time) -> Double {
     guard let first = envelope.first else { return 0 }
     if time <= first.time { return first.gain }

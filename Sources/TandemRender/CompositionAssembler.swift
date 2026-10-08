@@ -14,6 +14,9 @@ struct LoadedSource: @unchecked Sendable {
     var preferredTransform: CGAffineTransform = .identity
     var audio: AVAssetTrack?
     var audioRange: CMTimeRange = .zero
+    /// The audio's format, as a key: a composition track only plays sound
+    /// in one format (see `RenderPlanner.assignTracks`).
+    var audioFormat = ""
     /// Set, and `video` left nil, when AVFoundation can't decode the video
     /// track (QuickTime Animation, PNG in a MOV): the codec's four
     /// characters. One such track would fail the whole composition.
@@ -52,10 +55,21 @@ final class SourceCache: @unchecked Sendable {
         }
         if let audio = try await asset.loadTracks(withMediaType: .audio).first {
             source.audio = audio
-            source.audioRange = try await audio.load(.timeRange)
+            let (range, formats) = try await audio.load(.timeRange, .formatDescriptions)
+            source.audioRange = range
+            source.audioFormat = Self.formatKey(formats)
         }
         lock.withLock { entries[url.path] = (stamp, source) }
         return source
+    }
+
+    /// Codec, rate, channels and sample layout of each of a track's
+    /// formats.
+    static func formatKey(_ formats: [CMFormatDescription]) -> String {
+        formats.map { format in
+            guard let d = CMAudioFormatDescriptionGetStreamBasicDescription(format)?.pointee else { return "?" }
+            return "\(MediaItem.fourCharacterCode(d.mFormatID)) \(d.mSampleRate) Hz \(d.mChannelsPerFrame) ch \(d.mBitsPerChannel) bit flags \(d.mFormatFlags) frames \(d.mFramesPerPacket)"
+        }.joined(separator: " | ")
     }
 }
 
@@ -238,59 +252,75 @@ enum CompositionAssembler {
             }
         }
 
-        // Audio pool and its volume envelopes.
+        // Sound. First the file each segment plays: a pitch shift plays a
+        // rendered copy that starts at the segment's source start.
+        struct Sound {
+            var segment: PlannedSegment
+            var file: String
+            var sourceTrack: AVAssetTrack
+            var available: CMTimeRange
+            var sourceStart: Time
+        }
+        var sounds: [Sound] = []
+        let audioClips = Dictionary(project.audioTracks.flatMap(\.clips).map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        for planned in plan.audioSegments.sorted(by: { $0.timeline.start < $1.timeline.start }) {
+            guard let u = url(for: planned), let source = sources[u], let assetTrack = source.audio else {
+                if url(for: planned) != nil { warnings.add("No sound in the file for clip \(planned.clipID).") }
+                continue
+            }
+            var sound = Sound(segment: planned, file: u.lastPathComponent, sourceTrack: assetTrack, available: source.audioRange, sourceStart: planned.sourceStart)
+            sound.segment.format = source.audioFormat
+            if !planned.freeze, let clip = audioClips[planned.clipID], let effect = PitchShift.effect(of: clip, registry: context.effects) {
+                do {
+                    let pitched = try await PitchShift.file(for: planned, clip: clip, effect: effect, source: u, registry: context.effects)
+                    let shifted = try await SourceCache.shared.source(for: pitched)
+                    if let shiftedTrack = shifted.audio {
+                        sound.sourceTrack = shiftedTrack
+                        sound.available = shifted.audioRange
+                        sound.sourceStart = Time(cmTime: shifted.audioRange.start)
+                        sound.segment.format = shifted.audioFormat
+                    }
+                } catch {
+                    warnings.add("Couldn't shift the pitch of clip \(planned.clipID), playing it as it is: \(error)")
+                }
+            }
+            sounds.append(sound)
+        }
+
+        // The audio pool, now that each segment's format is known: a track
+        // keeps to one format (see `RenderPlanner.assignTracks`). Each
+        // track's gain is applied to its samples by a tap on its mix input,
+        // not by AVAudioMix's volume ramps, which lag (see `GainTap`).
+        var soundSegments = sounds.map(\.segment)
+        let audioTrackCount = RenderPlanner.assignTracks(&soundSegments)
         var audioTracks: [AVMutableCompositionTrack] = []
-        var mixParameters: [AVMutableAudioMixInputParameters] = []
-        for _ in 0..<plan.audioTrackCount {
+        for _ in 0..<audioTrackCount {
             guard let track = composition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) else {
                 throw RenderError.compositor("couldn't add an audio track")
             }
             audioTracks.append(track)
+        }
+        var audioEnds = Array(repeating: Time.zero, count: audioTrackCount)
+        var placedSound = Array(repeating: [PlannedSegment](), count: audioTrackCount)
+        for (sound, segment) in zip(sounds, soundSegments) {
+            var placed = segment
+            placed.sourceStart = sound.sourceStart
+            do {
+                try insert(placed, into: audioTracks[segment.track], from: sound.sourceTrack, available: sound.available,
+                           end: &audioEnds[segment.track], holdLastFrame: false, frameDuration: frameDuration)
+                placedSound[segment.track].append(segment)
+            } catch {
+                warnings.add("Couldn't place \(sound.file) for clip \(segment.clipID): \(error)")
+            }
+        }
+        let audioGains = placedSound.map { TrackGain($0, frameDuration: frameDuration) }
+        var mixParameters: [AVMutableAudioMixInputParameters] = []
+        for (track, gain) in zip(audioTracks, audioGains) {
             let parameters = AVMutableAudioMixInputParameters(track: track)
             // Speed changes keep their pitch.
             parameters.audioTimePitchAlgorithm = .spectral
+            parameters.audioTapProcessor = try GainTap.make(gain)
             mixParameters.append(parameters)
-        }
-        var audioEnds = Array(repeating: Time.zero, count: audioTracks.count)
-        let audioClips = Dictionary(project.audioTracks.flatMap(\.clips).map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
-        for segment in plan.audioSegments.sorted(by: { $0.timeline.start < $1.timeline.start }) {
-            guard let u = url(for: segment), let source = sources[u], let assetTrack = source.audio else {
-                if url(for: segment) != nil { warnings.add("No sound in the file for clip \(segment.clipID).") }
-                continue
-            }
-            do {
-                var placed = false
-                if !segment.freeze, let clip = audioClips[segment.clipID], let effect = PitchShift.effect(of: clip, registry: context.effects) {
-                    // Pitch-shifted sound comes from a rendered copy that
-                    // starts at the segment's source start.
-                    do {
-                        let pitched = try await PitchShift.file(for: segment, clip: clip, effect: effect, source: u, registry: context.effects)
-                        let shifted = try await SourceCache.shared.source(for: pitched)
-                        if let shiftedTrack = shifted.audio {
-                            var fromCopy = segment
-                            fromCopy.sourceStart = Time(cmTime: shifted.audioRange.start)
-                            try insert(fromCopy, into: audioTracks[segment.track], from: shiftedTrack, available: shifted.audioRange,
-                                       end: &audioEnds[segment.track], holdLastFrame: false, frameDuration: frameDuration)
-                            placed = true
-                        }
-                    } catch {
-                        warnings.add("Couldn't shift the pitch of clip \(segment.clipID), playing it as it is: \(error)")
-                    }
-                }
-                if !placed {
-                    try insert(segment, into: audioTracks[segment.track], from: assetTrack, available: source.audioRange,
-                               end: &audioEnds[segment.track], holdLastFrame: false, frameDuration: frameDuration)
-                }
-                let parameters = mixParameters[segment.track]
-                for (a, b) in zip(segment.envelope, segment.envelope.dropFirst()) where b.time > a.time {
-                    parameters.setVolumeRamp(
-                        fromStartVolume: Float(a.gain), toEndVolume: Float(b.gain),
-                        timeRange: CMTimeRange(start: a.time.cmTime, end: b.time.cmTime)
-                    )
-                }
-            } catch {
-                warnings.add("Couldn't place \(u.lastPathComponent) for clip \(segment.clipID): \(error)")
-            }
         }
         let audioMix = AVMutableAudioMix()
         audioMix.inputParameters = mixParameters
@@ -324,7 +354,7 @@ enum CompositionAssembler {
             TandemInstruction(range: $0.range, stack: $0.stack, scene: scene, trackIDs: trackIDs)
         }
 
-        return BuiltComposition(
+        var built = BuiltComposition(
             composition: composition,
             videoComposition: videoComposition,
             audioMix: audioMix,
@@ -332,6 +362,8 @@ enum CompositionAssembler {
             duration: plan.duration,
             warnings: warnings.list
         )
+        built.audioGains = audioGains
+        return built
     }
 
     /// When a segment starts on leading frames AVFoundation can't decode

@@ -35,8 +35,13 @@ struct PlannedSegment: Equatable {
     var alpha = false
     /// Index of the composition track within its pool (video or audio).
     var track: Int = 0
-    /// Sound only: volume breakpoints on the timeline, linear gain.
+    /// Sound only: volume breakpoints on the timeline, linear gain, applied
+    /// to the samples by a tap on the segment's track (`GainTap`).
     var envelope: [GainPoint] = []
+    /// Sound only: the audio format of the file the segment plays, which
+    /// the assembler fills in once it has opened it. Segments in different
+    /// formats never share a composition track (see `assignTracks`).
+    var format = ""
 }
 
 struct GainPoint: Equatable {
@@ -284,6 +289,8 @@ enum RenderPlanner {
                 }
             }
         }
+        // Without the files' formats, which the assembler reads and then
+        // assigns tracks again with (`PlannedSegment.format`).
         let audioTrackCount = assignTracks(&audioSegments)
 
         return RenderPlan(
@@ -357,21 +364,28 @@ enum RenderPlanner {
     /// track after a camera's showed black wherever it was clear, while
     /// playing and in `tandem check` (issue #10). Alpha after alpha, and
     /// plain after alpha, decode fine.
+    ///
+    /// Sound only shares a track with sound in the same audio format. With
+    /// a gain tap on the track (`GainTap`), a track that changes format
+    /// part way, say from a camera's AAC to a sound effect's PCM or from
+    /// mono to stereo, stalls AVFoundation's reader for good or reads the
+    /// wrong number of samples. Files in the same format share fine.
     static func assignTracks(_ segments: inout [PlannedSegment]) -> Int {
         let order = segments.indices.sorted {
             segments[$0].timeline.start == segments[$1].timeline.start ? $0 < $1 : segments[$0].timeline.start < segments[$1].timeline.start
         }
         var ends: [Time] = []
-        var alpha: [Bool] = []
+        var kinds: [(alpha: Bool, format: String)] = []
         for i in order {
             let range = segments[i].timeline
-            if let free = ends.indices.first(where: { ends[$0] <= range.start && alpha[$0] == segments[i].alpha }) {
+            let kind = (alpha: segments[i].alpha, format: segments[i].format)
+            if let free = ends.indices.first(where: { ends[$0] <= range.start && kinds[$0] == kind }) {
                 segments[i].track = free
                 ends[free] = range.end
             } else {
                 segments[i].track = ends.count
                 ends.append(range.end)
-                alpha.append(segments[i].alpha)
+                kinds.append(kind)
             }
         }
         return ends.count

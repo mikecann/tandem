@@ -73,12 +73,17 @@ public struct RenderContext: Sendable {
 public struct BuiltComposition: @unchecked Sendable {
     public var composition: AVComposition
     public var videoComposition: AVVideoComposition
+    /// Each audio track's gain, applied to its samples by a tap
+    /// (`GainTap`), for the viewer and export alike.
     public var audioMix: AVAudioMix
     public var renderSize: CGSize
     public var duration: Time
     /// Things that render differently from the project because something
     /// is missing: a matte or loudness not analysed yet, a missing file.
     public var warnings: [String]
+    /// The gain each audio composition track's tap applies, in the order
+    /// of the audio mix's inputs.
+    var audioGains: [TrackGain] = []
 
     public init(composition: AVComposition, videoComposition: AVVideoComposition, audioMix: AVAudioMix, renderSize: CGSize, duration: Time, warnings: [String] = []) {
         self.composition = composition

@@ -352,7 +352,10 @@ VideoToolbox (speed priority) into `AVAssetWriter`.
 
 Audio rules:
 
-- Clip gain, fades and volume keyframes become volume ramps.
+- Clip gain, fades and volume keyframes become one gain envelope per
+  clip, which a tap on each audio track of the mix applies sample by
+  sample, for the viewer and export alike (RENDER.md has why not volume
+  ramps).
 - `normalizeTo` levels a clip using its file's measured loudness: the
   target minus the measurement, within ±30 dB, nothing for a silent file.
   The clip gain is added after it (`AudioLevels`).
