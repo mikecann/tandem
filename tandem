@@ -32,16 +32,33 @@ case "${1:-}" in
       echo 'usage: tandem url "command?query"   e.g. tandem url "screenshot?out=/tmp/shot.png"' >&2
       exit 2
     fi
+    LINK="$1"
+    # The key only ever goes to Tandem: tandem://, or tandem-something://
+    # for a copy built under another bundle ID. Any other link is refused.
+    SCHEME_PATTERN='^([A-Za-z][A-Za-z0-9+.-]*)://'
+    if [[ "$LINK" =~ $SCHEME_PATTERN ]]; then
+      SCHEME="$(printf '%s' "${BASH_REMATCH[1]}" | tr '[:upper:]' '[:lower:]')"
+      if [[ "$SCHEME" != tandem && "$SCHEME" != tandem-* ]]; then
+        echo "tandem url only sends tandem:// links, not $SCHEME:// ones." >&2
+        exit 2
+      fi
+    else
+      LINK="tandem://$LINK"
+    fi
+    # The key goes in the query, so before any #fragment.
+    FRAGMENT=""
+    if [[ "$LINK" == *"#"* ]]; then
+      FRAGMENT="#${LINK#*#}"
+      LINK="${LINK%%#*}"
+    fi
     KEY_FILE="$HOME/Library/Application Support/Tandem/url-key"
     if [[ ! -r "$KEY_FILE" ]]; then
       echo "There's no key for tandem:// links yet. Start Tandem once (tandem app), then try again." >&2
       exit 1
     fi
-    LINK="$1"
-    [[ "$LINK" == *://* ]] || LINK="tandem://$LINK"
     SEPARATOR="?"
     [[ "$LINK" == *"?"* ]] && SEPARATOR="&"
-    exec open -g "$LINK${SEPARATOR}key=$(<"$KEY_FILE")"
+    exec open -g "$LINK${SEPARATOR}key=$(<"$KEY_FILE")$FRAGMENT"
     ;;
   setup)
     exec bash "$SCRIPT_DIR/setup_mac.sh"

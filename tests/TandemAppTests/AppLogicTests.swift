@@ -281,6 +281,16 @@ final class AppURLKeyTests: XCTestCase {
         XCTAssertEqual(try String(contentsOf: file, encoding: .utf8), key.value)
     }
 
+    func testAKeyFileOthersCanReadIsMadeOwnerOnly() throws {
+        let file = folder.appendingPathComponent("url-key")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let value = String(repeating: "c0ffee", count: 8)
+        XCTAssertTrue(FileManager.default.createFile(atPath: file.path, contents: Data(value.utf8), attributes: [.posixPermissions: 0o644]))
+        XCTAssertEqual(try AppURLKey.load(from: file).value, value, "kept")
+        let permissions = try FileManager.default.attributesOfItem(atPath: file.path)[.posixPermissions] as? Int
+        XCTAssertEqual(permissions, 0o600)
+    }
+
     func testALinkActsOnlyWithTheKey() throws {
         let key = try AppURLKey.load(from: folder.appendingPathComponent("url-key"))
         let other = try AppURLKey.load(from: folder.appendingPathComponent("other-key"))

@@ -27,7 +27,11 @@ struct AppURLKey: Equatable {
 
     /// The key in `file`, made the first time.
     static func load(from file: URL = defaultFile) throws -> AppURLKey {
-        if let key = read(file) { return key }
+        if let key = read(file) {
+            // One made or copied by hand may be readable by everyone.
+            try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+            return key
+        }
         let folder = file.deletingLastPathComponent()
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         // Written whole, readable only by its owner, then put in place.

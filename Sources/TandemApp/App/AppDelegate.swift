@@ -142,7 +142,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, EditorCommandHandling 
                 }
                 run(command, for: target)
             } else {
-                NSLog("Tandem: ignored %@", url.absoluteString)
+                // Not the whole link: a mistyped `tandem url` command would
+                // put this Mac's key in the log.
+                NSLog("Tandem: ignored a %@://%@ link", url.scheme ?? "", url.host ?? "")
             }
         }
     }
