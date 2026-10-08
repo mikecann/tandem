@@ -654,6 +654,19 @@ The spike's plain composite managed about 3.5x; the encoder is the limit.
   Resuming from a pause is as quick as without. Readers with taps run
   about 1.6 s slower per 10 minutes of three-track audio (0.5 s of it
   CPU).
+- Nothing cheap shortens that start, measured in October 2026. A tapped
+  track's audio goes through the taps in real time, about 0.4 s ahead
+  of what you hear, and only once playing starts, so AVPlayer either
+  waits for it or loses it. `preroll(atRate:)` doesn't run the taps (it
+  finishes in a millisecond); `playImmediately(atRate:)`,
+  `automaticallyWaitsToMinimizeStalling` and varispeed change nothing.
+  Scheduling the start ahead while paused (`setRate(_:time:atHostTime:)`
+  with a far-off host time, then now on play) starts the clock in
+  0.17 s, but the first 0.15 to 0.6 s of every track is silent, AVPlayer
+  reports itself playing meanwhile, and it costs about 0.8% of a core.
+  A real fix needs the mix rendered ahead of time: an
+  `AVSampleBufferAudioRenderer` fed from the tapped reader, or each
+  clip's sound rendered with its gain.
 - Calling `cancelReading()` on an AVAssetReader while another thread is in
   `copyNextSampleBuffer()`, or reading an output after its reader has been
   released, crashes. Export cancel is a flag: the encoder feed and muxers

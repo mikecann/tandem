@@ -137,6 +137,7 @@ struct TrackGain: Equatable, Sendable {
 /// and audio tracks after the first join about 0.1 s late, missing that
 /// much. Resuming from a pause is as quick as ever. Nothing else gets the
 /// gain right in the player: its volume ramps lag as they do in export.
+/// Prerolling or scheduling the start doesn't help (RENDER.md, Gotchas).
 ///
 /// A tapped track must not change audio format part way (see
 /// `RenderPlanner.assignTracks`).
