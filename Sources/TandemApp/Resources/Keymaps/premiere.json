@@ -29,6 +29,7 @@
     "cmd+k": "bladeAtPlayhead",
     "q": "rippleTrimStart",
     "w": "rippleTrimEnd",
+    "option+f": "freezeFrame",
     "option+k": "toggleKeyframe",
     "shift+j": "previousKeyframe",
     "shift+k": "nextKeyframe",

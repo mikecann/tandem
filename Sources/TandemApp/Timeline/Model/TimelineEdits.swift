@@ -199,6 +199,81 @@ enum TimelineEdits {
         return EditBatch(label: "Slide", commands: [.slide(clipID: clipID, delta: delta)])
     }
 
+    // MARK: - Freeze frames
+
+    /// How long a new freeze frame holds: Filmora's five seconds.
+    static let freezeLength = Time(seconds: 5)
+
+    /// Whether a clip can freeze: part of a video file on a video track, a
+    /// moving picture. Stills, titles, graphics and freeze frames already
+    /// hold still, and a camera's sound has no picture.
+    static func canFreeze(_ clip: Clip, in project: Project) -> Bool {
+        guard !clip.freezeFrame, project.location(ofClip: clip.id)?.track.kind == .video,
+              let item = clip.mediaID.flatMap({ project.media($0) }) else { return false }
+        return item.kind == .video && item.hasVideo
+    }
+
+    /// What ⌥F freezes: a selected video clip under the playhead (the top
+    /// one, if several are), otherwise the top one that shows there.
+    /// Titles and stills are passed over for the video under them. Locked
+    /// tracks can't change, and a hidden track or a clip that's off only
+    /// counts when it's selected.
+    static func freezeTarget(_ project: Project, playhead: Time, selection: Set<String>) -> Clip? {
+        var showing: Clip?
+        for track in project.videoTracks.reversed() where !track.locked {
+            guard let clip = track.clip(at: playhead), canFreeze(clip, in: project) else { continue }
+            if selection.contains(clip.id) { return clip }
+            if showing == nil, !track.hidden, clip.enabled { showing = clip }
+        }
+        return showing
+    }
+
+    /// ⌥F: freezes `freezeTarget` at the playhead.
+    static func freezeFrame(_ project: Project, playhead: Time, selection: Set<String>, freezeID: String = IDs.make("clip")) -> EditBatch? {
+        guard let clip = freezeTarget(project, playhead: playhead, selection: selection) else { return nil }
+        return freezeFrame(project, clipID: clip.id, at: playhead, freezeID: freezeID)
+    }
+
+    /// Freezes the frame of `clipID` at `time` as Filmora does, as one
+    /// undo step: the clip is cut there and the frame holds for five
+    /// seconds, with no sound, then the clip plays on. Everything after
+    /// `time` moves five seconds later: the take's tracks and the clip's
+    /// own (with its linked sound) are cut there, so the sound waits too,
+    /// and follow tracks move along without a cut, so a music bed plays
+    /// on under the freeze. Nil when the clip isn't a moving picture
+    /// under `time` on an unlocked track.
+    static func freezeFrame(_ project: Project, clipID: String, at time: Time, freezeID: String = IDs.make("clip")) -> EditBatch? {
+        guard let clip = project.clip(clipID), canFreeze(clip, in: project), clip.start <= time, time < clip.end,
+              let track = project.track(containingClip: clipID), !track.locked else { return nil }
+        // The frame that shows at `time`, inside the file: a clip holding
+        // its first or last frame past the file's ends shows that frame.
+        var frame = clip.sourceTime(atTimelineTime: time)
+        if let limit = project.sourceLimit(for: clip) { frame = min(frame, limit) }
+        var freeze = clip
+        freeze.id = freezeID
+        freeze.start = time
+        freeze.duration = freezeLength
+        freeze.sourceStart = max(frame, .zero)
+        freeze.speed = 1
+        freeze.freezeFrame = true
+        freeze.holdEdges = false
+        freeze.linkGroup = nil
+        freeze.audio = nil
+        // Any animation stays where it was at that frame.
+        if !clip.keyframes.isEmpty {
+            freeze.video = clip.resolvedVideo(at: time - clip.start)
+            freeze.keyframes = [:]
+        }
+        // Listing every cut track makes the insert reach the whole timeline
+        // even when the clip itself is on a follow track, like B-roll.
+        let linked = Set(project.linkedClipIDs(of: clipID).compactMap { project.track(containingClip: $0)?.id })
+        let opened = project.allTracks.filter { $0.rippleMode == .cut || $0.id == track.id || linked.contains($0.id) }.map(\.id)
+        return EditBatch(label: "Freeze frame", commands: [
+            .insertTime(at: time, duration: freezeLength, trackIDs: opened),
+            .insertClip(trackID: track.id, clip: freeze, mode: .place)
+        ])
+    }
+
     // MARK: - Layout, links, markers, transitions
 
     /// Which clips keys 1 to 4 act on: selected video clips, or the camera

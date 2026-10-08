@@ -1054,6 +1054,16 @@ final class TimelineLanesView: TimelineChildView {
         menu.add("Cut here", icon: "scissors", enabled: clip.start < time && time < clip.end) {
             model.apply(TimelineEdits.blade(model.project, clipID: clipID, at: time, allTracks: false))
         }
+        if TimelineEdits.canFreeze(clip, in: model.project) {
+            // At the playhead, as the key does, so only while it's on the
+            // clip. The key shows when it would freeze this clip too.
+            let playhead = model.playback.time
+            let freezes = TimelineEdits.freezeFrame(model.project, clipID: clipID, at: playhead) != nil
+            let sameAsKey = TimelineEdits.freezeTarget(model.project, playhead: playhead, selection: selection)?.id == clipID
+            menu.add("Freeze frame", icon: Icons.command(.freezeFrame), command: sameAsKey ? .freezeFrame : nil, enabled: freezes) {
+                model.freezeFrame(clipID: clipID)
+            }
+        }
         menu.add("Delete", command: .lift) { model.apply(TimelineEdits.remove(model.project, clipIDs: selection, ripple: false)) }
         menu.add("Ripple delete", command: .rippleDelete) { model.apply(TimelineEdits.remove(model.project, clipIDs: selection, ripple: true)) }
         menu.addItem(.separator())

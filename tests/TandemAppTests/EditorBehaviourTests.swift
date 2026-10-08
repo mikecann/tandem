@@ -182,6 +182,62 @@ final class EditorBehaviourTests: XCTestCase {
         XCTAssertEqual(ranges, [[0, 10], [10, 50]], "the ten seconds went and the rest closed up")
     }
 
+    // MARK: - Freeze frames
+
+    func testOptionFFreezesTheFrameAtThePlayheadAndPicksItOutToTrim() {
+        editor.model.playback.seek(to: t(10))
+        editor.press("option+f")
+        XCTAssertEqual(editor.clips("Camera").map(\.start.seconds), [0, 10, 15], "cut, held for five seconds, then the rest")
+        let freeze = editor.clip("Camera", 1)
+        XCTAssertTrue(freeze.freezeFrame)
+        XCTAssertEqual(freeze.duration, t(5))
+        XCTAssertEqual(freeze.sourceStart, t(10))
+        XCTAssertEqual(editor.clips("Voice").map(\.start.seconds), [0, 15], "the sound waits for it")
+        XCTAssertEqual(editor.clip("B-roll").start.seconds, 25, "everything later moved too")
+        XCTAssertEqual(editor.model.selection, [freeze.id], "picked out, ready to trim")
+        XCTAssertEqual(editor.model.undoLabel, "Freeze frame")
+
+        // Trimmed straight away: W at 12 ripple trims the picked freeze.
+        editor.model.playback.seek(to: t(12))
+        editor.press("w")
+        XCTAssertEqual(editor.clips("Camera").map(\.start.seconds), [0, 10, 12], "two seconds of freeze, and the rest closed up")
+        XCTAssertEqual(editor.clips("Voice").map(\.start.seconds), [0, 12])
+
+        editor.press("cmd+z")
+        editor.press("cmd+z")
+        XCTAssertEqual(editor.clips("Camera").count, 1, "one undo for the freeze")
+        XCTAssertEqual(editor.clips("Voice").count, 1)
+    }
+
+    func testFreezeFrameSaysSoWhenTheresNoVideoUnderThePlayhead() {
+        editor.model.playback.seek(to: editor.project.duration)
+        editor.press("option+f")
+        XCTAssertEqual(editor.model.status?.text, "No video clip under the playhead to freeze.")
+        XCTAssertEqual(editor.model.undoLabel, "Build", "nothing changed")
+    }
+
+    func testFreezeFrameOnAClipsMenuFreezesThatClipAtThePlayhead() throws {
+        editor.model.playback.seek(to: t(22))
+        let broll = editor.clip("B-roll")
+        // Right-clicked halfway along, at 22.5: it freezes at the playhead.
+        let at = editor.point(of: broll.id)
+        let menu = try editor.menu(at: at)
+        XCTAssertTrue(menu.components(separatedBy: "\n").contains("Freeze frame"), menu)
+        editor.choose("Freeze frame", at: at)
+        XCTAssertEqual(editor.clips("B-roll").map(\.start.seconds), [20, 22, 27])
+        let freeze = editor.clip("B-roll", 1)
+        XCTAssertTrue(freeze.freezeFrame)
+        XCTAssertEqual(freeze.sourceStart, t(3), "the frame at the playhead, 2 s in from 1 s into its file")
+        XCTAssertEqual(editor.model.selection, [freeze.id])
+        XCTAssertEqual(editor.clips("Camera").map(\.start.seconds), [0, 27], "the take waits too")
+
+        // Off the playhead it's there but off; sound has no picture to freeze.
+        let later = try editor.menu(at: editor.point(of: editor.clip("B-roll", 2).id))
+        XCTAssertTrue(later.components(separatedBy: "\n").contains("Freeze frame (off)"), later)
+        let voice = try editor.menu(at: editor.point(of: editor.clip("Voice").id, at: 5))
+        XCTAssertFalse(voice.contains("Freeze frame"), voice)
+    }
+
     // MARK: - Selecting and moving
 
     func testSelectForwardPicksEverythingAfterThePlayheadAndADragMovesItAll() {

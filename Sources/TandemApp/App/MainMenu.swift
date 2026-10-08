@@ -68,7 +68,7 @@ enum MainMenu {
         add(edit, .selectForward, keymap)
 
         let timeline = submenu(main, "Timeline")
-        for command: EditorCommand in [.bladeAtPlayhead, .rippleTrimStart, .rippleTrimEnd, .liftInOut, .extractInOut] {
+        for command: EditorCommand in [.bladeAtPlayhead, .freezeFrame, .rippleTrimStart, .rippleTrimEnd, .liftInOut, .extractInOut] {
             add(timeline, command, keymap)
         }
         timeline.addItem(.separator())

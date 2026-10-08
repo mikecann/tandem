@@ -77,6 +77,28 @@ extension EditorModel {
         return true
     }
 
+    /// Freeze frame (⌥F, or a clip's menu with `clipID`): holds the frame
+    /// at the playhead for five seconds, as Filmora does, then picks out
+    /// the freeze so its length can be trimmed straight away.
+    @discardableResult
+    func freezeFrame(clipID: String? = nil) -> Bool {
+        let time = playback.time
+        let freezeID = IDs.make("clip")
+        let batch: EditBatch?
+        if let clipID {
+            batch = TimelineEdits.freezeFrame(project, clipID: clipID, at: time, freezeID: freezeID)
+        } else {
+            batch = TimelineEdits.freezeFrame(project, playhead: time, selection: selection, freezeID: freezeID)
+        }
+        guard let batch else {
+            show(.info, "No video clip under the playhead to freeze.")
+            return false
+        }
+        guard apply(batch) != nil else { return false }
+        selection = [freezeID]
+        return true
+    }
+
     /// Works out what's near the playhead again, keeping the old value when
     /// nothing's changed so the sidebar doesn't redraw.
     func refreshNearPlayhead() {

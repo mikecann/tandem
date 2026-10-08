@@ -570,6 +570,9 @@ public enum Editing {
                 continue
             }
             track.openTime(at: time, duration: duration, split: split, context: &context)
+            // Time opened right on a cut parts its clips, so a transition
+            // there goes, as one does when a ripple delete parts them.
+            track.repairTransitions(context: &context)
             p[location] = track
         }
         if global {
