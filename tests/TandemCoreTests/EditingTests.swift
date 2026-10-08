@@ -180,6 +180,23 @@ final class RippleTests: XCTestCase {
         XCTAssertEqual(c.clips("Camera").map(\.range), [TimeRange(start: t(0), end: t(30)), TimeRange(start: t(32), end: t(62))])
         XCTAssertEqual(c.clips("Music").map(\.range), [TimeRange(start: t(0), end: t(60))])
     }
+
+    /// Time opened right on a cut parts its two clips, so a transition
+    /// between them goes, with a warning, as it does when a ripple delete
+    /// parts them, instead of the whole edit failing.
+    func testInsertTimeOnACutWithATransitionLetsTheTransitionGo() throws {
+        let (f, c) = try Fixture.edited()
+        try c.run("Cut", .blade(at: t(30), clipIDs: [f.clips("Camera")[0].id]))
+        let camera = f.track("Camera").id
+        try c.run("Dissolve", .addTransition(trackID: camera, transition: Transition(
+            id: "tr_d", type: .dissolve, duration: t(1), fromClipID: c.clips("Camera")[0].id, toClipID: c.clips("Camera")[1].id
+        )))
+        let result = try c.run("Open", .insertTime(at: t(30), duration: t(2)))
+        XCTAssertEqual(c.clips("Camera").map(\.range), [TimeRange(start: t(0), end: t(30)), TimeRange(start: t(32), end: t(62))])
+        XCTAssertTrue(c.project.track(camera)?.transitions.isEmpty == true)
+        XCTAssertTrue(result.warnings.contains { $0.contains("dissolve") && $0.contains("no longer meet") }, "\(result.warnings)")
+        assertValid(c.project)
+    }
 }
 
 final class TrimTests: XCTestCase {

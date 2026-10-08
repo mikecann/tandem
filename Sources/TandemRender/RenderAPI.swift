@@ -341,7 +341,8 @@ public final class Exporter: @unchecked Sendable {
 
     /// `progress` gets 0...1 on an arbitrary queue. Throws
     /// `RenderError.cancelled` after `cancel()` or task cancellation, and
-    /// removes the partial file.
+    /// removes the partial file. While it runs the Mac doesn't idle to
+    /// sleep, so a long export left alone finishes; the display still can.
     public func run(progress: @escaping @Sendable (Double) -> Void = { _ in }) async throws -> ExportResult {
         let job = ExportPipeline(context: context, preset: preset, output: output, progress: progress)
         let cancelled = lock.withLock {
@@ -349,6 +350,10 @@ public final class Exporter: @unchecked Sendable {
             return cancelRequested
         }
         if cancelled { throw RenderError.cancelled }
+        // The app's export queue, the CLI and the API all export through
+        // here. It's let go however the export ends.
+        let awake = PowerAssertion(.system, reason: "Tandem is exporting \(output.lastPathComponent)")
+        defer { awake?.release() }
         return try await withTaskCancellationHandler {
             try await job.run()
         } onCancel: {

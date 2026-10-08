@@ -148,6 +148,7 @@ enum Icons {
         case .bladeAtPlayhead: return "scissors"
         case .rippleTrimStart: return "arrow.left.to.line"
         case .rippleTrimEnd: return "arrow.right.to.line"
+        case .freezeFrame: return "snowflake"
         case .lift: return "trash"
         case .rippleDelete: return "delete.backward"
         case .nudgeLeft, .nudgeLeftFive: return "arrow.left"

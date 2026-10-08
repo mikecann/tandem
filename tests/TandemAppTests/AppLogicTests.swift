@@ -584,3 +584,47 @@ final class InspectorTabTests: XCTestCase {
         XCTAssertEqual(InspectorTabs.fitting(.colour, clip: broll, in: f.project), .colour, "a picture stays where it is")
     }
 }
+
+/// Custom… on a clip's Speed menu: a percentage, typed.
+final class ClipSpeedTests: XCTestCase {
+    func testAPercentageWithOrWithoutItsSignIsASpeed() {
+        XCTAssertEqual(try ClipSpeed.parse("110").get(), 1.1)
+        XCTAssertEqual(try ClipSpeed.parse("110%").get(), 1.1)
+        XCTAssertEqual(try ClipSpeed.parse(" 87.5 % ").get(), 0.875)
+        XCTAssertEqual(try ClipSpeed.parse("0.5").get(), 0.005)
+        XCTAssertEqual(try ClipSpeed.parse("10000%").get(), Editing.maximumSpeed, "as fast as Tandem plays")
+    }
+
+    func testAnythingElseSaysWhy() {
+        for typed in ["", "%", "fast", "1e3", "inf", "nan", "2x", "1.2.3", "87,5"] {
+            XCTAssertEqual(ClipSpeed.parse(typed), .failure(.notANumber), typed)
+        }
+        for typed in ["0", "0%", "-50", "10001", "1000000"] {
+            XCTAssertEqual(ClipSpeed.parse(typed), .failure(.outOfRange), typed)
+        }
+        XCTAssertEqual(ClipSpeed.Problem.notANumber.message, "Type the speed as a percentage, like 110 or 110%.")
+        XCTAssertEqual(ClipSpeed.Problem.outOfRange.message, "The speed has to be more than 0% and at most 10000%.")
+    }
+
+    func testTheBoxStartsAtTheClipsSpeed() {
+        XCTAssertEqual(ClipSpeed.text(1), "100")
+        XCTAssertEqual(ClipSpeed.text(1.1), "110")
+        XCTAssertEqual(ClipSpeed.text(0.875), "87.5")
+        XCTAssertEqual(ClipSpeed.text(1.0 / 3), "33.33")
+        XCTAssertEqual(ClipSpeed.title(2), "200%")
+        XCTAssertEqual(try ClipSpeed.parse(ClipSpeed.text(0.875)).get(), 0.875, "what it starts with is a speed")
+    }
+
+    /// Custom… sets the speed as the presets do, rippling.
+    func testItAppliesLikeThePresets() throws {
+        let f = try AppFixture()
+        let broll = f.clip("B-roll") // 20 to 25
+        let batch = ClipSpeed.batch(clipID: broll.id, speed: 1.25)
+        XCTAssertEqual(batch.label, "Speed 125%")
+        XCTAssertEqual(batch.commands, [.setSpeed(clipID: broll.id, speed: 1.25, ripple: true)])
+        try f.apply(batch)
+        XCTAssertEqual(f.clip("B-roll").duration, t(4))
+        XCTAssertTrue(ClipSpeed.isPreset(1.25))
+        XCTAssertFalse(ClipSpeed.isPreset(1.1))
+    }
+}

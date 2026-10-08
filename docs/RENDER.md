@@ -35,6 +35,7 @@ Project ──RenderPlanner──▶ RenderPlan (pure)
 | `SectionCardRenderer.swift`, `CardFonts.swift` | The built-in section card (`sectionCard` graphic clips): layout, drawing and its bundled typefaces (`Resources/Fonts`) |
 | `Limiter.swift` | Lookahead true-peak limiter |
 | `Export.swift` | Loudness passes, VideoToolbox encoder, mastered audio, snapshot |
+| `PowerAssertion.swift` | Keeping the Mac awake: exports stop it idling to sleep, the app's player keeps the display on |
 | `RenderAssets.swift` | `RenderAssets`: proxies, mattes, isolated voice, loudness, converted copies (from `MediaAnalysis`) |
 | `ConvertedMedia.swift` | Frame grabs and exports convert what macOS can't decode before they build |
 
@@ -410,6 +411,12 @@ ceiling. The encoder lock is held at `.export` priority
 while encoding, released on every exit including cancel and errors (not
 held during the loudness passes, which don't encode). Outputs must be
 .mp4, .mov or .m4v and can't be one of the project's media files.
+
+While it runs, `Exporter` holds a PreventUserIdleSystemSleep power
+assertion, so a long export left alone isn't paused by the Mac going to
+sleep; the display can still sleep. The app's export queue, `tandem
+export`, `tandem clip` and the HTTP and MCP exports all run through it,
+and it's let go however the export ends.
 
 ### Presets
 

@@ -4,6 +4,7 @@ import XCTest
 @testable import TandemAPI
 @testable import TandemApp
 @testable import TandemCore
+import TandemRender
 
 /// Things Mike does in the editor, done the way he does them (keys, clicks,
 /// drags and drops in a real window) and checked by what they change.
@@ -13,6 +14,7 @@ import XCTest
 @MainActor
 final class EditorBehaviourTests: XCTestCase {
     private var editor: EditorHarness!
+    private var realSpeedPrompt: (@MainActor (String, String?) -> String?)?
 
     override func setUp() async throws {
         guard NSScreen.screens.first != nil else { throw XCTSkip("no screen") }
@@ -20,6 +22,8 @@ final class EditorBehaviourTests: XCTestCase {
     }
 
     override func tearDown() async throws {
+        if let realSpeedPrompt { ClipSpeed.ask = realSpeedPrompt }
+        realSpeedPrompt = nil
         editor?.close()
         editor = nil
     }
@@ -180,6 +184,124 @@ final class EditorBehaviourTests: XCTestCase {
         editor.press("shift+delete")
         let ranges = editor.clips("Camera").map { [$0.start.seconds, $0.end.seconds] }
         XCTAssertEqual(ranges, [[0, 10], [10, 50]], "the ten seconds went and the rest closed up")
+    }
+
+    // MARK: - Freeze frames
+
+    func testOptionFFreezesThePictureAtThePlayheadAndPicksItOutToTrim() {
+        editor.model.playback.seek(to: t(10))
+        editor.press("option+f")
+        XCTAssertEqual(editor.clips("Camera").map(\.start.seconds), [0, 10, 15], "cut, held for five seconds, then the rest")
+        XCTAssertEqual(editor.clips("Screen").map(\.start.seconds), [0, 10, 15], "the screen under the camera holds too")
+        let freezes = [editor.clip("Camera", 1), editor.clip("Screen", 1)]
+        XCTAssertTrue(freezes.allSatisfy(\.freezeFrame))
+        XCTAssertEqual(freezes.map(\.duration), [t(5), t(5)])
+        XCTAssertEqual(freezes.map(\.sourceStart), [t(10), t(10.5)], "each holds its own frame")
+        XCTAssertEqual(editor.clips("Voice").map(\.start.seconds), [0, 15], "the sound waits for it")
+        XCTAssertEqual(editor.clip("B-roll").start.seconds, 25, "everything later moved too")
+        XCTAssertEqual(editor.model.selection, Set(freezes.map(\.id)), "picked out together, ready to trim")
+        XCTAssertEqual(editor.model.undoLabel, "Freeze frame")
+
+        // Trimmed straight away: W at 12 ripple trims the freezes together.
+        editor.model.playback.seek(to: t(12))
+        editor.press("w")
+        XCTAssertEqual(editor.clips("Camera").map(\.start.seconds), [0, 10, 12], "two seconds of freeze, and the rest closed up")
+        XCTAssertEqual(editor.clips("Screen").map(\.start.seconds), [0, 10, 12], "the screen's freeze with it")
+        XCTAssertEqual(editor.clips("Voice").map(\.start.seconds), [0, 12])
+
+        editor.press("cmd+z")
+        editor.press("cmd+z")
+        XCTAssertEqual(editor.clips("Camera").count, 1, "one undo for the freeze")
+        XCTAssertEqual(editor.clips("Screen").count, 1)
+        XCTAssertEqual(editor.clips("Voice").count, 1)
+    }
+
+    func testDraggingAFreezesEdgeMovesTheOthersWithIt() {
+        editor.model.playback.seek(to: t(10))
+        editor.press("option+f")
+        let camera = editor.clip("Camera", 1)
+        // The ripple trim tool, on the camera freeze's end, back to 13.
+        editor.press("b")
+        let edge = editor.point(of: camera.id, at: 14.95)
+        editor.drag(edge, to: CGPoint(x: editor.x(at: 13), y: edge.y))
+        XCTAssertEqual(editor.clip("Camera", 1).end.seconds, 13, accuracy: 0.1)
+        XCTAssertEqual(editor.clip("Screen", 1).end, editor.clip("Camera", 1).end, "the screen's freeze moved with it")
+        XCTAssertEqual(editor.clip("Camera", 2).start, editor.clip("Camera", 1).end, "the rest closed up")
+        XCTAssertEqual(editor.clip("Screen", 2).start, editor.clip("Camera", 1).end)
+        XCTAssertEqual(editor.clips("Voice").last?.start, editor.clip("Camera", 1).end, "and the sound with it")
+        editor.press("v")
+    }
+
+    func testFreezeFrameSaysSoWhenTheresNoVideoUnderThePlayhead() {
+        editor.model.playback.seek(to: editor.project.duration)
+        editor.press("option+f")
+        XCTAssertEqual(editor.model.status?.text, "No video clip under the playhead to freeze.")
+        XCTAssertEqual(editor.model.undoLabel, "Build", "nothing changed")
+    }
+
+    func testFreezeFrameOnAClipsMenuFreezesThatClipAtThePlayhead() throws {
+        editor.model.playback.seek(to: t(22))
+        let broll = editor.clip("B-roll")
+        // Right-clicked halfway along, at 22.5: it freezes at the playhead.
+        let at = editor.point(of: broll.id)
+        let menu = try editor.menu(at: at)
+        XCTAssertTrue(menu.components(separatedBy: "\n").contains("Freeze frame"), menu)
+        editor.choose("Freeze frame", at: at)
+        XCTAssertEqual(editor.clips("B-roll").map(\.start.seconds), [20, 22, 27])
+        let freeze = editor.clip("B-roll", 1)
+        XCTAssertTrue(freeze.freezeFrame)
+        XCTAssertEqual(freeze.sourceStart, t(3), "the frame at the playhead, 2 s in from 1 s into its file")
+        XCTAssertEqual(editor.clips("Camera").map(\.start.seconds), [0, 22, 27], "the take under it holds too")
+        XCTAssertEqual(editor.clips("Screen").map(\.start.seconds), [0, 22, 27])
+        XCTAssertEqual(editor.clips("Voice").map(\.start.seconds), [0, 27], "and its sound waits")
+        XCTAssertEqual(editor.model.selection, Set(["B-roll", "Camera", "Screen"].map { editor.clip($0, 1).id }))
+
+        // Off the playhead it's there but off; sound has no picture to freeze.
+        let later = try editor.menu(at: editor.point(of: editor.clip("B-roll", 2).id))
+        XCTAssertTrue(later.components(separatedBy: "\n").contains("Freeze frame (off)"), later)
+        let voice = try editor.menu(at: editor.point(of: editor.clip("Voice").id, at: 5))
+        XCTAssertFalse(voice.contains("Freeze frame"), voice)
+    }
+
+    // MARK: - Speed
+
+    /// A modal alert can't be clicked here, so the test answers Custom…'s
+    /// question itself, the way Mike types into the box. `tearDown` puts
+    /// the real box back.
+    private func answerSpeedPrompt(with answers: [String?]) -> () -> [(typed: String, problem: String?)] {
+        var answers = answers
+        var asked: [(typed: String, problem: String?)] = []
+        if realSpeedPrompt == nil { realSpeedPrompt = ClipSpeed.ask }
+        ClipSpeed.ask = { typed, problem in
+            asked.append((typed, problem))
+            return answers.isEmpty ? nil : answers.removeFirst()
+        }
+        return { asked }
+    }
+
+    func testCustomSpeedAsksForAPercentageAndSetsIt() throws {
+        let broll = editor.clip("B-roll") // 5 s at 20
+        let asked = answerSpeedPrompt(with: ["fast", "250%"])
+        let at = editor.point(of: broll.id)
+        let menu = try editor.menu(at: at)
+        XCTAssertTrue(menu.components(separatedBy: "\n").contains("  Custom…"), "in the Speed submenu: \(menu)")
+        editor.choose("Custom…", at: at)
+        XCTAssertEqual(asked().map(\.typed), ["100", "fast"], "it starts at the clip's speed, then keeps what was typed")
+        XCTAssertEqual(asked().map(\.problem), [nil, ClipSpeed.Problem.notANumber.message], "asked again, saying why")
+        XCTAssertEqual(editor.clip("B-roll").speed, 2.5)
+        XCTAssertEqual(editor.clip("B-roll").duration, t(2), "five seconds of B-roll at 250%")
+        XCTAssertEqual(editor.model.undoLabel, "Speed 250%")
+        let after = try editor.menu(at: editor.point(of: broll.id))
+        XCTAssertTrue(after.components(separatedBy: "\n").contains("  ✓ Custom…"), "not a preset: \(after)")
+    }
+
+    func testCustomSpeedSaysWhenItsOutOfRangeAndCancelLeavesTheClip() throws {
+        let broll = editor.clip("B-roll")
+        let asked = answerSpeedPrompt(with: ["20000%", nil])
+        editor.choose("Custom…", at: editor.point(of: broll.id))
+        XCTAssertEqual(asked().map(\.problem), [nil, ClipSpeed.Problem.outOfRange.message])
+        XCTAssertEqual(editor.clip("B-roll").speed, 1, "cancelled")
+        XCTAssertEqual(editor.model.undoLabel, "Build")
     }
 
     // MARK: - Selecting and moving
@@ -467,11 +589,46 @@ final class EditorBehaviourTests: XCTestCase {
     /// Whether this process holds a power assertion keeping the display
     /// awake, as macOS sees it.
     private func displaySleepHeld() -> Bool {
+        assertionHeld(kIOPMAssertionTypePreventUserIdleDisplaySleep)
+    }
+
+    /// Whether this process holds one keeping the Mac itself awake (the
+    /// display may still sleep).
+    private func systemSleepHeld() -> Bool {
+        assertionHeld(kIOPMAssertionTypePreventUserIdleSystemSleep)
+    }
+
+    private func assertionHeld(_ type: String) -> Bool {
         var assertions: Unmanaged<CFDictionary>?
         guard IOPMCopyAssertionsByProcess(&assertions) == kIOReturnSuccess,
               let byProcess = assertions?.takeRetainedValue() as? [NSNumber: [[String: Any]]] else { return false }
         let mine = byProcess[NSNumber(value: getpid())] ?? []
-        return mine.contains { ($0[kIOPMAssertionTypeKey] as? String) == kIOPMAssertionTypePreventUserIdleDisplaySleep }
+        return mine.contains { ($0[kIOPMAssertionTypeKey] as? String) == type }
+    }
+
+    // MARK: - Exporting
+
+    func testExportingKeepsTheMacAwakeUntilItsDone() {
+        XCTAssertFalse(systemSleepHeld(), "nothing held before exporting")
+        // A small timeline of its own, through the window's export queue as
+        // the Export button sends it: the harness's media are only names.
+        let black = Clip(content: .solid(color: .black), start: .zero, duration: t(3))
+        let project = Project(name: "Awake", settings: ProjectSettings(width: 320, height: 180), videoTracks: [Track(kind: .video, name: "V1", clips: [black])])
+        let preset = ExportPreset(name: "Test", codec: .h264, videoBitrate: 2_000_000, loudnessTarget: nil, truePeakCeiling: nil)
+        let exports = editor.model.exports
+        exports.enqueue(preset: preset, output: editor.folder.appendingPathComponent("exports/Awake.mp4"), context: RenderContext(project: project, folder: editor.model.folder))
+        var heldWhileExporting = false
+        let deadline = Date().addingTimeInterval(60)
+        while exports.jobs.last?.isFinished == false, Date() < deadline {
+            if systemSleepHeld() { heldWhileExporting = true }
+            RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+        }
+        guard case .done = exports.jobs.last?.state else {
+            return XCTFail("the export didn't finish: \(String(describing: exports.jobs.last?.state))")
+        }
+        XCTAssertTrue(heldWhileExporting, "the Mac doesn't idle to sleep while it exports")
+        XCTAssertFalse(systemSleepHeld(), "done, it can sleep again")
+        XCTAssertFalse(displaySleepHeld(), "the display was free to sleep all along")
     }
 
     // MARK: - Transitions

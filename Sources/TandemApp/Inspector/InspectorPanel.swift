@@ -622,12 +622,14 @@ struct ClipInfo: View {
                     .font(.ui(12))
                     .foregroundStyle(Theme.textMuted.color)
                     .frame(width: 86, alignment: .leading)
-                Menu("\(Int((clip.speed * 100).rounded()))%") {
-                    ForEach([0.5, 0.75, 1, 1.25, 1.5, 2], id: \.self) { speed in
-                        Button("\(Int(speed * 100))%") {
-                            model.apply(EditBatch(label: "Speed \(Int(speed * 100))%", commands: [.setSpeed(clipID: clip.id, speed: speed, ripple: true)]))
+                Menu(ClipSpeed.title(clip.speed)) {
+                    ForEach(ClipSpeed.presets, id: \.self) { speed in
+                        Button(ClipSpeed.title(speed)) {
+                            model.apply(ClipSpeed.batch(clipID: clip.id, speed: speed))
                         }
                     }
+                    Divider()
+                    Button("Custom…") { model.customSpeed(clipID: clip.id) }
                 }
                 .menuStyle(.borderlessButton)
                 .fixedSize()

@@ -11,7 +11,7 @@ enum EditorCommand: String, CaseIterable, Codable {
     case markIn, markOut, clearIn, clearOut, clearInOut, markClip
     case liftInOut, extractInOut
     // Editing
-    case bladeAtPlayhead, rippleTrimStart, rippleTrimEnd
+    case bladeAtPlayhead, rippleTrimStart, rippleTrimEnd, freezeFrame
     case lift, rippleDelete
     case nudgeLeft, nudgeRight, nudgeLeftFive, nudgeRightFive
     case link, addMarker, addComment, addTransition, addSectionCards
@@ -60,6 +60,7 @@ enum EditorCommand: String, CaseIterable, Codable {
         case .bladeAtPlayhead: return "Blade at playhead"
         case .rippleTrimStart: return "Ripple trim start to playhead"
         case .rippleTrimEnd: return "Ripple trim end to playhead"
+        case .freezeFrame: return "Freeze frame"
         case .lift: return "Delete"
         case .rippleDelete: return "Ripple delete"
         case .nudgeLeft: return "Nudge left"

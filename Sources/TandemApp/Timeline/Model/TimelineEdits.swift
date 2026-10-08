@@ -199,6 +199,118 @@ enum TimelineEdits {
         return EditBatch(label: "Slide", commands: [.slide(clipID: clipID, delta: delta)])
     }
 
+    // MARK: - Freeze frames
+
+    /// How long a new freeze frame holds: Filmora's five seconds.
+    static let freezeLength = Time(seconds: 5)
+
+    /// Whether a clip can freeze: part of a video file on a video track, a
+    /// moving picture. Stills, titles, graphics and freeze frames already
+    /// hold still, and a camera's sound has no picture.
+    static func canFreeze(_ clip: Clip, in project: Project) -> Bool {
+        guard !clip.freezeFrame, project.location(ofClip: clip.id)?.track.kind == .video,
+              let item = clip.mediaID.flatMap({ project.media($0) }) else { return false }
+        return item.kind == .video && item.hasVideo
+    }
+
+    /// What ⌥F freezes: a selected video clip under the playhead (the top
+    /// one, if several are), otherwise the top one that shows there.
+    /// Titles and stills are passed over for the video under them. Locked
+    /// tracks can't change, and a hidden track or a clip that's off only
+    /// counts when it's selected.
+    static func freezeTarget(_ project: Project, playhead: Time, selection: Set<String>) -> Clip? {
+        var showing: Clip?
+        for track in project.videoTracks.reversed() where !track.locked {
+            guard let clip = track.clip(at: playhead), canFreeze(clip, in: project) else { continue }
+            if selection.contains(clip.id) { return clip }
+            if showing == nil, !track.hidden, clip.enabled { showing = clip }
+        }
+        return showing
+    }
+
+    /// ⌥F: freezes the picture at the playhead, if `freezeTarget` finds
+    /// something there to freeze.
+    static func freezeFrame(_ project: Project, playhead: Time, selection: Set<String>, freezeID: String = IDs.make("clip")) -> EditBatch? {
+        guard let clip = freezeTarget(project, playhead: playhead, selection: selection) else { return nil }
+        return freezeFrame(project, clipID: clip.id, at: playhead, freezeID: freezeID)
+    }
+
+    /// Freezes the picture at `time` as Filmora freezes a clip, as one undo
+    /// step, when `clipID` is a moving picture there on an unlocked track.
+    /// Every unlocked video track with a picture under `time` (the camera,
+    /// the screen under it, a B-roll shot over them) is cut there and holds
+    /// the frame it showed for five seconds, with no sound; `clipID`'s
+    /// freeze is `freezeID`. The freezes are linked, so trimming one trims
+    /// them all and the tracks stay in step. Everything after `time` moves
+    /// five seconds later: the take's tracks are cut too, so its sound
+    /// waits, and so is any sound linked to a held picture, while follow
+    /// tracks move along without a cut, so a music bed or a title plays
+    /// on under the freeze.
+    static func freezeFrame(_ project: Project, clipID: String, at time: Time, freezeID: String = IDs.make("clip")) -> EditBatch? {
+        guard let chosen = project.clip(clipID), canFreeze(chosen, in: project), chosen.start <= time, time < chosen.end,
+              project.track(containingClip: clipID)?.locked == false else { return nil }
+        let shown = project.videoTracks.filter { !$0.locked }.compactMap { track -> (track: Track, clip: Clip)? in
+            guard let clip = track.clip(at: time), holdsAPicture(clip, in: project) else { return nil }
+            return (track, clip)
+        }
+        // Each held picture's track is cut, and its linked sound's, so they
+        // stay in step; every cut track too, so the insert reaches the
+        // whole timeline even when the pictures are on follow tracks.
+        var opened = Set(project.allTracks.filter { $0.rippleMode == .cut }.map(\.id))
+        for (track, clip) in shown {
+            opened.insert(track.id)
+            for id in project.linkedClipIDs(of: clip.id) {
+                if let linked = project.track(containingClip: id) { opened.insert(linked.id) }
+            }
+        }
+        let holds = shown.map { track, clip -> (trackID: String, clip: Clip) in
+            (track.id, held(clip, at: time, id: clip.id == clipID ? freezeID : IDs.make("clip"), in: project))
+        }
+        var commands: [EditCommand] = [
+            .insertTime(at: time, duration: freezeLength, trackIDs: project.allTracks.map(\.id).filter(opened.contains))
+        ]
+        commands += holds.map { .insertClip(trackID: $0.trackID, clip: $0.clip, mode: .place) }
+        if holds.count > 1 { commands.append(.link(clipIDs: holds.map(\.clip.id))) }
+        return EditBatch(label: "Freeze frame", commands: commands)
+    }
+
+    /// Whether a clip on a video track shows a picture from a file, which a
+    /// freeze holds: a video's frame (moving, or held already) or a still.
+    /// Titles, graphics and solids aren't held.
+    static func holdsAPicture(_ clip: Clip, in project: Project) -> Bool {
+        guard project.location(ofClip: clip.id)?.track.kind == .video,
+              let item = clip.mediaID.flatMap({ project.media($0) }) else { return false }
+        return item.kind == .image || (item.kind == .video && item.hasVideo)
+    }
+
+    /// Five seconds of what `clip` shows at `time`, as a new clip with no
+    /// sound: a video's frame there, held, or the still. Any animation stays
+    /// where it was at that moment.
+    static func held(_ clip: Clip, at time: Time, id: String, in project: Project) -> Clip {
+        var hold = clip
+        hold.id = id
+        hold.start = time
+        hold.duration = freezeLength
+        hold.holdEdges = false
+        hold.linkGroup = nil
+        hold.audio = nil
+        if clip.mediaID.flatMap({ project.media($0) })?.kind == .video {
+            // The frame that shows at `time`, inside the file: a clip
+            // holding its first or last frame past the file's ends shows
+            // that frame.
+            var frame = clip.sourceTime(atTimelineTime: time)
+            if let limit = project.sourceLimit(for: clip) { frame = min(frame, limit) }
+            hold.sourceStart = max(frame, .zero)
+            hold.speed = 1
+            hold.freezeFrame = true
+        }
+        if !clip.keyframes.isEmpty {
+            hold.video = clip.resolvedVideo(at: time - clip.start)
+            hold.keyframes = [:]
+        }
+        return hold
+    }
+
     // MARK: - Layout, links, markers, transitions
 
     /// Which clips keys 1 to 4 act on: selected video clips, or the camera

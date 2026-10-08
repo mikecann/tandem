@@ -1054,6 +1054,15 @@ final class TimelineLanesView: TimelineChildView {
         menu.add("Cut here", icon: "scissors", enabled: clip.start < time && time < clip.end) {
             model.apply(TimelineEdits.blade(model.project, clipID: clipID, at: time, allTracks: false))
         }
+        if TimelineEdits.canFreeze(clip, in: model.project) {
+            // At the playhead, as the key does, so only while it's on the
+            // clip. Then it holds the whole picture there, just as the key
+            // does, so the key shows.
+            let freezes = TimelineEdits.freezeFrame(model.project, clipID: clipID, at: model.playback.time) != nil
+            menu.add("Freeze frame", icon: Icons.command(.freezeFrame), command: freezes ? .freezeFrame : nil, enabled: freezes) {
+                model.freezeFrame(clipID: clipID)
+            }
+        }
         menu.add("Delete", command: .lift) { model.apply(TimelineEdits.remove(model.project, clipIDs: selection, ripple: false)) }
         menu.add("Ripple delete", command: .rippleDelete) { model.apply(TimelineEdits.remove(model.project, clipIDs: selection, ripple: true)) }
         menu.addItem(.separator())
@@ -1087,11 +1096,13 @@ final class TimelineLanesView: TimelineChildView {
             }
         }
         menu.addSubmenu("Speed", icon: "speedometer") { sub in
-            for speed in [0.5, 0.75, 1, 1.25, 1.5, 2] {
-                sub.add("\(Int(speed * 100))%", checked: abs(clip.speed - speed) < 0.001) {
-                    model.apply(EditBatch(label: "Speed \(Int(speed * 100))%", commands: [.setSpeed(clipID: clipID, speed: speed, ripple: true)]))
+            for speed in ClipSpeed.presets {
+                sub.add(ClipSpeed.title(speed), checked: abs(clip.speed - speed) < 0.001) {
+                    model.apply(ClipSpeed.batch(clipID: clipID, speed: speed))
                 }
             }
+            sub.addItem(.separator())
+            sub.add("Custom…", checked: !ClipSpeed.isPreset(clip.speed)) { model.customSpeed(clipID: clipID) }
         }
         // With the dissolve's sound, if Mike gave it one in Settings.
         if track.clip(endingAt: clip.start, excluding: clip.id) != nil, !track.transitions.contains(where: { $0.toClipID == clip.id }) {

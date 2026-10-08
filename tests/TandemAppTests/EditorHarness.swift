@@ -208,6 +208,12 @@ final class EditorHarness {
         return try String(contentsOf: out, encoding: .utf8)
     }
 
+    /// Picks the item called `title` from the right-click menu at `point`,
+    /// as if clicked. Items in submenus are found too.
+    func choose(_ title: String, at point: CGPoint) {
+        run(InputSimulator.Gesture(kind: .choose(title), at: point, modifiers: []))
+    }
+
     func drag(_ from: CGPoint, to: CGPoint, modifiers: NSEvent.ModifierFlags = []) {
         run(InputSimulator.Gesture(kind: .drag(to: to, steps: 12), at: from, modifiers: modifiers))
     }

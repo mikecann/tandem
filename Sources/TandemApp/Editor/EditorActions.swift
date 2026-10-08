@@ -108,6 +108,8 @@ final class EditorActions {
             // The same cut as the playhead's scissors, picking out the
             // pieces before it for Delete.
             return model.cutAtPlayhead()
+        case .freezeFrame:
+            return model.freezeFrame()
         case .rippleTrimStart, .rippleTrimEnd:
             let edge: ClipEdge = command == .rippleTrimStart ? .start : .end
             guard let result = TimelineEdits.rippleTrimToPlayhead(project, playhead: playhead, edge: edge, selection: model.selection) else {

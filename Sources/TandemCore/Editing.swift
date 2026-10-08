@@ -570,6 +570,9 @@ public enum Editing {
                 continue
             }
             track.openTime(at: time, duration: duration, split: split, context: &context)
+            // Time opened right on a cut parts its clips, so a transition
+            // there goes, as one does when a ripple delete parts them.
+            track.repairTransitions(context: &context)
             p[location] = track
         }
         if global {
@@ -882,8 +885,12 @@ public enum Editing {
         }
     }
 
+    /// The fastest a clip plays: a hundred times normal speed. Any speed
+    /// above 0 up to this is allowed.
+    public static let maximumSpeed = 100.0
+
     static func setSpeed(_ p: inout Project, _ clipID: String, speed: Double, ripple: Bool, includeLinked: Bool, _ context: inout EditContext) throws {
-        guard speed > 0, speed <= 100 else { throw EditError.invalid("speed must be between 0 and 100") }
+        guard speed > 0, speed <= maximumSpeed else { throw EditError.invalid("speed must be between 0 and \(Int(maximumSpeed))") }
         let (primaryLocation, primaryIndex) = try requireClip(p, clipID)
         let primary = p[primaryLocation].clips[primaryIndex]
         guard !primary.freezeFrame else { throw EditError.invalid("clip \(clipID) is a freeze frame, so speed doesn't apply") }

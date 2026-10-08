@@ -281,6 +281,9 @@ picture.
 - **off** tracks stay where they are whatever happens elsewhere.
 - A ripple edit made on a follow or off track only moves that track, so
   closing a gap in the B-roll never touches the take.
+- Time opened right on a cut (`insertTime` or an insert there, or a ripple
+  edit that makes a clip ending there longer) parts its two clips, so a
+  transition between them goes, with a warning.
 - Markers move with ripples of the take.
 - Locked tracks never move. That can put a take out of sync, so you get a
   warning (and `tighten` refuses until the track is unlocked).
