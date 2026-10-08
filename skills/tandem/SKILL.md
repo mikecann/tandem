@@ -62,6 +62,11 @@ goes with the fix (or `tandem comments resolve <id>` after). Comments move
 with ripple edits, so list them again after one. Leave any you couldn't
 do, and say why when you hand back.
 
+Plan the rounds so his watches count: get the B-roll, sound effects and
+music in before his big watch. Then he watches the whole video about twice,
+instead of three comment rounds plus separate listens for the sound effects
+and the music (Build Your Own Convex retro).
+
 ## How Mike likes a take cut
 
 - **Pauses between sentences: 0.4 s.** Tighten with
@@ -135,6 +140,17 @@ From his review comments on the Daytona and Build Your Own Convex videos
   `audio.gainDB` keyframes (they set the gain outright, times are
   clip-relative), and back down before he speaks. The whimsical underscore
   is for the intro only. Give the outro its own track.
+- **Music beds: one per chapter** (he loved them on Build Your Own Convex).
+  Generate a test batch of three first (the cold open, a middle chapter and
+  the outro) and get his OK before making the rest. Each bed starts on the
+  push or cut into its chapter and fades out over 2 s at the next. Ask the
+  generator for the chapter's length plus about 10%: ElevenLabs once came
+  back 27 s short, fixed with a beat-matched 10-bar repeat and a 1 s
+  dissolve. Level every bed to -45 LUFS, about 25 LU under his voice. Swell
+  +6 dB only in pauses of 1.6 s or more with no demo sound effects, and
+  +8 dB after the sign-off. A chill lounge kit sat under demo sound effects
+  without fighting them: Rhodes, soft pads, round bass and brushed drums at
+  about 85 BPM, with no hi-hats, bells, glockenspiel or marimba.
 - **Linked sounds:** a card's whooshes are linked to it, so trim either with
   `"includeLinked": false` or you drag the other along.
 - **On-screen text moves in and out.** A question or callout slides in and
@@ -142,6 +158,13 @@ From his review comments on the Daytona and Build Your Own Convex videos
   liked the typewriter reveal with a typing sound.
 - **Demos where speed is the point** play in real time, with no cuts, so
   viewers can see how fast it really is.
+- **Demo sound effects land on the picture.** Snap each sound to the first
+  frame its element visibly changes, within 80 ms either way. Steps replayed
+  from a script's `setTimeout` drift about 6% against the recording, so time
+  them from the frames, not the script. Drop duplicates under 34 ms apart
+  (the same frame). A reusable tool for this is being packaged at
+  `~/dev/convex/convex-videos/tools/explainer-sfx/`: use it once it's there
+  rather than writing your own.
 - **Page changes in an explainer or slides** push: a 0.7 s push in its
   default direction on the Screen track only, with the light swoosh
   (`"sound": {"gainDB": -23.3, "offset": -0.39}`), so he stays put in his
@@ -150,7 +173,9 @@ From his review comments on the Daytona and Build Your Own Convex videos
   visually. Check the page flip isn't within half the push's length of the
   cut, or a borrowed frame shows the wrong page. For a flip inside a clip,
   freeze 0.35 s either side of it (`freezeFrame` clips) and push between
-  them.
+  them. Find every page change from the screen recording itself (diff its
+  frames or run scene detection), not from your cue list: one built from
+  cues missed 10 on Build Your Own Convex, and Mike pushed them by hand.
 - **Screen recordings fill the frame,** for people watching on a phone:
   one static `zoomToRegion` per page, fitted to the content with a small
   margin, at most 1.5x, and no zoom changes within a page.
