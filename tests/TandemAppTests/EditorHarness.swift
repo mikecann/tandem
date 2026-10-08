@@ -77,15 +77,29 @@ final class EditorHarness {
     }
 
     /// Lets observation, layout and anything queued on the main thread
-    /// catch up.
+    /// catch up: for `seconds`, and for at least `minimumTurns` turns of
+    /// the run loop.
     func settle(_ seconds: TimeInterval = 0.25) {
         let end = Date().addingTimeInterval(seconds)
-        while Date() < end {
+        var turns = 0
+        while Date() < end || turns < Self.minimumTurns {
+            turns += 1
             RunLoop.main.run(until: Date().addingTimeInterval(0.02))
             window.contentView?.layoutSubtreeIfNeeded()
             window.displayIfNeeded()
         }
     }
+
+    /// A model change reaches the views over a few turns: the observation
+    /// loop hears of it on one, the timeline's frame pacer copies it on
+    /// the next, and only then are the strips and lanes laid out where a
+    /// click lands. On a CI runner one turn of drawing can take longer
+    /// than the whole quarter second, so a wait counted only in time
+    /// clicked the old layout: a click meant for a comment moved the
+    /// playhead, and a transition dropped on a clip missed it. With every
+    /// turn slowed to 0.4 s the behaviour tests pass with three, and two
+    /// isn't enough.
+    static let minimumTurns = 3
 
     // MARK: - The project
 
