@@ -45,6 +45,25 @@ CLI
 chmod +x "$APP/Contents/MacOS/tandem"
 [[ "$(TANDEM_APP_DIR="$APP" "$BIN/tandem" 'two words' --json)" == $'two words\n--json' ]]
 
+# `tandem url` adds this Mac's key to a tandem:// link and opens it in
+# the background. A fake `open` shows what it would have opened.
+FAKE_BIN="$SCRATCH/fake-bin"
+mkdir -p "$FAKE_BIN"
+cat > "$FAKE_BIN/open" <<'OPEN'
+#!/usr/bin/env bash
+printf '%s\n' "$@"
+OPEN
+chmod +x "$FAKE_BIN/open"
+if PATH="$FAKE_BIN:$PATH" "$BIN/tandem" url 'debug?out=/tmp/tree.txt' 2>/dev/null; then
+  echo "FAIL: tandem url sent a link without a key" >&2
+  exit 1
+fi
+mkdir -p "$HOME/Library/Application Support/Tandem"
+printf 'c0ffee' > "$HOME/Library/Application Support/Tandem/url-key"
+[[ "$(PATH="$FAKE_BIN:$PATH" "$BIN/tandem" url 'screenshot?out=/tmp/a b.png')" == $'-g\ntandem://screenshot?out=/tmp/a b.png&key=c0ffee' ]]
+[[ "$(PATH="$FAKE_BIN:$PATH" "$BIN/tandem" url 'command')" == $'-g\ntandem://command?key=c0ffee' ]]
+[[ "$(PATH="$FAKE_BIN:$PATH" "$BIN/tandem" url 'tandem-dev://seek?t=3')" == $'-g\ntandem-dev://seek?t=3&key=c0ffee' ]]
+
 # While an install swaps the app in, the launcher waits for it instead of
 # starting a build of its own. A copy of it with a fake setup shows which.
 LAUNCHER="$SCRATCH/launcher"

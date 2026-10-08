@@ -9,15 +9,15 @@ extension NSHostingView: NSHostingViewMarker {}
 /// `mouseDragged` and `mouseUp` calls AppKit makes, so smoke tests and
 /// agents can drive the timeline and viewer without screen control:
 ///
-///     open -g "tandem://simulate?drag=600,700,700,700&mods=cmd"
-///     open -g "tandem://simulate?drag=600,700,300,700&button=middle"
-///     open -g "tandem://simulate?drag=600,700,900,760&steps=120&interval=8"
-///     open -g "tandem://simulate?menu=600,700&out=/tmp/menu.txt"
-///     open -g "tandem://simulate?drop=tandem-effect:vignette&at=600,700"
-///     open -g "tandem://simulate?scroll=900,1100,-12,0&steps=90&interval=16"
-///     open -g "tandem://simulate?dragover=tandem-title:label&at=600,700&to=900,700&steps=60&interval=16"
-///     open -g "tandem://simulate?hover=900,400&hold=z"   (then tandem://debug says which cursor it set)
-///     open -g "tandem://simulate?press=cmd&for=2"   (⌘ held for 2 s: the buttons show their keys)
+///     tandem url "simulate?drag=600,700,700,700&mods=cmd"
+///     tandem url "simulate?drag=600,700,300,700&button=middle"
+///     tandem url "simulate?drag=600,700,900,760&steps=120&interval=8"
+///     tandem url "simulate?menu=600,700&out=/tmp/menu.txt"
+///     tandem url "simulate?drop=tandem-effect:vignette&at=600,700"
+///     tandem url "simulate?scroll=900,1100,-12,0&steps=90&interval=16"
+///     tandem url "simulate?dragover=tandem-title:label&at=600,700&to=900,700&steps=60&interval=16"
+///     tandem url "simulate?hover=900,400&hold=z"   (then tandem://debug says which cursor it set)
+///     tandem url "simulate?press=cmd&for=2"   (⌘ held for 2 s: the buttons show their keys)
 ///
 /// A drop hands a library payload (see `LibraryDrag`) to the drop target
 /// under the point, as if it had been dragged there from a library tab. A

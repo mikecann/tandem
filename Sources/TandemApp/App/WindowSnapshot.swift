@@ -112,7 +112,8 @@ enum WindowSnapshot {
 protocol CaptureAware: AnyObject {}
 
 /// Commands the app takes through `tandem://` URLs, for smoke tests and
-/// agents: `open -g "tandem://screenshot?out=/tmp/shot.png"`.
+/// agents: `tandem url "screenshot?out=/tmp/shot.png"`. A link only acts
+/// with this Mac's key (see `AppURLKey`), which `tandem url` adds.
 enum AppURLCommand: Equatable {
     /// Writes the front project window (or the welcome window) to a PNG.
     case screenshot(out: String)

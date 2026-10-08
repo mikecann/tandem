@@ -2,8 +2,9 @@
 
 set -euo pipefail
 
-# `tandem app [project.tandem]` opens the editor. Anything else goes to the
-# tandem command inside the app bundle (run `tandem help`).
+# `tandem app [project.tandem]` opens the editor, and `tandem url "..."`
+# sends it a tandem:// link. Anything else goes to the tandem command
+# inside the app bundle (run `tandem help`).
 SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 APP_DIR="${TANDEM_APP_DIR:-$HOME/Applications/Tandem.app}"
 CLI="$APP_DIR/Contents/MacOS/tandem"
@@ -20,6 +21,27 @@ case "${1:-}" in
     ;;
   restart-app)
     exec bash "$SCRIPT_DIR/restart.sh"
+    ;;
+  url)
+    # `tandem url "screenshot?out=/tmp/shot.png"` sends the app a
+    # tandem:// link with this Mac's key. Any web page can open a
+    # tandem:// link, so the app ignores one without the key. The app
+    # makes the key the first time it starts.
+    shift
+    if [[ $# -ne 1 || -z "$1" ]]; then
+      echo 'usage: tandem url "command?query"   e.g. tandem url "screenshot?out=/tmp/shot.png"' >&2
+      exit 2
+    fi
+    KEY_FILE="$HOME/Library/Application Support/Tandem/url-key"
+    if [[ ! -r "$KEY_FILE" ]]; then
+      echo "There's no key for tandem:// links yet. Start Tandem once (tandem app), then try again." >&2
+      exit 1
+    fi
+    LINK="$1"
+    [[ "$LINK" == *://* ]] || LINK="tandem://$LINK"
+    SEPARATOR="?"
+    [[ "$LINK" == *"?"* ]] && SEPARATOR="&"
+    exec open -g "$LINK${SEPARATOR}key=$(<"$KEY_FILE")"
     ;;
   setup)
     exec bash "$SCRIPT_DIR/setup_mac.sh"
