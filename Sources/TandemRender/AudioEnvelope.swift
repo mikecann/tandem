@@ -2,9 +2,9 @@ import Foundation
 import TandemCore
 
 /// Turns an audio clip's gain, fades, keyframes and transitions into volume
-/// breakpoints. AVAudioMix ramps volume linearly between breakpoints, so
-/// curved shapes (equal-power fades, dB keyframes) are sampled finely
-/// enough to sound smooth.
+/// breakpoints. The gain tap (`GainTap`) moves in straight lines between
+/// them, sample by sample, so curved shapes (equal-power fades, dB
+/// keyframes) are sampled finely enough to sound smooth.
 enum AudioEnvelope {
     struct Shape {
         var clip: Clip

@@ -66,8 +66,8 @@ final class LevelRenderTests: XCTestCase {
         let played = try await CompositionBuilder.build(viewer)
         let exported = try await CompositionBuilder.build(export)
         let times = stride(from: 0.0, through: 3.99, by: 0.05).map { t($0) }
-        let heard = volumes(played.audioMix, at: times)
-        XCTAssertEqual(heard, volumes(exported.audioMix, at: times))
+        let heard = volumes(played, at: times)
+        XCTAssertEqual(heard, volumes(exported, at: times))
         // +10 dB to reach -20 from about -30, then +1.5 dB; the plain clip -6 dB.
         let measured = try XCTUnwrap(assets.loudnesses[item.id]?.integratedLUFS)
         let expected = Float(pow(10, (-20 - measured + 1.5) / 20))
@@ -75,20 +75,12 @@ final class LevelRenderTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(heard[t(3)]), Float(pow(10, -6.0 / 20)), accuracy: 0.001)
     }
 
-    /// The loudest volume any input of the mix has at each time.
-    func volumes(_ mix: AVAudioMix, at times: [Time]) -> [Time: Float] {
+    /// The loudest gain any track of the mix plays at each time.
+    func volumes(_ built: BuiltComposition, at times: [Time]) -> [Time: Float] {
+        XCTAssertEqual(built.audioGains.count, built.audioMix.inputParameters.count)
         var result: [Time: Float] = [:]
         for time in times {
-            var loudest: Float = 0
-            for parameters in mix.inputParameters {
-                var start: Float = 0, end: Float = 0
-                var range = CMTimeRange()
-                guard parameters.getVolumeRamp(for: time.cmTime, startVolume: &start, endVolume: &end, timeRange: &range) else { continue }
-                let span = range.duration.seconds
-                let p = span > 0 ? Float((time.cmTime - range.start).seconds / span) : 0
-                loudest = max(loudest, start + (end - start) * p)
-            }
-            result[time] = loudest
+            result[time] = built.audioGains.map { $0.gain(at: time.seconds) }.max() ?? 0
         }
         return result
     }

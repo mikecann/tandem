@@ -23,6 +23,7 @@ Project ──RenderPlanner──▶ RenderPlan (pure)
 | `LayerMath.swift` | Placement maths shared with the viewer: fit, transform, orientation, crop, zoom to rectangle, format overrides |
 | `RenderPlan.swift` | Pure plan: composition track pools (A/B), instruction splits and layer stacks, audio segments |
 | `AudioEnvelope.swift` | Clip gain, fades, keyframes, crossfades and micro-fades as volume breakpoints |
+| `AudioGain.swift` | Each audio track's envelope applied sample by sample by an `MTAudioProcessingTap` |
 | `CompositionAssembler.swift` | Plan to AVFoundation: source loading, speed, freeze, hold, base track, audio mix |
 | `Compositor.swift` | `TandemInstruction`, `TandemCompositor` (4:2:0 video range) and `TandemRGBCompositor` (grabs) |
 | `FrameComposer.swift` | The per-layer pipeline, cutout, repair masks, text layers, still image cache |
@@ -297,10 +298,24 @@ export all show the same frame.
   `audio.gainDB` keyframes, fades (equal power), transitions, and voice
   isolation (original times 1 - v plus the isolated file times v) all
   multiply into one envelope per segment, sampled finely enough that
-  AVAudioMix's linear ramps sound smooth. AVAudioMix volumes above 1 work,
-  so boosts are real. Levels below has how normalise and gain combine.
+  straight lines between its points sound smooth. Levels below has how
+  normalise and gain combine.
+- The envelopes are applied to the samples, not by AVAudioMix volumes: an
+  `MTAudioProcessingTap` on each audio track of the mix (`AudioGain.swift`)
+  multiplies every sample by the gain at its timeline time, in the viewer,
+  review clips, export and the loudness passes. AVAudioMix's volume ramps
+  lag (see Gotchas): a clip held at +16 dB up to a cut carried into the
+  next clip for 0.35 s, and a keyframed ramp from +24 dB landed 0.4 s late.
+  The tap sits before AVFoundation's effects, so it sees each file's own
+  samples, before a speed change is time-stretched or the player's rate
+  applied, and it maps them to the timeline through the segment's speed.
 - Every hard cut gets a 3 ms fade each side. Joins that continue the same
   media seamlessly (same file, contiguous source, same speed and gain) don't.
+  (Until the tap, AVAudioMix's lag meant these fades never happened.)
+- A composition audio track only plays sound in one format (codec, rate,
+  channels, sample layout), so a camera's AAC and a sound effect's WAV go
+  on different tracks (`RenderPlanner.assignTracks`). A tapped track that
+  changes format part way stalls AVFoundation's reader for good.
 - Speed changes keep their pitch (spectral time-pitch).
 - `pitchShift` (semitones, keyframable) renders the clip's sound once
   through Apple's time-pitch unit, offline, into a cached copy in
@@ -618,6 +633,40 @@ The spike's plain composite managed about 3.5x; the encoder is the limit.
   than edits.
 - AVAssetWriter interleaves inputs: pushing all video before any audio
   stalls. Pull each input with `requestMediaDataWhenReady`.
+- AVAudioMix volume ramps lag. Measured on a constant source in October
+  2026 (macOS 26), a track's volume moves at most 1.0 (linear) every
+  25 ms, however short the ramp: 1 to 4 takes 75 ms, 1 to 30 takes 724 ms.
+  Reading or playing from part way starts each track at about the volume
+  it had 0.3 s earlier and moves it from there at the same pace. So
+  Tandem never ramps volume; `GainTap` applies the gain to the samples.
+- `MTAudioProcessingTap` quirks, measured the same way. A pre-effects
+  tap's time stamps are exact to the sample in `AVAssetReaderAudioMixOutput`
+  and in AVPlayer at rates 0.5, 1 and 2; within a call, a segment at speed
+  s advances the timeline 1 / (48000 s) a sample, and the call's
+  `duration` is wrong for speed changes. A post-effects tap runs 4096
+  samples (85 ms) behind in the player and drifts at other rates. AVPlayer's
+  first call has no time and is silent. Neither kind sees AVAudioMix
+  volume, which comes after both. A tapped track whose files change
+  format (AAC to PCM, mono to stereo, 16-bit to float) stalls the reader
+  or reads the wrong number of samples. And taps cost the player at the
+  start: after a seek or a rebuild, play takes about 0.5 s to start
+  instead of 0.15 s, and tracks after the first join about 0.1 s late.
+  Resuming from a pause is as quick as without. Readers with taps run
+  about 1.6 s slower per 10 minutes of three-track audio (0.5 s of it
+  CPU).
+- Nothing cheap shortens that start, measured in October 2026. A tapped
+  track's audio goes through the taps in real time, about 0.4 s ahead
+  of what you hear, and only once playing starts, so AVPlayer either
+  waits for it or loses it. `preroll(atRate:)` doesn't run the taps (it
+  finishes in a millisecond); `playImmediately(atRate:)`,
+  `automaticallyWaitsToMinimizeStalling` and varispeed change nothing.
+  Scheduling the start ahead while paused (`setRate(_:time:atHostTime:)`
+  with a far-off host time, then now on play) starts the clock in
+  0.17 s, but the first 0.15 to 0.6 s of every track is silent, AVPlayer
+  reports itself playing meanwhile, and it costs about 0.8% of a core.
+  A real fix needs the mix rendered ahead of time: an
+  `AVSampleBufferAudioRenderer` fed from the tapped reader, or each
+  clip's sound rendered with its gain.
 - Calling `cancelReading()` on an AVAssetReader while another thread is in
   `copyNextSampleBuffer()`, or reading an output after its reader has been
   released, crashes. Export cancel is a flag: the encoder feed and muxers
