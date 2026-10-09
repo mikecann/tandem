@@ -43,7 +43,15 @@ rounds up.
 4. **Check.** `tandem check --changed` before you hand back. It renders
    what you changed and finds black frames, flickers, green screen that
    didn't key and white blocks. Fix every problem it reports. Its notes
-   (soft zooms) are judgement calls.
+   are judgement calls, but go through each one:
+   - soft zooms;
+   - dead air: 0.8 s or more of a still picture with nothing said and no
+     sound effect or music swell. Cut it, or keep it only if the pause
+     earns it (see "Longer gaps where they earn it");
+   - page changes with no transition: the screen recording turns to a new
+     page and nothing covers it. Push it if it's a page in an explainer or
+     slides (see "Page changes in an explainer or slides"); a demo button
+     that redraws the page can show up too.
 5. **Hand back.** Open the project in the app for Mike with
    `open "<video folder>/<name>.tandem"` (skip it if `tandem status` says
    the app already has it open), rather than asking him to open it. Then
@@ -83,7 +91,9 @@ and the music (Build Your Own Convex retro).
   Dock popping up, him looking blank before the next section. He flagged
   about 15 of those 1 to 3 s holds as "awkward silence" in Build Your Own
   Convex. Look at the frames: a mean frame difference can't tell an
-  animation from a click or a page flick. One exception: a celebration line
+  animation from a click or a page flick. `tandem check` notes the still,
+  silent ones as dead air: Mike only caught one at 3:56 on his final watch,
+  and it cost a 13.7 GB re-export. One exception: a celebration line
   ("Congratulations, party time") cuts straight on, even over confetti; he
   doesn't want to sit there silently smiling.
 - **No clips under 2 s,** where all it takes is putting back a pause of a
@@ -173,9 +183,10 @@ From his review comments on the Daytona and Build Your Own Convex videos
   visually. Check the page flip isn't within half the push's length of the
   cut, or a borrowed frame shows the wrong page. For a flip inside a clip,
   freeze 0.35 s either side of it (`freezeFrame` clips) and push between
-  them. Find every page change from the screen recording itself (diff its
-  frames or run scene detection), not from your cue list: one built from
-  cues missed 10 on Build Your Own Convex, and Mike pushed them by hand.
+  them. Find every page change from the screen recording itself, not from
+  your cue list: one built from cues missed 10 on Build Your Own Convex,
+  and Mike pushed them by hand. `tandem check` lists the ones with no
+  transition as page change notes.
 - **Picture-in-picture only when he's driving the screen.** When Mike clicks
   and moves the mouse on a recording, he sits in the corner (pipRight) over
   it. When he's reading a script to camera, B-roll goes full screen on the
