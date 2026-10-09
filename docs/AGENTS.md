@@ -50,7 +50,7 @@ tandem short [--apply]             lay out a 9:16 short from the same edit
 tandem cards [--insert] [--no-sounds] [--apply]   a section card at every section marker
 tandem apply <batch.json | - | '<json>'>   [--dry-run] [--expect N] [--label L] [--key K]
 tandem undo [--expect N]    tandem redo    tandem history    tandem validate
-tandem check [--changed | --from T --to T] [--quick]   what Mike would catch: black, flickers, keys, dead air
+tandem check [--changed | --from T --to T] [--quick]   what Mike would catch: black, flickers, keys, dead air, bare page changes
 tandem frame <time> [-o out.png]   tandem clip <start> <end> [-o out.mp4]
 tandem export [--preset <name>] [-o out.mp4] [--from T] [--to T] [--format <id>]
 tandem loudness    tandem effects    tandem schema    tandem watch [--once]
@@ -413,8 +413,8 @@ clips in the range).
   plays in the part rendered are shown.
 - `check` looks for what Mike would otherwise catch in review, so his
   rounds go on the edit itself. It renders every frame of the stretch small
-  (384 wide, from proxies where they're ready) and reports, with the clips
-  on screen there:
+  (384 wide, from proxies where they're ready), and the screen recordings
+  again on their own beside it, and reports, with the clips on screen there:
   - black frames, and gaps with nothing on any video track;
   - flickers: one to three frames unlike the frames either side, like a
     stale still or a frame of the wrong shot;
@@ -436,6 +436,16 @@ clips in the range).
       between sentences), or keep it only if the pause earns it: a point
       landing, the end of a paragraph. Until the take has a transcript, the
       check says so and doesn't judge its pauses.
+    - page changes with no transition: the screen recording, judged on its
+      own (as recorded, not zoomed, without the camera over it), changes a
+      large share of its picture at once and then holds, where the viewer
+      sees it (not under full-frame B-roll or the camera full frame) and no
+      transition covers it. Typing, scrolling, a moving cursor and a demo's
+      animations don't count. If it's a new page in an explainer or slides,
+      push it: at a cut, a 0.7 s push on the Screen track with the light
+      swoosh (`addTransition`); inside a clip, freeze 0.35 s either side of
+      the flip (`freezeFrame` clips) and push between the freezes. A button
+      that changes most of a page can show up too; leave those.
 
   Run `tandem check --changed` before handing an edit back: it checks only
   what agents changed that's waiting for Mike's review, half a second either
@@ -447,13 +457,15 @@ clips in the range).
     05:56.900-05:57.167  White block: a flat white patch over 13% of the frame comes and goes in 8 frames (a key or matte that failed?).  On: clip_w2fkvxg9 m-outro1
   ```
 
-  In Build Your Own Convex, two pauses on a chapter's title page:
+  In Build Your Own Convex, two pauses on a chapter's title page, then the
+  explainer turning to the chapter's first page with no push:
 
   ```
   Checked 13:30.000-13:50.000 (600 frames) in 2.1 s: no problems.
   Notes (not problems):
     13:34.380-13:35.180  Dead air: 0.80 s with nothing said, no sound effect or music swell, and a still picture (after "is called the committer."). Cut it, or keep it if the pause earns it.  On: clip_nyc6dj73 2026-10-02_110856-camera, clip_5z5qpmkz 2026-10-02_110856-screen
     13:44.650-13:45.467  Dead air: 0.82 s with nothing said, no sound effect or music swell, and a still picture (after "one at a time."). Cut it, or keep it if the pause earns it.  On: clip_p8v54ivp 2026-10-02_110856-camera, clip_cmqvrmad 2026-10-02_110856-screen
+    13:45.467-13:45.633  Page change inside a clip, with no transition: 18% of the screen recording changes at once, then holds. If it's a new page, push it: freeze 0.35 s either side and push between the freezes.  On: clip_huxupr6f 2026-10-02_110856-screen
   ```
 - Titles in a font this Mac doesn't have are drawn in SF Pro, and never
   quietly: `frame`, `clip`, `export`, `captions`, `status` and `validate`

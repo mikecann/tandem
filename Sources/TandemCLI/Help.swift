@@ -32,10 +32,10 @@ enum Help {
         CommandHelp(name: "redo", usage: "tandem redo [--expect <revision>]", summary: "Redo the last undone edit.", options: ["expect"]),
         CommandHelp(name: "history", usage: "tandem history [--limit <n>]", summary: "What undo would undo, newest first, and recent changes.", options: ["limit"]),
         CommandHelp(name: "validate", usage: "tandem validate", summary: "Check the project for problems (exit code 1 if it has errors).", options: []),
-        CommandHelp(name: "check", usage: "tandem check [--changed | --from <time> --to <time>] [--quick] [--width <pixels>]", summary: "Look for what Mike would catch in review: black frames, flickers, green screens that didn't key, white blocks and gaps (exit code 1 if it finds any), and notes on soft zooms and dead air.", options: ["from", "to", "changed", "quick", "width"],
+        CommandHelp(name: "check", usage: "tandem check [--changed | --from <time> --to <time>] [--quick] [--width <pixels>]", summary: "Look for what Mike would catch in review: black frames, flickers, green screens that didn't key, white blocks and gaps (exit code 1 if it finds any), and notes on soft zooms, dead air and page changes with no transition.", options: ["from", "to", "changed", "quick", "width"],
                     details: """
-                    Renders every frame of the stretch small (384 wide, from proxies where they're ready) and measures it.
-                    Notes don't fail it. Dead air is 0.8 s or more of a still picture with nothing said and no sound effect or music swell: cut it, or keep it if the pause earns it.
+                    Renders every frame of the stretch small (384 wide, from proxies where they're ready) and measures it, and the screen recordings again on their own.
+                    Notes don't fail it. Dead air is 0.8 s or more of a still picture with nothing said and no sound effect or music swell: cut it, or keep it if the pause earns it. A page change is the screen recording turning to a new page at once with no transition over it: push it if it's a page in an explainer or slides.
                     --changed checks only what agents changed that's waiting for Mike's review, half a second either side: run it before handing back.
                     --quick skips rendering: just the gaps and pictures zoomed past their own pixels.
                     """),

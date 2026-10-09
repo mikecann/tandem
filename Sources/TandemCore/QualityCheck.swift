@@ -24,11 +24,14 @@ public struct CheckProblem: Codable, Equatable, Sendable {
         /// A still picture with nothing to hear: no speech, sound effect or
         /// music swell.
         case deadAir
+        /// The screen recording turns to a new page with no transition.
+        case pageChange
 
         /// Worth knowing rather than wrong: Mike signed off softer zooms on
-        /// cartoon B-roll than on screen recordings, and a pause can let a
-        /// point land. So these don't fail a check.
-        public var isNote: Bool { self == .soft || self == .deadAir }
+        /// cartoon B-roll than on screen recordings, a pause can let a point
+        /// land, and not every big change on screen is a page that should
+        /// push. So these don't fail a check.
+        public var isNote: Bool { self == .soft || self == .deadAir || self == .pageChange }
     }
 
     public var kind: Kind
@@ -92,8 +95,13 @@ public struct FrameStats: Equatable, Sendable {
     public var thumbnail: [UInt8]
     /// Tiles across the thumbnail; it's `thumbnail.count / columns` tall.
     public var columns: Int
+    /// The mean luma of every line of the small render, top to bottom, in
+    /// `QualityCheck.scanlineBands` bands side by side across the frame
+    /// (band by band), when the scan was asked for them. A scroll moves
+    /// these up or down; a new page doesn't.
+    public var scanlines: [UInt8]
 
-    public init(time: Time, luma: Double, brightestTile: Double, flatGreen: Double, flatWhite: Double, thumbnail: [UInt8], columns: Int? = nil) {
+    public init(time: Time, luma: Double, brightestTile: Double, flatGreen: Double, flatWhite: Double, thumbnail: [UInt8], columns: Int? = nil, scanlines: [UInt8] = []) {
         self.time = time
         self.luma = luma
         self.brightestTile = brightestTile
@@ -101,9 +109,10 @@ public struct FrameStats: Equatable, Sendable {
         self.flatWhite = flatWhite
         self.thumbnail = thumbnail
         self.columns = max(1, columns ?? thumbnail.count)
+        self.scanlines = scanlines
     }
 
-    public init(time: Time, tiles: [Tile], columns: Int? = nil) {
+    public init(time: Time, tiles: [Tile], columns: Int? = nil, scanlines: [UInt8] = []) {
         let count = Double(max(tiles.count, 1))
         self.init(
             time: time,
@@ -112,7 +121,8 @@ public struct FrameStats: Equatable, Sendable {
             flatGreen: Double(tiles.filter(\.isFlatGreen).count) / count,
             flatWhite: Double(tiles.filter(\.isFlatWhite).count) / count,
             thumbnail: tiles.map { UInt8(clamping: Int(($0.luma * 255).rounded())) },
-            columns: columns
+            columns: columns,
+            scanlines: scanlines
         )
     }
 
@@ -152,8 +162,10 @@ public enum QualityCheck {
     static let greenShare = 0.01
 
     /// Every problem and note in `ranges`, by time. Without `frames` only
-    /// the model checks run, and dead air needs `speech` as well.
-    public static func problems(in project: Project, ranges: [TimeRange], frames: [FrameStats]?, speech: Speech? = nil) -> [CheckProblem] {
+    /// the model checks run. Dead air needs `speech` as well, and page
+    /// changes need `screenFrames`, the screen recordings scanned on their
+    /// own (`screenOnly`).
+    public static func problems(in project: Project, ranges: [TimeRange], frames: [FrameStats]?, screenFrames: [FrameStats]? = nil, speech: Speech? = nil) -> [CheckProblem] {
         let gapProblems = gaps(in: project, ranges: ranges)
         var found = gapProblems + softPictures(in: project, ranges: ranges)
         if let frames {
@@ -161,6 +173,9 @@ public enum QualityCheck {
             if let speech {
                 found += deadAir(in: project, ranges: ranges, frames: frames, speech: speech)
             }
+        }
+        if let screenFrames {
+            found += pageChanges(in: project, ranges: ranges, screenFrames: screenFrames)
         }
         return found.sorted { ($0.start, $0.kind.rawValue) < ($1.start, $1.kind.rawValue) }
     }
@@ -319,6 +334,39 @@ public enum QualityCheck {
             return problem(.whiteBlock, frames, run, project: project, frameDuration: frameDuration,
                            message: "White block: a flat white patch over \(percent(share)) of the frame comes and goes in \(run.count) frame\(run.count == 1 ? "" : "s") (a key or matte that failed?).")
         }
+    }
+
+    // MARK: - Screen recordings
+
+    /// The project as its screen recordings alone: each clip of screen
+    /// media cut as the timeline cuts it, drawn plain (no zoom, crop,
+    /// effects or keyframes), with nothing over it, no transitions and no
+    /// sound. Page changes are judged from this rather than the composite,
+    /// where the camera sits over the screen. Nil when no screen media
+    /// plays.
+    public static func screenOnly(_ project: Project) -> Project? {
+        let screens = Set(project.media.filter { $0.role == .screen && $0.hasVideo }.map(\.id))
+        var copy = project
+        var any = false
+        for index in copy.videoTracks.indices {
+            let track = copy.videoTracks[index]
+            copy.videoTracks[index].transitions = []
+            copy.videoTracks[index].clips = track.hidden ? [] : track.clips.compactMap { clip in
+                guard clip.enabled, let id = clip.mediaID, screens.contains(id) else { return nil }
+                var plain = clip
+                plain.video = nil
+                plain.keyframes = [:]
+                any = true
+                return plain
+            }
+        }
+        copy.audioTracks = copy.audioTracks.map { track in
+            var silent = track
+            silent.clips = []
+            silent.transitions = []
+            return silent
+        }
+        return any ? copy : nil
     }
 
     // MARK: - Helpers
