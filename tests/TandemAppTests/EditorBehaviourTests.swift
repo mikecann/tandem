@@ -1,10 +1,11 @@
 import AppKit
+import AVFoundation
 import IOKit.pwr_mgt
 import XCTest
 @testable import TandemAPI
 @testable import TandemApp
 @testable import TandemCore
-import TandemRender
+@testable import TandemRender
 
 /// Things Mike does in the editor, done the way he does them (keys, clicks,
 /// drags and drops in a real window) and checked by what they change.
@@ -604,6 +605,259 @@ final class EditorBehaviourTests: XCTestCase {
               let byProcess = assertions?.takeRetainedValue() as? [NSNumber: [[String: Any]]] else { return false }
         let mine = byProcess[NSNumber(value: getpid())] ?? []
         return mine.contains { ($0[kIOPMAssertionTypeKey] as? String) == type }
+    }
+
+    // MARK: - Playing with sound
+
+    /// Swaps the fixture for an editor whose project has real picture and
+    /// sound (`SoundTakes`), and waits for its first composition. These
+    /// scenarios aren't async: an async test runs as a job on the main
+    /// queue, and spinning the run loop from inside one runs nothing else
+    /// queued there, the viewer's builds included.
+    private func soundEditor(seconds: Double = 30) throws -> EditorHarness {
+        editor.close()
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("tandem-behaviour-\(UUID().uuidString)", isDirectory: true)
+        final class Box: @unchecked Sendable { var result: Result<SoundTakes, Error>? }
+        let box = Box()
+        let written = DispatchSemaphore(value: 0)
+        Task.detached {
+            do { box.result = .success(try await SoundTakes.write(in: folder, seconds: seconds)) } catch { box.result = .failure(error) }
+            written.signal()
+        }
+        written.wait()
+        let takes = try XCTUnwrap(box.result).get()
+        editor = try EditorHarness(sound: takes)
+        editor.wait(for: "the viewer's first composition", timeout: 10) { editor.model.playback.hasComposition }
+        return editor
+    }
+
+    /// What the viewer's renderer is given, recorded as it goes.
+    private final class Heard: @unchecked Sendable {
+        private let lock = NSLock()
+        private var buffers: [(frame: Int, samples: [Float])] = []
+
+        func add(_ buffer: CMSampleBuffer) {
+            let frame = ViewerMix.frame(of: buffer)
+            var samples: [Float] = []
+            if let block = CMSampleBufferGetDataBuffer(buffer) {
+                let length = CMBlockBufferGetDataLength(block)
+                samples = [Float](repeating: 0, count: length / 4)
+                samples.withUnsafeMutableBytes { _ = CMBlockBufferCopyDataBytes(block, atOffset: 0, dataLength: length, destination: $0.baseAddress!) }
+            }
+            lock.withLock { buffers.append((frame, samples)) }
+        }
+
+        /// The left channel of `frames` frames queued from `frame`, from
+        /// the latest run of buffers that starts there.
+        func left(from frame: Int, frames: Int) -> ArraySlice<Float>? {
+            let all = lock.withLock { buffers }
+            guard let first = all.lastIndex(where: { $0.frame == frame }) else { return nil }
+            var left: [Float] = []
+            var next = frame
+            for buffer in all[first...] where left.count < frames {
+                guard buffer.frame == next else { break }
+                left += stride(from: 0, to: buffer.samples.count, by: 2).map { buffer.samples[$0] }
+                next += buffer.samples.count / 2
+            }
+            return left.count >= frames ? left[0..<frames] : nil
+        }
+
+        /// The left channel of the latest buffer starting after `frame`.
+        func latest(after frame: Int) -> [Float]? {
+            let all = lock.withLock { buffers }
+            return all.last { $0.frame > frame }.map { buffer in stride(from: 0, to: buffer.samples.count, by: 2).map { buffer.samples[$0] } }
+        }
+    }
+
+    private func listen(_ editor: EditorHarness) -> Heard {
+        let heard = Heard()
+        editor.model.playback.audio.observeEnqueues(heard.add)
+        addTeardownBlock { @MainActor in editor.model.playback.audio.observeEnqueues(nil) }
+        return heard
+    }
+
+    /// Each take's level in dBFS as placed: its -20 dBFS tone plus the
+    /// clip's gain (music and sound effects go in lower than the voice).
+    private func levels(_ editor: EditorHarness) -> [String: Double] {
+        var levels: [String: Double] = [:]
+        for clip in editor.project.audioTracks.flatMap(\.clips) {
+            if let id = clip.mediaID { levels[id] = -20 + (clip.audio?.gainDB ?? 0) }
+        }
+        return levels
+    }
+
+    /// Asserts each take's tone is in `samples` (whole cycles of each) at
+    /// its level.
+    private func assertEveryTrack(_ samples: ArraySlice<Float>, _ levels: [String: Double], _ message: String, file: StaticString = #filePath, line: UInt = #line) {
+        for (id, hz) in SoundTakes.toneHz {
+            let heard = 20 * log10(max(SoundTakes.amplitude(samples, hz: hz), 1e-12))
+            XCTAssertEqual(heard, levels[id] ?? 0, accuracy: 0.5, "\(id) (\(Int(hz)) Hz), \(message)", file: file, line: line)
+        }
+    }
+
+    private func assertInStep(_ playback: PlaybackController, _ message: String, file: StaticString = #filePath, line: UInt = #line) {
+        guard let times = playback.pictureAndSoundTimes() else { return XCTFail("nothing on screen", file: file, line: line) }
+        XCTAssertEqual(times.picture.seconds, times.sound.seconds, accuracy: 0.002, "picture and sound \(message)", file: file, line: line)
+    }
+
+    /// After a seek (a click on the ruler) and a pause to look, play starts
+    /// as quickly as it did before the gain taps: the playhead and the sound
+    /// move within 0.2 s of the key (with the taps the playhead took about
+    /// 0.5 s and tracks after the first came in 0.1 s late), together, and
+    /// every track's sound is there from the first sample.
+    func testPlayStartsQuicklyAfterASeekWithEveryTrackSounding() throws {
+        try skipTimingSensitiveTestOnCI()
+        let editor = try soundEditor()
+        let playback = editor.model.playback
+        let heard = listen(editor)
+        let levels = levels(editor)
+        XCTAssertTrue(playback.audio.muted, "tests make no sound")
+        var starts: [TimeInterval] = []
+        for at in [4.0, 11.5, 17.25] {
+            editor.click(editor.rulerPoint(at: at))
+            editor.settle(0.6)
+            let from = playback.time
+            XCTAssertEqual(from.seconds, at, accuracy: 0.5)
+            XCTAssertTrue(playback.audio.isReady(at: from, reverse: false), "the sound from the playhead is queued while it rests")
+            let first = try XCTUnwrap(heard.left(from: ViewerAudio.frame(of: from), frames: 480), "queued from the playhead, to the sample")
+            assertEveryTrack(first, levels, "in the first 10 ms from \(from.seconds) s")
+
+            let pressed = ProcessInfo.processInfo.systemUptime
+            editor.press("space", settling: 0)
+            // Moving, not just a time reported as play begins; each from
+            // the key.
+            editor.wait(for: "the playhead to move") { playback.time > from + Time(seconds: 0.005) }
+            let picture = ProcessInfo.processInfo.systemUptime - pressed
+            editor.wait(for: "the sound to move") { playback.audio.time > from + Time(seconds: 0.005) }
+            let sound = ProcessInfo.processInfo.systemUptime - pressed
+            starts.append(max(picture, sound))
+            XCTAssertTrue(playback.audio.isPlaying)
+            editor.settle(0.3)
+            assertInStep(playback, "after starting at \(from.seconds) s")
+            editor.press("space")
+            XCTAssertFalse(playback.isPlaying)
+            XCTAssertFalse(playback.audio.isPlaying)
+        }
+        XCTAssertLessThan(starts.max() ?? .infinity, 0.2, "seconds from space to the picture and sound moving: \(starts)")
+    }
+
+    /// Play, pause, play again, a click on a clip that takes the playhead
+    /// to it while playing, and an edit landing while playing: the picture
+    /// and the sound stay together through all of it, a pause queues the
+    /// sound from where it stopped, and after the edit the sound is the
+    /// new mix.
+    func testPlayPauseSeekAndAnEditWhilePlayingKeepPictureAndSoundTogether() throws {
+        try skipTimingSensitiveTestOnCI()
+        let editor = try soundEditor()
+        let playback = editor.model.playback
+        // Everything cut at 15 s, so a click on a piece after it is a seek.
+        let cuts = DrawTiming.samples("new cut on screen").count
+        editor.model.apply(EditBatch(label: "Cut", commands: [.blade(at: t(15), clipIDs: editor.project.allTracks.flatMap(\.clips).map(\.id))]))
+        editor.wait(for: "the cut on screen", timeout: 5) { DrawTiming.samples("new cut on screen").count > cuts }
+        editor.wait(for: "its sound queued", timeout: 5) { playback.audio.readyAt != nil }
+        let heard = listen(editor)
+        var levels = levels(editor)
+        editor.click(editor.rulerPoint(at: 3))
+        editor.settle(0.4)
+        editor.press("space")
+        editor.settle(0.4)
+        XCTAssertTrue(playback.isPlaying)
+        assertInStep(playback, "playing")
+
+        // Pause: the picture stops and the sound is queued from there.
+        editor.press("space", settling: 0)
+        let stopped = playback.time
+        editor.wait(for: "the sound queued from where it stopped") { playback.audio.isReady(at: stopped, reverse: false) }
+        XCTAssertFalse(playback.audio.isPlaying)
+        editor.settle(0.3)
+        XCTAssertEqual(playback.time, stopped, "the playhead stays put")
+        assertEveryTrack(try XCTUnwrap(heard.left(from: ViewerAudio.frame(of: stopped), frames: 480)), levels, "after the pause")
+
+        // Play on: quick, from there, together.
+        editor.press("space", settling: 0)
+        let resumed = editor.wait(for: "playing on") { playback.time > stopped + Time(seconds: 0.005) }
+        XCTAssertLessThan(resumed, 0.2)
+        editor.settle(0.3)
+        assertInStep(playback, "after playing on")
+
+        // A click on the take's second piece while playing: the playhead
+        // goes to its start and plays on from there, together.
+        let piece = editor.clip("Camera", 1)
+        XCTAssertEqual(piece.start, t(15))
+        editor.click(editor.point(of: piece.id, at: 20), count: 1)
+        XCTAssertTrue(playback.isPlaying, "still playing")
+        editor.settle(0.4)
+        XCTAssertEqual(playback.time.seconds, 15.3, accuracy: 0.3, "playing on from the clip's start")
+        assertInStep(playback, "after the click")
+        assertEveryTrack(try XCTUnwrap(heard.left(from: ViewerAudio.frame(of: t(15)), frames: 480), "the sound from the clip's start"), levels, "from the clip's start")
+
+        // An edit lands while playing: the music playing now, up 20 dB.
+        let before = playback.time
+        let music = try XCTUnwrap(editor.project.track(named: "Music")?.clips.first { $0.start <= before && before < $0.end })
+        editor.model.apply(InspectorEdits.audio([music.id], ["gainDB": .number((music.audio?.gainDB ?? 0) + 20)], label: "Gain"))
+        levels["med_tune"]! += 20
+        editor.settle(1.2)
+        XCTAssertTrue(playback.isPlaying, "still playing after the edit")
+        XCTAssertGreaterThan(playback.time, before + Time(seconds: 0.8), "the playhead kept going")
+        assertInStep(playback, "after the edit")
+        let latest = try XCTUnwrap(heard.latest(after: ViewerAudio.frame(of: before)), "sound queued after the edit")
+        assertEveryTrack(latest[0..<480], levels, "the new mix after the edit")
+        editor.press("space")
+        XCTAssertFalse(playback.isPlaying)
+    }
+
+    /// J K L: L doubles the speed with the sound keeping its pitch and
+    /// staying with the picture; J plays backwards, the sound reversed, and
+    /// stops at the start; K stops. Scrubbing the ruler makes no sound.
+    func testShuttleSpeedsAndReverseKeepTheSoundWithThePicture() throws {
+        try skipTimingSensitiveTestOnCI()
+        let editor = try soundEditor()
+        let playback = editor.model.playback
+        editor.click(editor.rulerPoint(at: 2))
+        editor.settle(0.4)
+        var restarts = 0
+        for speed in [1.0, 2, 4, 8] {
+            editor.press("l")
+            XCTAssertEqual(playback.rate, speed)
+            editor.settle(0.35)
+            XCTAssertTrue(playback.audio.isPlaying, "sound at \(speed)x")
+            XCTAssertEqual(CMTimebaseGetRate(playback.audio.synchronizer.timebase), speed, accuracy: 0.001)
+            assertInStep(playback, "at \(speed)x")
+            // Faster changes speed on the fly; it doesn't stop and start.
+            if speed == 1 { restarts = DrawTiming.samples("playback starts").count }
+        }
+        XCTAssertEqual(DrawTiming.samples("playback starts").count, restarts, "a change of speed started playback again")
+        editor.press("k")
+        XCTAssertFalse(playback.isPlaying)
+        XCTAssertFalse(playback.audio.isPlaying)
+
+        let from = playback.time
+        editor.press("j")
+        XCTAssertEqual(playback.rate, -1)
+        editor.settle(0.4)
+        XCTAssertLessThan(playback.time, from, "backwards")
+        XCTAssertTrue(playback.audio.isPlaying, "with sound")
+        assertInStep(playback, "backwards")
+        editor.press("j")
+        editor.settle(0.35)
+        XCTAssertEqual(CMTimebaseGetRate(playback.audio.synchronizer.timebase), 2, accuracy: 0.001)
+        assertInStep(playback, "backwards at 2x")
+        editor.press("k")
+
+        // Backwards into the start: it stops there.
+        editor.click(editor.rulerPoint(at: 0.2))
+        editor.settle(0.3)
+        editor.press("j")
+        editor.wait(for: "it stops at the start", timeout: 3) { !playback.isPlaying }
+        XCTAssertEqual(playback.time, .zero)
+        XCTAssertFalse(playback.audio.isPlaying)
+
+        // Scrubbing: dragging along the ruler moves the playhead silently,
+        // and the sound is queued where it comes to rest.
+        editor.drag(editor.rulerPoint(at: 5), to: editor.rulerPoint(at: 9))
+        XCTAssertFalse(playback.audio.isPlaying)
+        editor.settle(0.4)
+        XCTAssertTrue(playback.audio.isReady(at: playback.time, reverse: false))
     }
 
     // MARK: - Exporting

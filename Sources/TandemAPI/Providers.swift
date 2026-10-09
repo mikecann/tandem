@@ -83,15 +83,15 @@ public protocol RenderBackend: Sendable {
         progress: @escaping @Sendable (Double) -> Void
     ) async throws -> RenderedExport
     /// Every frame of `ranges`, rendered `width` wide and measured, for
-    /// `tandem check`.
-    func scan(context: RenderContext, ranges: [TimeRange], width: Int) async throws -> [FrameStats]
+    /// `tandem check`; with `scanlines`, each frame's lines too.
+    func scan(context: RenderContext, ranges: [TimeRange], width: Int, scanlines: Bool) async throws -> [FrameStats]
 }
 
 public struct DefaultRenderBackend: RenderBackend {
     public init() {}
 
-    public func scan(context: RenderContext, ranges: [TimeRange], width: Int) async throws -> [FrameStats] {
-        try await FrameScanner.scan(context, ranges: ranges, width: width)
+    public func scan(context: RenderContext, ranges: [TimeRange], width: Int, scanlines: Bool) async throws -> [FrameStats] {
+        try await FrameScanner.scan(context, ranges: ranges, width: width, scanlines: scanlines)
     }
 
     public func frame(context: RenderContext, at time: Time, maxSize: CGSize?) async throws -> RenderedFrame {
