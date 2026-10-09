@@ -286,6 +286,14 @@ talk (October 2026), for the team to see in Slack first. The project,
 scripts and the speaker tracker are in
 `~/dev/convex/convex-videos/abstract-clips/` (`.work/`).
 
+- **Music goes in before his big watch, on a personal video too.** Let's
+  Build It went to export with none, and he noticed afterwards: "we
+  haven't got any music in the background". Three ElevenLabs beds by
+  section (playful for the intro and demo, warm and curious in the middle,
+  heartfelt for the sign-off), all ukulele, acoustic guitar, soft piano,
+  brushed drums and warm bass at 95 to 100 BPM, with no bells, glockenspiel
+  or marimba under the game's sounds, at -45 LUFS. He passed them first
+  time: "musics good".
 - **Full-bleed, not framed.** Mike compared a framed layout (hook title
   above a square window of the talk over a blurred copy, captions below)
   with a 9:16 crop on the speaker, and picked full-bleed: "the full bleed is
