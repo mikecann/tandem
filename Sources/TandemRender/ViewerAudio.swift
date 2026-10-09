@@ -354,11 +354,11 @@ public final class ViewerAudio: @unchecked Sendable {
 
     private func install(_ new: Feed) {
         let (old, renderer): (Feed?, AVSampleBufferAudioRenderer) = lock.withLock {
-            renderer.stopRequestingMediaData()
-            renderer.flush()
+            self.renderer.stopRequestingMediaData()
+            self.renderer.flush()
             let old = feed
             feed = new
-            return (old, renderer)
+            return (old, self.renderer)
         }
         old?.retire()
         renderer.requestMediaDataWhenReady(on: new.queue) { [weak self] in
