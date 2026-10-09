@@ -109,7 +109,8 @@ struct TrackGain: Equatable, Sendable {
 
 /// Applies a composition track's gain to its samples as AVFoundation reads
 /// them, in an MTAudioProcessingTap on the track's audio mix input. Export,
-/// review clips, the loudness passes and the viewer's player all use it.
+/// review clips, the loudness passes and the viewer's sound (`ViewerAudio`)
+/// all use it.
 ///
 /// AVAudioMix's own volume ramps can't do this. However a ramp is set,
 /// AVFoundation moves a track's volume by at most 1.0 (linear) every
@@ -133,11 +134,13 @@ struct TrackGain: Equatable, Sendable {
 /// segment at speed s moves the timeline on by 1 / (48000 s).
 ///
 /// In AVPlayer taps cost something at the start of playback: after a seek
-/// or a rebuild, play takes about 0.5 s to get going instead of 0.15 s,
-/// and audio tracks after the first join about 0.1 s late, missing that
-/// much. Resuming from a pause is as quick as ever. Nothing else gets the
-/// gain right in the player: its volume ramps lag as they do in export.
-/// Prerolling or scheduling the start doesn't help (RENDER.md, Gotchas).
+/// or a rebuild, play took about 0.5 s to get going instead of 0.15 s, and
+/// audio tracks after the first joined about 0.1 s late, missing that
+/// much, because a tapped track's sound runs through the taps in real time
+/// once playing starts. Prerolling or scheduling the start didn't help
+/// (RENDER.md, Gotchas). So the viewer doesn't play the mix in AVPlayer:
+/// `ViewerAudio` reads it ahead of time through these taps, the way export
+/// does.
 ///
 /// A tapped track must not change audio format part way (see
 /// `RenderPlanner.assignTracks`).

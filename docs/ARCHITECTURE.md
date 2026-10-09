@@ -31,7 +31,7 @@ change the code and the tests with it.
 | --- | --- | --- |
 | `TandemCore` | Model, time, commands, editing, validation, undo, journal, effect registry | Foundation |
 | `TandemMedia` | Folder scanning, probing, take pairing, analysis jobs and cache | Core, AVFoundation, Vision, Speech, SoundAnalysis, VideoToolbox, Accelerate |
-| `TandemRender` | Composition building, compositor, text, transitions, audio mix, frame grabs, export | Core, Media, AVFoundation, Core Image, Metal |
+| `TandemRender` | Composition building, compositor, text, transitions, audio mix, the viewer's sound, frame grabs, export | Core, Media, AVFoundation, Core Image, Metal, Core Audio (keeping the output awake) |
 | `TandemAPI` | `ProjectSession`, the service (status, timeline, apply, frame, clip, export...), local HTTP server, MCP tool definitions | Core, Media, Render |
 | `TandemApp` | The macOS app (SwiftUI shell, AppKit timeline and viewer) | everything |
 | `TandemCLI` | The `tandem` command, including `tandem mcp` and `tandem export` | Core, Media, Render, API |
@@ -346,9 +346,13 @@ same stretch again shows its words again.
 
 `CompositionBuilder` turns a project into an `AVMutableComposition`, an
 `AVVideoComposition` driven by Tandem's own `AVVideoCompositing` compositor,
-and an `AVAudioMix`. The viewer plays it with `AVPlayer`; `FrameRenderer`
-grabs single frames; `Exporter` reads it with `AVAssetReader` and encodes with
-VideoToolbox (speed priority) into `AVAssetWriter`.
+and an `AVAudioMix`. The viewer plays its picture with `AVPlayer` and its
+sound with `ViewerAudio`, which reads the mix ahead of time the way export
+does, into an `AVSampleBufferAudioRenderer` on the clock the players run
+on, so play starts in about 0.13 s with every track's sound (RENDER.md,
+Viewer sound); `FrameRenderer` grabs single frames; `Exporter` reads it with
+`AVAssetReader` and encodes with VideoToolbox (speed priority) into
+`AVAssetWriter`.
 
 Audio rules:
 

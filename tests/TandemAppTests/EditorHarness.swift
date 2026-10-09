@@ -23,19 +23,27 @@ final class EditorHarness {
     var window: NSWindow { controller.window! }
     private let previousKeymap: Keymap
 
-    init(file: StaticString = #filePath, line: UInt = #line) throws {
-        folder = FileManager.default.temporaryDirectory.appendingPathComponent("tandem-behaviour-\(UUID().uuidString)", isDirectory: true)
+    /// With `sound`, the project is those takes instead of the fixture's
+    /// (whose media are only names), so the viewer plays real picture and
+    /// sound. Either way it never makes a sound.
+    init(sound: SoundTakes? = nil, file: StaticString = #filePath, line: UInt = #line) throws {
+        folder = sound?.folder ?? FileManager.default.temporaryDirectory.appendingPathComponent("tandem-behaviour-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        PlaybackController.muted = true
         let session = try ProjectSession.create(at: folder.appendingPathComponent("Behaviour.tandem"), name: "Behaviour", owner: .app)
         model = EditorModel(session: session)
-        let fixture = try AppFixture()
-        model.apply(EditBatch(label: "Media", commands: fixture.project.media.map { .addMedia(item: $0) }))
-        model.apply(EditBatch(label: "Build", commands: [
-            .placeMedia(mediaIDs: ["med_camera", "med_screen"], at: .zero, duration: t(60)),
-            .placeMedia(mediaIDs: ["med_broll"], at: t(20), sourceStart: t(1), duration: t(5)),
-            .placeMedia(mediaIDs: ["med_music"], at: .zero, duration: t(60)),
-            .addMarker(marker: Marker(id: "mk_s2", time: t(30), name: "Section 2", kind: .section))
-        ]))
+        if let sound {
+            model.apply(EditBatch(label: "Build", commands: sound.build()))
+        } else {
+            let fixture = try AppFixture()
+            model.apply(EditBatch(label: "Media", commands: fixture.project.media.map { .addMedia(item: $0) }))
+            model.apply(EditBatch(label: "Build", commands: [
+                .placeMedia(mediaIDs: ["med_camera", "med_screen"], at: .zero, duration: t(60)),
+                .placeMedia(mediaIDs: ["med_broll"], at: t(20), sourceStart: t(1), duration: t(5)),
+                .placeMedia(mediaIDs: ["med_music"], at: .zero, duration: t(60)),
+                .addMarker(marker: Marker(id: "mk_s2", time: t(30), name: "Section 2", kind: .section))
+            ]))
+        }
         let keymap = try Keymap.load(KeymapTests.bundledKeymapData())
         // The buttons' tooltips and ⌘ hints read the app's keymap.
         previousKeymap = ProjectDocuments.shared.keymap
@@ -105,17 +113,35 @@ final class EditorHarness {
     // MARK: - Keys
 
     /// Presses a chord written as in a keymap file: `c`, `shift+delete`,
-    /// `cmd+shift+a`, `option+]`.
+    /// `cmd+shift+a`, `option+]`. `settling` is how long to let things
+    /// catch up afterwards; 0 is for timing what the key does from the
+    /// moment it's pressed.
     @discardableResult
-    func press(_ chord: String, file: StaticString = #filePath, line: UInt = #line) -> Bool {
+    func press(_ chord: String, settling: TimeInterval = 0.25, file: StaticString = #filePath, line: UInt = #line) -> Bool {
         guard let parsed = KeyChord(chord) else {
             XCTFail("\(chord) isn't a chord", file: file, line: line)
             return false
         }
         let used = controller.router.route(parsed, keyUp: false, isRepeat: false)
         _ = controller.router.route(parsed, keyUp: true, isRepeat: false)
-        settle()
+        if settling > 0 { settle(settling) }
         return used
+    }
+
+    /// Runs the main run loop until `condition` holds, and says how long
+    /// that took, or fails after `timeout`.
+    @discardableResult
+    func wait(for what: String, timeout: TimeInterval = 5, file: StaticString = #filePath, line: UInt = #line, until condition: () -> Bool) -> TimeInterval {
+        let start = ProcessInfo.processInfo.systemUptime
+        while !condition() {
+            let waited = ProcessInfo.processInfo.systemUptime - start
+            if waited > timeout {
+                XCTFail("waited \(timeout) s for \(what)", file: file, line: line)
+                return waited
+            }
+            RunLoop.main.run(until: Date().addingTimeInterval(0.001))
+        }
+        return ProcessInfo.processInfo.systemUptime - start
     }
 
     // MARK: - The mouse

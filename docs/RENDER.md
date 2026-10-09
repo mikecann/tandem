@@ -11,8 +11,8 @@ Project ──RenderPlanner──▶ RenderPlan (pure)
         AVMutableComposition + AVVideoComposition + AVAudioMix
            │                  │ TandemCompositor (Core Image, Metal)
            │                  │   └─ FrameComposer: one frame from a layer stack
-     AVPlayer (viewer)   FrameRenderer (AVAssetImageGenerator, RGBA)
-                         Exporter (AVAssetReader ▶ VideoToolbox ▶ AVAssetWriter)
+     AVPlayer (viewer's picture)   FrameRenderer (AVAssetImageGenerator, RGBA)
+     ViewerAudio (its sound)       Exporter (AVAssetReader ▶ VideoToolbox ▶ AVAssetWriter)
 ```
 
 ## Files
@@ -24,6 +24,7 @@ Project ──RenderPlanner──▶ RenderPlan (pure)
 | `RenderPlan.swift` | Pure plan: composition track pools (A/B), instruction splits and layer stacks, audio segments |
 | `AudioEnvelope.swift` | Clip gain, fades, keyframes, crossfades and micro-fades as volume breakpoints |
 | `AudioGain.swift` | Each audio track's envelope applied sample by sample by an `MTAudioProcessingTap` |
+| `ViewerAudio.swift` | The viewer's sound: the mix read ahead through the gain taps into an `AVSampleBufferAudioRenderer`, forwards or backwards, on the clock the viewer's players run on |
 | `CompositionAssembler.swift` | Plan to AVFoundation: source loading, speed, freeze, hold, base track, audio mix |
 | `Compositor.swift` | `TandemInstruction`, `TandemCompositor` (4:2:0 video range) and `TandemRGBCompositor` (grabs) |
 | `FrameComposer.swift` | The per-layer pipeline, cutout, repair masks, text layers, still image cache |
@@ -310,6 +311,9 @@ export all show the same frame.
   The tap sits before AVFoundation's effects, so it sees each file's own
   samples, before a speed change is time-stretched or the player's rate
   applied, and it maps them to the timeline through the segment's speed.
+- The viewer reads its sound the way export does, ahead of time, through
+  taps of its own (Viewer sound, below); its `AVPlayer` shows the picture
+  only.
 - Every hard cut gets a 3 ms fade each side. Joins that continue the same
   media seamlessly (same file, contiguous source, same speed and gain) don't.
   (Until the tap, AVAudioMix's lag meant these fades never happened.)
@@ -324,6 +328,101 @@ export all show the same frame.
   for keyframes, the timing), and the composition plays the copy. The unit
   adds no delay offline, so sync is untouched; a speed change on the same
   clip still keeps the shifted pitch.
+
+## Viewer sound
+
+The viewer's `AVPlayer` shows the picture only (`makePlayerItem` leaves
+the composition's audio tracks out). Its sound is read ahead of time by
+`ViewerAudio`, the way export reads the mix: an `AVAssetReader` on the
+composition with an `AVAssetReaderAudioMixOutput` and gain taps of its
+own (the same envelopes), into an `AVSampleBufferAudioRenderer` under an
+`AVSampleBufferRenderSynchronizer`.
+
+Why: with the taps in AVPlayer, a tapped track's sound went through them
+in real time, about 0.4 s ahead of what's heard and only once playing
+started, so play took about 0.5 s to start after a seek or an edit, and
+tracks after the first joined about 0.1 s late, missing that much sound
+(Gotchas). A reader runs far faster than real time: the first 8192
+frames of a three-track mix arrive in about 10 ms.
+
+- While paused, the sound from the playhead is queued: a prime reads it
+  into the renderer, which takes about a second and then stops asking.
+  It's queued 0.1 s after the playhead comes to rest (scrubbing seeks
+  many times a second), and at once after a pause or when a new cut
+  comes on screen. A quarter of a second queued counts as ready, 25 to
+  35 ms after the prime starts.
+- Play asks the synchronizer to start from the playhead and lets it
+  choose when. Once it has (20 to 30 ms later), its timebase gives the
+  host time it reaches the playhead at, about 0.1 s after that, and the
+  picture starts at that host time (`setRate(_:time:atHostTime:)`). Left
+  to choose, it gives the output time to start, so the first sample is
+  heard as the first frame shows. A fixed 0.1 s lead wasn't safe: woken
+  from idle, the output takes 0.1 s more. If the sound isn't queued yet
+  (play straight after a seek), the start waits for the prime.
+- The output device goes idle about 2.5 s after the last sound, and
+  waking it takes 0.1 s, so a start from idle took 0.2 s. AVPlayer kept
+  the device running for about 35 s after a pause, and `ViewerAudio`
+  keeps it running for 30 s after it plays or queues sound
+  (`AudioDeviceStart` with no IOProc, about 0.1% of a core, following the
+  default device when it changes). Starts take about 0.13 s, and 0.2 s
+  after a longer rest. Not for ever: a running output keeps the Mac from
+  idling to sleep.
+- Both run on the default output device's clock: the players' `sourceClock`
+  is `CMAudioDeviceClockCreate`'s, and the synchronizer runs on the
+  device once it has sound. Measured over 180 s of play, the picture and
+  the sound were never more than 0.06 ms apart and drifted under
+  0.01 ms.
+- Pausing stops the picture where it is and primes again from there,
+  rather than trusting what the renderer kept. The sound runs on for up
+  to 40 ms after the picture stops, as the synchronizer stops.
+- J and L at 2x, 4x and 8x change both at the same host time,
+  `ViewerAudio.startLead` (0.1 s) ahead, with spectral time-pitch, as
+  AVPlayer played them: sound at every speed, pitch kept.
+- Backwards, AVPlayer played these compositions with the sound reversed.
+  The synchronizer can't run backwards, so its time counts from where
+  reverse play started and the sound is read in 2 s blocks going back,
+  each through new taps and reversed (four readers a second at 8x, about
+  5% of a core). A start backwards waits for its first block, about
+  85 ms, where a prime forwards takes about 15 ms (on a 1080p take with
+  three audio tracks, and on ten minutes of 520 sound clips alike). A
+  composition that can't play backwards still steps the picture with a
+  clock, silently.
+- A seek while playing (clicking a clip away from the playhead), a change
+  of direction, an edit landing while playing and the renderer dropping
+  its sound (an output device change) stop both and start them again
+  from the playhead, with the new mix after an edit: the picture stands
+  still about 0.19 s. The renderer can't splice in new sound sooner than
+  a second ahead (Gotchas), so this is quicker than a seamless swap.
+- The sound is padded with silence to the end of the timeline, so the
+  renderer never runs dry before the picture does.
+- Scrubbing makes no sound, as before. `TANDEM_MUTED=1` (and every test)
+  mutes the renderer.
+- The synchronizer is told what to do on a queue of its own: stopping or
+  changing speed holds up its caller for 30 to 40 ms. Each prime feeds
+  the renderer from a queue of its own too, so a reader that stalls holds
+  up nothing else.
+
+Measured on an M5 Pro with `PlaybackController` itself, a 1080p take with
+its sound, music and a sound effect (three composition audio tracks),
+October 2026:
+
+| | AVPlayer with the gain taps | `ViewerAudio` |
+| --- | --- | --- |
+| Play after a seek (median of 6) | 0.53 s | 0.13 s |
+| Play after an edit, paused | 0.50 s | 0.13 s |
+| Play on after a pause | 0.10 s | 0.13 s |
+| Picture standing still as an edit lands while playing | 0.61 s | 0.19 s |
+| Sound of tracks after the first at the start | 0.10 to 0.14 s missing | there from the first sample |
+| Picture against sound over 180 s of play | one player | 0.06 ms apart at most |
+| CPU playing, this process | 6% of a core | 6% |
+| CPU paused, this process | 0.15% | 0.08% |
+
+Before the taps, AVPlayer started in 0.14 to 0.17 s (0.21 s with the
+output idle), and played on after a pause in 0.02 s; its audio queue
+stayed primed while paused. The synchronizer has no such shortcut, so
+playing on now takes a start like any other, 0.03 s more than with the
+taps. coreaudiod ran at 4 to 5% of a core in both, most of it other
+apps' sound.
 
 ## Levels
 
@@ -655,10 +754,11 @@ The spike's plain composite managed about 3.5x; the encoder is the limit.
   first call has no time and is silent. Neither kind sees AVAudioMix
   volume, which comes after both. A tapped track whose files change
   format (AAC to PCM, mono to stereo, 16-bit to float) stalls the reader
-  or reads the wrong number of samples. And taps cost the player at the
-  start: after a seek or a rebuild, play takes about 0.5 s to start
-  instead of 0.15 s, and tracks after the first join about 0.1 s late.
-  Resuming from a pause is as quick as without. Readers with taps run
+  or reads the wrong number of samples. And taps cost AVPlayer at the
+  start: after a seek or a rebuild, play took about 0.5 s to start
+  instead of 0.15 s, tracks after the first joined about 0.1 s late, and
+  resuming from a pause took 0.1 s instead of 0.02 s. That's why the
+  viewer reads its sound ahead (Viewer sound). Readers with taps run
   about 1.6 s slower per 10 minutes of three-track audio (0.5 s of it
   CPU).
 - Nothing cheap shortens that start, measured in October 2026. A tapped
@@ -671,9 +771,39 @@ The spike's plain composite managed about 3.5x; the encoder is the limit.
   with a far-off host time, then now on play) starts the clock in
   0.17 s, but the first 0.15 to 0.6 s of every track is silent, AVPlayer
   reports itself playing meanwhile, and it costs about 0.8% of a core.
-  A real fix needs the mix rendered ahead of time: an
-  `AVSampleBufferAudioRenderer` fed from the tapped reader, or each
-  clip's sound rendered with its gain.
+  The fix renders the mix ahead of time: the viewer feeds an
+  `AVSampleBufferAudioRenderer` from the tapped reader (Viewer sound).
+- `AVPlayer.isMuted` stops AVPlayer decoding sound after about a second,
+  so a tap sees silence from then on. Measure with `volume = 0`.
+- AVPlayer plays these compositions backwards (`canPlayReverse` is true
+  for H.264 and for HEVC proxies), its sound reversed, and keeps the
+  pitch at 2x, 4x and 8x.
+- `AVSampleBufferRenderSynchronizer.setRate` holds up its caller for 30
+  to 40 ms when it stops or changes speed while playing (7 ms to start,
+  under 1 ms to resume), measured October 2026. AVPlayer's rate calls
+  take under 0.3 ms. `ViewerAudio` calls it on a queue of its own.
+- Left to start by itself, the synchronizer begins 0.12 to 0.13 s after
+  it's asked with the output device running, and 0.2 s when the device
+  has to wake (it's idle about 2.5 s after the last sound). AVPlayer,
+  before the gain taps, started in 0.14 to 0.17 s with the device awake
+  and 0.21 s from idle, and kept the device running for about 35 s after
+  a pause. `AudioDeviceStart(device, nil)` keeps it running with no
+  IOProc, and while it runs coreaudiod holds a
+  `PreventUserIdleSystemSleep` assertion.
+- `AVSampleBufferAudioRenderer.flush(fromSourceTime:)` only works about a
+  second ahead (0.5 s fails), so an edit can't be spliced into what's
+  queued any sooner; the viewer stops and starts again from the playhead.
+- While paused the renderer takes about a second of sound and stops
+  asking; at 8x it keeps about 7 s queued. A feed that has run out must
+  `stopRequestingMediaData`, or the renderer calls it over and over.
+- `AVPlayer.setRate(0, time:atHostTime:)` ignores the time and the host
+  time and just stops, about where it is. Pausing the viewer reads where
+  the picture stopped instead.
+- The synchronizer's timebase runs on the host clock until it has sound,
+  then on the default output device's clock. A picture-only player item
+  is on that device's clock too by default; the viewer sets it anyway
+  (`CMAudioDeviceClockCreate`, `AVPlayer.sourceClock`), so the two can't
+  drift.
 - Calling `cancelReading()` on an AVAssetReader while another thread is in
   `copyNextSampleBuffer()`, or reading an output after its reader has been
   released, crashes. Export cancel is a flag: the encoder feed and muxers
@@ -686,7 +816,15 @@ The spike's plain composite managed about 3.5x; the encoder is the limit.
 8 s (the whole package in about 40 s):
 pure maths and plan tests, golden-pixel compositor tests with stand-in
 frames, end-to-end grabs and exports of synthetic movies (frame-number
-stripes, a flash and a beep, tones with clicks). Real footage is opt-in:
+stripes, a flash and a beep, tones with clicks). `GainAcrossCutsTests`
+read every gain case the way export does and the way the viewer does.
+`ViewerAudioTests` check the viewer's sound: queued from the playhead to
+the sample with every track in it, exactly what export reads, reversed
+backwards, and, with an output device and on a Mac, a flash and a beep
+landing together and the picture and sound starting together and
+staying within a millisecond (muted). The app's `EditorBehaviourTests`
+play real sound through the editor: start times, pause, a seek and an
+edit while playing, J K L and scrubbing. Real footage is opt-in:
 
 ```
 TANDEM_REAL_MEDIA=1 swift test -c release -Xswiftc -enable-testing \
