@@ -43,7 +43,11 @@ rounds up.
 4. **Check.** `tandem check --changed` before you hand back. It renders
    what you changed and finds black frames, flickers, green screen that
    didn't key and white blocks. Fix every problem it reports. Its notes
-   (soft zooms) are judgement calls.
+   are judgement calls, but go through each one:
+   - soft zooms;
+   - dead air: 0.8 s or more of a still picture with nothing said and no
+     sound effect or music swell. Cut it, or keep it only if the pause
+     earns it (see "Longer gaps where they earn it").
 5. **Hand back.** Open the project in the app for Mike with
    `open "<video folder>/<name>.tandem"` (skip it if `tandem status` says
    the app already has it open), rather than asking him to open it. Then
@@ -83,7 +87,9 @@ and the music (Build Your Own Convex retro).
   Dock popping up, him looking blank before the next section. He flagged
   about 15 of those 1 to 3 s holds as "awkward silence" in Build Your Own
   Convex. Look at the frames: a mean frame difference can't tell an
-  animation from a click or a page flick. One exception: a celebration line
+  animation from a click or a page flick. `tandem check` notes the still,
+  silent ones as dead air: Mike only caught one at 3:56 on his final watch,
+  and it cost a 13.7 GB re-export. One exception: a celebration line
   ("Congratulations, party time") cuts straight on, even over confetti; he
   doesn't want to sit there silently smiling.
 - **No clips under 2 s,** where all it takes is putting back a pause of a

@@ -50,7 +50,7 @@ tandem short [--apply]             lay out a 9:16 short from the same edit
 tandem cards [--insert] [--no-sounds] [--apply]   a section card at every section marker
 tandem apply <batch.json | - | '<json>'>   [--dry-run] [--expect N] [--label L] [--key K]
 tandem undo [--expect N]    tandem redo    tandem history    tandem validate
-tandem check [--changed | --from T --to T] [--quick]   what Mike would catch: black, flickers, keys
+tandem check [--changed | --from T --to T] [--quick]   what Mike would catch: black, flickers, keys, dead air
 tandem frame <time> [-o out.png]   tandem clip <start> <end> [-o out.mp4]
 tandem export [--preset <name>] [-o out.mp4] [--from T] [--to T] [--format <id>]
 tandem loudness    tandem effects    tandem schema    tandem watch [--once]
@@ -413,24 +413,47 @@ clips in the range).
   plays in the part rendered are shown.
 - `check` looks for what Mike would otherwise catch in review, so his
   rounds go on the edit itself. It renders every frame of the stretch small
-  (384 wide, from proxies where they're ready: about a thousand frames a
-  second, so the whole six-minute ESLint video in 12 s) and reports, with
-  the clips on screen there:
+  (384 wide, from proxies where they're ready) and reports, with the clips
+  on screen there:
   - black frames, and gaps with nothing on any video track;
   - flickers: one to three frames unlike the frames either side, like a
     stale still or a frame of the wrong shot;
   - green screen that didn't key, and flat white blocks that come and go
     (a key or matte that failed);
-  - as notes that don't fail it, pictures zoomed past three times their own
-    pixels (1080p past 150% on a 4K frame), which look soft.
+  - as notes that don't fail it:
+    - pictures zoomed past three times their own pixels (1080p past 150%
+      on a 4K frame), which look soft;
+    - dead air: 0.8 s or more with nothing said, no sound effect, no music
+      swell and a still picture. Speech is the words `pauses` reads, with
+      their edges on the voice, so a 0.4 s sentence pause never shows up.
+      Every other clip that's heard counts as sound while it plays (sound
+      effects, demo sounds), and music only where its `audio.gainDB`
+      keyframes rise or a new bed comes in. Mike moving in his camera
+      corner, the Dock popping up along the frame's edge and a cursor nudged
+      now and then don't count as movement; an animation, a result
+      appearing, a slow fade or a cursor that keeps moving do. Section cards
+      are never dead air. Cut it (`rippleDeleteRange`, leaving Mike's 0.4 s
+      between sentences), or keep it only if the pause earns it: a point
+      landing, the end of a paragraph. Until the take has a transcript, the
+      check says so and doesn't judge its pauses.
 
   Run `tandem check --changed` before handing an edit back: it checks only
   what agents changed that's waiting for Mike's review, half a second either
-  side. It exits 1 when it finds a problem. `--quick` skips rendering.
+  side. It exits 1 when it finds a problem; notes never fail it. `--quick`
+  skips rendering, so it only finds gaps and soft pictures.
 
   ```
   Checked 05:40.000-06:11.000 (930 frames) in 0.9 s: 1 problem:
     05:56.900-05:57.167  White block: a flat white patch over 13% of the frame comes and goes in 8 frames (a key or matte that failed?).  On: clip_w2fkvxg9 m-outro1
+  ```
+
+  In Build Your Own Convex, two pauses on a chapter's title page:
+
+  ```
+  Checked 13:30.000-13:50.000 (600 frames) in 2.1 s: no problems.
+  Notes (not problems):
+    13:34.380-13:35.180  Dead air: 0.80 s with nothing said, no sound effect or music swell, and a still picture (after "is called the committer."). Cut it, or keep it if the pause earns it.  On: clip_nyc6dj73 2026-10-02_110856-camera, clip_5z5qpmkz 2026-10-02_110856-screen
+    13:44.650-13:45.467  Dead air: 0.82 s with nothing said, no sound effect or music swell, and a still picture (after "one at a time."). Cut it, or keep it if the pause earns it.  On: clip_p8v54ivp 2026-10-02_110856-camera, clip_cmqvrmad 2026-10-02_110856-screen
   ```
 - Titles in a font this Mac doesn't have are drawn in SF Pro, and never
   quietly: `frame`, `clip`, `export`, `captions`, `status` and `validate`

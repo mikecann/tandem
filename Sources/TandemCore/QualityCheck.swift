@@ -21,11 +21,14 @@ public struct CheckProblem: Codable, Equatable, Sendable {
         case whiteBlock
         /// A picture shown well past its own pixels, so it looks soft.
         case soft
+        /// A still picture with nothing to hear: no speech, sound effect or
+        /// music swell.
+        case deadAir
 
         /// Worth knowing rather than wrong: Mike signed off softer zooms on
-        /// cartoon B-roll than on screen recordings, so a soft picture
-        /// doesn't fail a check.
-        public var isNote: Bool { self == .soft }
+        /// cartoon B-roll than on screen recordings, and a pause can let a
+        /// point land. So these don't fail a check.
+        public var isNote: Bool { self == .soft || self == .deadAir }
     }
 
     public var kind: Kind
@@ -87,17 +90,20 @@ public struct FrameStats: Equatable, Sendable {
     public var flatWhite: Double
     /// Tile lumas, 0 to 255, row by row: a thumbnail to compare frames by.
     public var thumbnail: [UInt8]
+    /// Tiles across the thumbnail; it's `thumbnail.count / columns` tall.
+    public var columns: Int
 
-    public init(time: Time, luma: Double, brightestTile: Double, flatGreen: Double, flatWhite: Double, thumbnail: [UInt8]) {
+    public init(time: Time, luma: Double, brightestTile: Double, flatGreen: Double, flatWhite: Double, thumbnail: [UInt8], columns: Int? = nil) {
         self.time = time
         self.luma = luma
         self.brightestTile = brightestTile
         self.flatGreen = flatGreen
         self.flatWhite = flatWhite
         self.thumbnail = thumbnail
+        self.columns = max(1, columns ?? thumbnail.count)
     }
 
-    public init(time: Time, tiles: [Tile]) {
+    public init(time: Time, tiles: [Tile], columns: Int? = nil) {
         let count = Double(max(tiles.count, 1))
         self.init(
             time: time,
@@ -105,9 +111,13 @@ public struct FrameStats: Equatable, Sendable {
             brightestTile: tiles.map(\.luma).max() ?? 0,
             flatGreen: Double(tiles.filter(\.isFlatGreen).count) / count,
             flatWhite: Double(tiles.filter(\.isFlatWhite).count) / count,
-            thumbnail: tiles.map { UInt8(clamping: Int(($0.luma * 255).rounded())) }
+            thumbnail: tiles.map { UInt8(clamping: Int(($0.luma * 255).rounded())) },
+            columns: columns
         )
     }
+
+    /// Tiles down the thumbnail.
+    public var rows: Int { thumbnail.count / columns }
 
     /// How different two frames look, 0 to 1: the mean difference of their
     /// thumbnails.
@@ -141,13 +151,16 @@ public enum QualityCheck {
     /// Flat green over this much of the frame is a key that didn't happen.
     static let greenShare = 0.01
 
-    /// Every problem in `ranges`, by time. Without `frames` only the model
-    /// checks run.
-    public static func problems(in project: Project, ranges: [TimeRange], frames: [FrameStats]?) -> [CheckProblem] {
+    /// Every problem and note in `ranges`, by time. Without `frames` only
+    /// the model checks run, and dead air needs `speech` as well.
+    public static func problems(in project: Project, ranges: [TimeRange], frames: [FrameStats]?, speech: Speech? = nil) -> [CheckProblem] {
         let gapProblems = gaps(in: project, ranges: ranges)
         var found = gapProblems + softPictures(in: project, ranges: ranges)
         if let frames {
             found += frameProblems(frames, in: project, skipping: gapProblems.map { TimeRange(start: $0.start, end: $0.end) })
+            if let speech {
+                found += deadAir(in: project, ranges: ranges, frames: frames, speech: speech)
+            }
         }
         return found.sorted { ($0.start, $0.kind.rawValue) < ($1.start, $1.kind.rawValue) }
     }

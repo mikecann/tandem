@@ -65,7 +65,7 @@ public enum FrameScanner {
         while let sample = output.copyNextSampleBuffer() {
             let time = Time(cmTime: CMSampleBufferGetPresentationTimeStamp(sample))
             guard time >= range.start, let pixels = CMSampleBufferGetImageBuffer(sample) else { continue }
-            stats.append(FrameStats(time: time, tiles: tiles(of: pixels)))
+            stats.append(FrameStats(time: time, tiles: tiles(of: pixels), columns: columns))
         }
         if reader.status == .failed { throw reader.error ?? RenderError.export("reading the timeline failed") }
         return stats

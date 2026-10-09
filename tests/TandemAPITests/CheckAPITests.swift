@@ -32,10 +32,58 @@ final class CheckAPITests: XCTestCase {
         XCTAssertTrue(text.contains("On: clip_cam1 take1-camera"), "names the clips on screen, top first: \(text)")
     }
 
+    /// Still 32 x 18 frames at 30 fps from `start`.
+    private func still(from start: Double, to end: Double) -> [FrameStats] {
+        stride(from: start, to: end - 0.0001, by: 1.0 / 30).map { seconds in
+            let tiles = (0..<(32 * 18)).map { (tile: Int) -> UInt8 in UInt8(20 + tile * 3 % 7 * 6) }
+            return FrameStats(time: Time(seconds: seconds), luma: 0.1, brightestTile: 0.2, flatGreen: 0, flatWhite: 0, thumbnail: tiles, columns: 32)
+        }
+    }
+
+    func testDeadAirIsANote() async throws {
+        var renderer = FakeRenderer()
+        renderer.scanned = still(from: 0, to: 9)
+        let h = try ServiceHarness(renderer: renderer)
+        defer { h.close() }
+        let result = try await CheckRequest(from: t(0), to: t(9)).run(on: h.service, context: h.context)
+        XCTAssertTrue(result.ok, "notes don't fail a check")
+        XCTAssertEqual(result.notes.map(\.kind), [.deadAir])
+        let dead = try XCTUnwrap(result.notes.first)
+        XCTAssertEqual(dead.start, t(3.6), "the 1.4 s pause after \"decision models.\"; the 0.7 s one isn't")
+        XCTAssertEqual(dead.end, t(5.0))
+
+        let text = result.readableText
+        XCTAssertTrue(text.contains("no problems."), text)
+        XCTAssertTrue(text.contains("Notes (not problems):\n  00:03.600-00:05.000  Dead air: 1.40 s with nothing said, no sound effect or music swell, and a still picture (after \"talk about decision models.\"). Cut it, or keep it if the pause earns it.  On: clip_txt1 title \"DECISION MODELS\", clip_cam1 take1-camera, clip_scr1 take1-screen"), text)
+        let json = String(decoding: try ServiceJSON.encoder().encode(result), as: UTF8.self)
+        XCTAssertTrue(json.contains(#""kind":"deadAir""#), json)
+    }
+
+    func testChangedChecksDeadAirWhereThingsChanged() async throws {
+        let h = try ServiceHarness()
+        defer { h.close() }
+        // An agent moves the B-roll to 21 to 26, where nothing is said.
+        try h.apply(.moveClips(clipIDs: ["clip_brl1"], delta: t(1), includeLinked: false))
+        let result = try await CheckRequest(changed: true).run(on: h.service, context: h.context)
+        XCTAssertEqual(result.notes.map(\.kind), [.deadAir])
+        XCTAssertEqual(result.notes.first.map { TimeRange(start: $0.start, end: $0.end) }, TimeRange(start: t(20.5), end: t(26.5)))
+    }
+
+    func testNoTranscriptMeansNoDeadAirAndSaysSo() async throws {
+        let h = try ServiceHarness()
+        defer { h.close() }
+        h.analysis.transcripts = [:]
+        let result = try await CheckRequest(from: t(0), to: t(9)).run(on: h.service, context: h.context)
+        XCTAssertTrue(result.notes.isEmpty, "the voice could be saying anything: \(result.notes)")
+        XCTAssertEqual(result.warnings, ["No transcript yet for take1-camera.mov, so dead air isn't checked where it plays."])
+        XCTAssertTrue(result.readableText.contains("Warning: No transcript yet for take1-camera.mov"), result.readableText)
+    }
+
     func testAQuickCheckRendersNothing() async throws {
         let h = try ServiceHarness()
         defer { h.close() }
         let result = try await CheckRequest(quick: true).run(on: h.service, context: h.context)
+        XCTAssertTrue(result.warnings.isEmpty, "a quick check doesn't look for dead air, so it can't miss any")
         XCTAssertEqual(result.frames, 0)
         XCTAssertEqual(result.ranges, [TimeRange(start: .zero, end: t(60))])
         XCTAssertTrue(result.ok, "\(result.problems)")
