@@ -222,6 +222,12 @@ final class EditorHarness {
         return windowPoint(CGPoint(x: anchor.bounds.midX, y: anchor.bounds.midY), in: anchor)
     }
 
+    /// A turn of the wheel over `point` (window points from the top left):
+    /// Option or Cmd with it zooms the timeline.
+    func scroll(at point: CGPoint, dx: CGFloat = 0, dy: CGFloat, modifiers: NSEvent.ModifierFlags = []) {
+        run(InputSimulator.Gesture(kind: .scroll(dx: dx, dy: dy, steps: 1), at: point, modifiers: modifiers))
+    }
+
     func click(_ point: CGPoint, count: Int = 1, modifiers: NSEvent.ModifierFlags = []) {
         run(InputSimulator.Gesture(kind: .click(count: count), at: point, modifiers: modifiers))
     }
