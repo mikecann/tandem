@@ -573,6 +573,21 @@ final class EditorBehaviourTests: XCTestCase {
 
     // MARK: - Playing
 
+    func testZoomingWithTheWheelHoldsThePlayheadStillNotThePointer() {
+        editor.model.playback.seek(to: t(40))
+        editor.settle()
+        let playhead = editor.x(at: 40)
+        let before = editor.model.timeline.scale.pixelsPerSecond
+        // Over the camera at 10 s, well away from the playhead.
+        editor.scroll(at: editor.point(onTrack: "Camera", at: 10), dy: 30, modifiers: .option)
+        let zoomedIn = editor.model.timeline.scale.pixelsPerSecond
+        XCTAssertGreaterThan(zoomedIn, before * 1.2, "zoomed in")
+        XCTAssertEqual(editor.x(at: 40), playhead, accuracy: 1, "the playhead stays put")
+        editor.scroll(at: editor.point(onTrack: "Camera", at: 20), dy: -20, modifiers: .command)
+        XCTAssertLessThan(editor.model.timeline.scale.pixelsPerSecond, zoomedIn, "zoomed out")
+        XCTAssertEqual(editor.x(at: 40), playhead, accuracy: 1)
+    }
+
     func testPlayingKeepsTheScreenAwakeAndPausingLetsItSleep() {
         XCTAssertFalse(displaySleepHeld(), "nothing held before playing")
         editor.press("space")
