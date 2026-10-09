@@ -69,6 +69,8 @@ public final class ViewerAudio: @unchecked Sendable {
     let synchronizer = AVSampleBufferRenderSynchronizer()
     /// `TANDEM_MUTED=1`, or a test: it plays, silently.
     public let muted: Bool
+    /// The device it plays to, nil for the system's default output.
+    private let outputDeviceUID: String?
     private let format: CMAudioFormatDescription?
     private var mix: ViewerMix?
     private var reverse = false
@@ -82,6 +84,7 @@ public final class ViewerAudio: @unchecked Sendable {
     private let control = DispatchQueue(label: "com.mikerosoft.tandem.viewer-audio.control", qos: .userInteractive)
     /// Only touched on `control`.
     private var observers: [NSObjectProtocol] = []
+    private var saidRendererFailed = false
 
     /// Keeps the output device awake between plays.
     private let output = OutputHold()
@@ -94,13 +97,19 @@ public final class ViewerAudio: @unchecked Sendable {
     /// Tests see every buffer as it's enqueued, on the feed's queue.
     private var enqueueObserver: ((CMSampleBuffer) -> Void)?
 
-    public init(muted: Bool = false) {
+    public convenience init(muted: Bool = false) {
+        self.init(muted: muted, outputDeviceUID: nil)
+    }
+
+    /// Tests play to a device that isn't there, as on a Mac with none.
+    init(muted: Bool, outputDeviceUID: String?) {
         self.muted = muted
+        self.outputDeviceUID = outputDeviceUID
         var made: CMClock?
         CMAudioDeviceClockCreate(allocator: kCFAllocatorDefault, deviceUID: nil, clockOut: &made)
         clock = made
         format = try? AudioBuffers.formatDescription()
-        renderer = Self.makeRenderer(muted: muted)
+        renderer = Self.makeRenderer(muted: muted, outputDeviceUID: outputDeviceUID)
         synchronizer.addRenderer(renderer)
         control.sync { observe(renderer) }
     }
@@ -114,11 +123,12 @@ public final class ViewerAudio: @unchecked Sendable {
         for observer in observers { NotificationCenter.default.removeObserver(observer) }
     }
 
-    private static func makeRenderer(muted: Bool) -> AVSampleBufferAudioRenderer {
+    private static func makeRenderer(muted: Bool, outputDeviceUID: String?) -> AVSampleBufferAudioRenderer {
         let renderer = AVSampleBufferAudioRenderer()
         // Speed changes keep their pitch, as they did in AVPlayer.
         renderer.audioTimePitchAlgorithm = .spectral
         renderer.isMuted = muted
+        if let outputDeviceUID { renderer.audioOutputDeviceUniqueID = outputDeviceUID }
         return renderer
     }
 
@@ -186,6 +196,17 @@ public final class ViewerAudio: @unchecked Sendable {
             install(feed)
         }
         output.hold()
+        // A renderer with no output to play to takes one buffer, fails and
+        // never asks for more, so the prime would never be ready and play
+        // would never start. It starts, silently, instead.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            guard let self, primes == prime, readyAt == nil, rendererFailed else { return }
+            feed.queue.async { feed.finished() }
+        }
+    }
+
+    private var rendererFailed: Bool {
+        lock.withLock { renderer.status == .failed }
     }
 
     /// Whether `start` can begin at `time` without priming first.
@@ -245,17 +266,19 @@ public final class ViewerAudio: @unchecked Sendable {
     /// 0.1 s after that. With no output it never chooses, so after a
     /// second the start is set for a moment from now instead.
     private func startSoon(_ speed: Float, at position: CMTime) -> CMTime {
-        synchronizer.setRate(speed, time: position)
-        let asked = ProcessInfo.processInfo.systemUptime
-        while CMTimebaseGetRate(synchronizer.timebase) == 0 {
-            guard ProcessInfo.processInfo.systemUptime - asked < 1 else {
-                let host = CMClockGetTime(CMClockGetHostTimeClock()) + CMTime(seconds: Self.startLead, preferredTimescale: 1_000_000_000)
-                synchronizer.setRate(speed, time: position, atHostTime: host)
-                return host
+        if !rendererFailed {
+            synchronizer.setRate(speed, time: position)
+            let asked = ProcessInfo.processInfo.systemUptime
+            while CMTimebaseGetRate(synchronizer.timebase) == 0, ProcessInfo.processInfo.systemUptime - asked < 1 {
+                usleep(500)
             }
-            usleep(500)
+            if CMTimebaseGetRate(synchronizer.timebase) != 0 {
+                return CMSyncConvertTime(position, from: synchronizer.timebase, to: CMClockGetHostTimeClock())
+            }
         }
-        return CMSyncConvertTime(position, from: synchronizer.timebase, to: CMClockGetHostTimeClock())
+        let host = CMClockGetTime(CMClockGetHostTimeClock()) + CMTime(seconds: Self.startLead, preferredTimescale: 1_000_000_000)
+        synchronizer.setRate(speed, time: position, atHostTime: host)
+        return host
     }
 
     /// Stops and throws away everything queued.
@@ -368,12 +391,15 @@ public final class ViewerAudio: @unchecked Sendable {
     private func replaceRendererIfFailed() {
         let failed = lock.withLock { renderer.status == .failed ? renderer : nil }
         guard let failed else { return }
-        NSLog("TandemRender: the viewer's audio renderer failed (\(String(describing: failed.error))); making another")
+        if !saidRendererFailed {
+            saidRendererFailed = true
+            NSLog("TandemRender: the viewer's audio renderer failed (\(String(describing: failed.error))); making another for each prime")
+        }
         retireFeed()
         synchronizer.removeRenderer(failed, at: .invalid, completionHandler: nil)
         for observer in observers { NotificationCenter.default.removeObserver(observer) }
         observers = []
-        let fresh = Self.makeRenderer(muted: muted)
+        let fresh = Self.makeRenderer(muted: muted, outputDeviceUID: outputDeviceUID)
         lock.withLock { renderer = fresh }
         synchronizer.addRenderer(fresh)
         observe(fresh)

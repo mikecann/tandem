@@ -153,6 +153,7 @@ final class ViewerAudioTests: XCTestCase {
     /// the first sample: AVPlayer with taps brought tracks after the first
     /// in about 0.1 s late.
     func testThePrimedSoundIsTheMixFromThePlayheadWithEveryTrack() async throws {
+        try XCTSkipUnless(hasAudioOutput(), "no audio output device: the renderer takes one buffer and fails")
         let media = try TestMedia()
         let built = try await threeTracks(media)
         let audio = ViewerAudio(muted: true)
@@ -221,6 +222,7 @@ final class ViewerAudioTests: XCTestCase {
         XCTAssertEqual(frames, 24_000)
 
         // And primed backwards, the renderer gets it from the playhead.
+        try XCTSkipUnless(hasAudioOutput(), "no audio output device: the renderer takes one buffer and fails")
         let audio = ViewerAudio(muted: true)
         defer { audio.invalidate() }
         let enqueued = Enqueued()
@@ -264,6 +266,30 @@ final class ViewerAudioTests: XCTestCase {
             frames += chunk.samples.count / 2
         }
         XCTAssertEqual(frames, 3 * 48_000)
+    }
+
+    /// With no output to play to (a Mac with no sound device, as on CI),
+    /// the renderer takes one buffer and fails. Play still starts,
+    /// silently, rather than waiting for sound that can't come, and a
+    /// second prime makes a new renderer that fails the same way.
+    func testWithNoOutputPlayStillStarts() async throws {
+        let media = try TestMedia()
+        let built = try await threeTracks(media)
+        let audio = ViewerAudio(muted: true, outputDeviceUID: "no-such-device")
+        defer { audio.invalidate() }
+        audio.load(built)
+        for at in [2.0, 5.0] {
+            let priming = ProcessInfo.processInfo.systemUptime
+            await prime(audio, at: at)
+            XCTAssertLessThan(ProcessInfo.processInfo.systemUptime - priming, 1.5, "primed at \(at) s")
+            let asked = CMClockGetTime(CMClockGetHostTimeClock())
+            let host: CMTime = await withCheckedContinuation { done in
+                audio.start(rate: 1, at: t(at)) { done.resume(returning: $0) }
+            }
+            XCTAssertLessThan((host - asked).seconds, 0.5, "the picture isn't kept waiting for sound")
+            try await Task.sleep(nanoseconds: 400_000_000)
+            XCTAssertGreaterThan(audio.time.seconds, at + 0.1, "its clock runs")
+        }
     }
 
     // MARK: - With the picture

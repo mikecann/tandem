@@ -397,6 +397,11 @@ frames of a three-track mix arrive in about 10 ms.
   renderer never runs dry before the picture does.
 - Scrubbing makes no sound, as before. `TANDEM_MUTED=1` (and every test)
   mutes the renderer.
+- With no output device to play to (a Mac with none, or CI), the renderer
+  takes one buffer, fails and never asks for more. A prime then counts
+  as ready after half a second and play starts silently, on the host
+  clock, rather than waiting for sound that can't come; each prime makes
+  a new renderer, which fails the same way.
 - The synchronizer is told what to do on a queue of its own: stopping or
   changing speed holds up its caller for 30 to 40 ms. Each prime feeds
   the renderer from a queue of its own too, so a reader that stalls holds
@@ -820,9 +825,9 @@ stripes, a flash and a beep, tones with clicks). `GainAcrossCutsTests`
 read every gain case the way export does and the way the viewer does.
 `ViewerAudioTests` check the viewer's sound: queued from the playhead to
 the sample with every track in it, exactly what export reads, reversed
-backwards, and, with an output device and on a Mac, a flash and a beep
-landing together and the picture and sound starting together and
-staying within a millisecond (muted). The app's `EditorBehaviourTests`
+backwards, starting silently with no output device and, with one and on
+a Mac, a flash and a beep landing together and the picture and sound
+starting together and staying within a millisecond (muted). The app's `EditorBehaviourTests`
 play real sound through the editor: start times, pause, a seek and an
 edit while playing, J K L and scrubbing. Real footage is opt-in:
 
