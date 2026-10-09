@@ -207,8 +207,54 @@ From his review comments on the Daytona and Build Your Own Convex videos
 - **Before uploading,** watch the start of the export, where sync problems
   show first. The limiter takes about 8 dB off his voice's peaks to reach
   -14 LUFS, and he hears that as artificial, so he asked for -16 after
-  Daytona: `updateSettings {"patch": {"loudnessTarget": -16}}`. Every
-  export preset masters to the project's target and says what it used.
+  Daytona: `updateSettings {"patch": {"loudnessTarget": -16}}`. Set it when
+  the edit starts, not at the end: Let's Build It sat at -14 until the
+  last round, where the limiter squashed 18 s of it (up to 10 dB off his
+  loudest words), and -16 left 4 s. Every export preset masters to the
+  project's target and says what it used.
+
+### A second voice: the Let's Build It announcement (with his son Josh)
+
+A personal video for X and YouTube (October 2026): no Convex branding,
+transitions or swipes. Export `youtube1080` for X and `youtube4k` for
+YouTube.
+
+- **Lift the quieter voice, not Mike.** Each of Josh's lines gets one gain
+  that brings it up to Mike's level (up to +24 dB), ramping in over about
+  0.35 s before and out over 0.5 s after, and stopping short of anything
+  that isn't Josh (a breath, Mike's next word). Mike stays at one steady
+  level: levelling his words up and down was "quite distracting". Where he
+  turns from the mic to talk to Josh, lift that whole stretch by one amount
+  (+6 dB), and give a phrase that trails off a further 10 dB its own extra
+  lift. Keep dips on his loud words small: he took a -9 dB dip on a shouted
+  "Cool!" back to about -3.
+- **Check each word, not just the line.** A child's word can fade at its
+  end inside a lift: the "-tion" of Josh's "question" sat 10 dB under its
+  start, so Mike only heard the "Q". Pitch alone mistakes who's talking (a
+  120 Hz "Yeah?" was Mike, and Josh's "Dad?" came a second before the line
+  it belonged to), so check the picture and where Mike put his comment.
+- **Their lines pop up as text, word by word as they say them.** One text
+  clip per step holding the words so far, with the left edge fixed so the
+  line grows to the right: measure each prefix's width with `tandem frame`
+  in a scratch project and set each clip's x. The first step lasts the
+  0.25 s pop and later ones at least 0.12 s, so merge words said faster.
+  The `words` field only highlights the spoken word, so it can't do this.
+  No full word captions on an announcement video: "I don't think people do
+  them in announcement videos".
+- **iPad recordings show whole,** over a blurred, darkened copy of
+  themselves on the track below (scale 1.3, blur 60, exposure -1). Filling
+  16:9 crops the app's edges, and he called that cut off.
+- **Keep his mic in the corner cutout.** The cutout can drop the desk mic,
+  so the screen shows through it. An include repair mask over the mic
+  (`video.cutout.repairMasks`, a rounded rectangle in fractions of the
+  source frame) fixes every corner clip of the take; check frames across
+  them for holes. Slide the corner off when he turns back to stare at the
+  camera mid-demo: "a bit weird".
+- **A website he names shows as its live homepage,** scrolling slowly in a
+  plain browser window (traffic lights, an address bar with the domain)
+  over a blurred copy of the page. Playwright captures one frame per scroll
+  position and then composes the window at 4K; the recipe is in
+  `~/dev/convex/convex-videos/lets-build-it-announcement/.work/screen-build/`.
 
 ## Rules
 
