@@ -911,6 +911,10 @@ final class EditorBehaviourTests: XCTestCase {
         var at = editor.point(of: left.id)
         at.x = editor.x(at: 40)
         editor.drop("tandem-transition:push", at: at)
+        // A dropped transition goes on once its sound is ready, and the
+        // first drop of a run waits for the asset library to open too,
+        // which on a fresh CI runner takes longer than a settle.
+        editor.wait(for: "the push on the cut") { editor.project.track(named: "Camera")?.transitions.isEmpty == false }
         let transitions = try XCTUnwrap(editor.project.track(named: "Camera")).transitions
         XCTAssertEqual(transitions.count, 1)
         XCTAssertEqual(transitions.first?.type, .push)
@@ -921,6 +925,8 @@ final class EditorBehaviourTests: XCTestCase {
     func testATransitionDroppedAtAnOverlaysEndGoesOnItAlone() throws {
         let broll = editor.clip("B-roll")
         editor.drop("tandem-transition:push", at: editor.point(of: broll.id, at: broll.end.seconds - 0.2))
+        // As on a cut: it goes on once its sound is ready.
+        editor.wait(for: "the push at the B-roll's end") { editor.project.track(named: "B-roll")?.transitions.isEmpty == false }
         let transition = try XCTUnwrap(editor.project.track(named: "B-roll")?.transitions.first)
         XCTAssertEqual(transition.type, .push)
         XCTAssertEqual(transition.fromClipID, broll.id)
@@ -988,7 +994,22 @@ final class EditorBehaviourTests: XCTestCase {
     // MARK: - Keys on the buttons
 
     func testHoldingCommandShowsTheButtonsKeys() {
-        ShortcutHints.shared.simulatePress(.command, for: 0.8)
+        // ⌘ goes down and comes up here, not on `simulatePress`'s timer.
+        // On a slow runner the settle can outlast any hold the timer
+        // gives, and the keys were gone before they were checked. The
+        // mouse is taken as up, since on a Mac in use the real one may
+        // not be.
+        let hints = ShortcutHints.shared
+        let (wasActive, wasMouseDown) = (hints.isAppActive, hints.isMouseDown)
+        hints.isAppActive = { true }
+        hints.isMouseDown = { false }
+        defer {
+            hints.reset()
+            hints.isAppActive = wasActive
+            hints.isMouseDown = wasMouseDown
+        }
+        hints.reset()
+        hints.handle(ShortcutHints.flagsChanged(.command))
         editor.settle(0.3)
         let badges = editor.controller.hintBoard.badges.values
         let symbols = Set(badges.map(\.symbol))
@@ -999,8 +1020,9 @@ final class EditorBehaviourTests: XCTestCase {
         for badge in badges {
             XCTAssertTrue(bounds.contains(CGPoint(x: badge.frame.midX, y: badge.frame.midY)), "\(badge.symbol) at \(badge.frame)")
         }
-        editor.settle(0.8)
-        XCTAssertFalse(ShortcutHints.shared.showing, "gone when ⌘ is let go")
+        hints.handle(ShortcutHints.flagsChanged([]))
+        editor.settle()
+        XCTAssertFalse(hints.showing, "gone when ⌘ is let go")
     }
 
     // MARK: - Holding edge frames
