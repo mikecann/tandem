@@ -5,6 +5,20 @@ import TandemCore
 import TandemMedia
 @testable import TandemRender
 
+/// True the first time it's asked, then false: one resume per
+/// continuation, whichever of a callback and its timeout comes first.
+final class Once: @unchecked Sendable {
+    private let lock = NSLock()
+    private var done = false
+
+    func first() -> Bool {
+        lock.withLock {
+            defer { done = true }
+            return !done
+        }
+    }
+}
+
 /// The viewer's sound, read ahead of time (`ViewerAudio`): the mix from
 /// the playhead, every track from its first sample, exactly what export
 /// reads, and started with the picture at the same host time on the same
@@ -122,9 +136,21 @@ final class ViewerAudioTests: XCTestCase {
         }
     }
 
-    func prime(_ audio: ViewerAudio, at seconds: Double, reverse: Bool = false) async {
-        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
-            audio.prime(at: t(seconds), reverse: reverse) { done.resume() }
+    /// Waits for a callback that should come, failing rather than hanging
+    /// if it doesn't within `timeout` seconds.
+    func callback<T>(_ what: String, timeout: Double = 5, file: StaticString = #filePath, line: UInt = #line, _ call: (@escaping (T) -> Void) -> Void) async -> T? {
+        let once = Once()
+        let value: T? = await withCheckedContinuation { (resume: CheckedContinuation<T?, Never>) in
+            call { value in if once.first() { resume.resume(returning: value) } }
+            DispatchQueue.main.asyncAfter(deadline: .now() + timeout) { if once.first() { resume.resume(returning: nil) } }
+        }
+        if value == nil { XCTFail("no \(what) within \(timeout) s", file: file, line: line) }
+        return value
+    }
+
+    func prime(_ audio: ViewerAudio, at seconds: Double, reverse: Bool = false, file: StaticString = #filePath, line: UInt = #line) async {
+        _ = await callback("prime", file: file, line: line) { (done: @escaping (Void) -> Void) in
+            audio.prime(at: t(seconds), reverse: reverse) { done(()) }
         }
     }
 
@@ -283,12 +309,33 @@ final class ViewerAudioTests: XCTestCase {
             await prime(audio, at: at)
             XCTAssertLessThan(ProcessInfo.processInfo.systemUptime - priming, 1.5, "primed at \(at) s")
             let asked = CMClockGetTime(CMClockGetHostTimeClock())
-            let host: CMTime = await withCheckedContinuation { done in
-                audio.start(rate: 1, at: t(at)) { done.resume(returning: $0) }
-            }
+            let host = await callback("start") { (done: @escaping (CMTime) -> Void) in
+                audio.start(rate: 1, at: t(at), started: done)
+            } ?? .invalid
             XCTAssertLessThan((host - asked).seconds, 0.5, "the picture isn't kept waiting for sound")
             try await Task.sleep(nanoseconds: 400_000_000)
             XCTAssertGreaterThan(audio.time.seconds, at + 0.1, "its clock runs")
+        }
+    }
+
+    /// Primed at the very end (an edit landing there while playing), or a
+    /// moment from it, there's little or no sound to queue. The prime is
+    /// still ready and the start still comes promptly, rather than waiting
+    /// for sound that won't come.
+    func testAStartAtTheEndDoesntWait() async throws {
+        let media = try TestMedia()
+        let built = try await threeTracks(media)
+        let audio = ViewerAudio(muted: true)
+        defer { audio.invalidate() }
+        audio.load(built)
+        for at in [10.0, 9.95] {
+            await prime(audio, at: at)
+            XCTAssertTrue(audio.isReady(at: t(at), reverse: false), "ready with all there is at \(at) s")
+            let asked = CMClockGetTime(CMClockGetHostTimeClock())
+            let host = await callback("start") { (done: @escaping (CMTime) -> Void) in
+                audio.start(rate: 1, at: t(at), started: done)
+            } ?? .invalid
+            XCTAssertLessThan((host - asked).seconds, 0.3, "the start at \(at) s didn't wait for sound that won't come")
         }
     }
 
@@ -338,13 +385,13 @@ final class ViewerAudioTests: XCTestCase {
     /// Starts the sound at `seconds` as the viewer does, and the picture
     /// at the host time the sound says it begins, which it returns.
     @discardableResult
-    func start(_ rig: Rig, at seconds: Double, rate: Double = 1) async -> CMTime {
-        await withCheckedContinuation { (done: CheckedContinuation<CMTime, Never>) in
+    func start(_ rig: Rig, at seconds: Double, rate: Double = 1, file: StaticString = #filePath, line: UInt = #line) async -> CMTime {
+        await callback("start", file: file, line: line) { (done: @escaping (CMTime) -> Void) in
             rig.audio.start(rate: rate, at: t(seconds)) { host in
                 rig.player.setRate(Float(rate), time: t(seconds).cmTime, atHostTime: host)
-                done.resume(returning: host)
+                done(host)
             }
-        }
+        } ?? .invalid
     }
 
     /// Seconds from `since` until `moved` is true, polling every 0.5 ms.

@@ -724,10 +724,13 @@ final class EditorBehaviourTests: XCTestCase {
 
             let pressed = ProcessInfo.processInfo.systemUptime
             editor.press("space", settling: 0)
-            // Moving, not just a time reported as play begins.
-            let picture = editor.wait(for: "the playhead to move") { playback.time > from + Time(seconds: 0.005) }
-            let sound = editor.wait(for: "the sound to move") { playback.audio.time > from + Time(seconds: 0.005) }
-            starts.append(max(picture, ProcessInfo.processInfo.systemUptime - pressed - sound))
+            // Moving, not just a time reported as play begins; each from
+            // the key.
+            editor.wait(for: "the playhead to move") { playback.time > from + Time(seconds: 0.005) }
+            let picture = ProcessInfo.processInfo.systemUptime - pressed
+            editor.wait(for: "the sound to move") { playback.audio.time > from + Time(seconds: 0.005) }
+            let sound = ProcessInfo.processInfo.systemUptime - pressed
+            starts.append(max(picture, sound))
             XCTAssertTrue(playback.audio.isPlaying)
             editor.settle(0.3)
             assertInStep(playback, "after starting at \(from.seconds) s")
@@ -748,8 +751,10 @@ final class EditorBehaviourTests: XCTestCase {
         let editor = try soundEditor()
         let playback = editor.model.playback
         // Everything cut at 15 s, so a click on a piece after it is a seek.
+        let cuts = DrawTiming.samples("new cut on screen").count
         editor.model.apply(EditBatch(label: "Cut", commands: [.blade(at: t(15), clipIDs: editor.project.allTracks.flatMap(\.clips).map(\.id))]))
-        editor.wait(for: "the cut on screen", timeout: 5) { playback.audio.readyAt != nil }
+        editor.wait(for: "the cut on screen", timeout: 5) { DrawTiming.samples("new cut on screen").count > cuts }
+        editor.wait(for: "its sound queued", timeout: 5) { playback.audio.readyAt != nil }
         let heard = listen(editor)
         var levels = levels(editor)
         editor.click(editor.rulerPoint(at: 3))
@@ -810,6 +815,7 @@ final class EditorBehaviourTests: XCTestCase {
         let playback = editor.model.playback
         editor.click(editor.rulerPoint(at: 2))
         editor.settle(0.4)
+        var restarts = 0
         for speed in [1.0, 2, 4, 8] {
             editor.press("l")
             XCTAssertEqual(playback.rate, speed)
@@ -817,7 +823,10 @@ final class EditorBehaviourTests: XCTestCase {
             XCTAssertTrue(playback.audio.isPlaying, "sound at \(speed)x")
             XCTAssertEqual(CMTimebaseGetRate(playback.audio.synchronizer.timebase), speed, accuracy: 0.001)
             assertInStep(playback, "at \(speed)x")
+            // Faster changes speed on the fly; it doesn't stop and start.
+            if speed == 1 { restarts = DrawTiming.samples("playback starts").count }
         }
+        XCTAssertEqual(DrawTiming.samples("playback starts").count, restarts, "a change of speed started playback again")
         editor.press("k")
         XCTAssertFalse(playback.isPlaying)
         XCTAssertFalse(playback.audio.isPlaying)

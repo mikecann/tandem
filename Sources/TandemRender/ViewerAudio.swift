@@ -77,6 +77,8 @@ public final class ViewerAudio: @unchecked Sendable {
     /// Played backwards, the timeline frame the synchronizer's zero is.
     private var origin = 0
     private var primes = 0
+    /// Once invalidated it neither primes nor plays.
+    private var invalidated = false
     /// The prime under way, and who's waiting for it.
     private var priming: (time: Time, reverse: Bool)?
     private var waiting: [() -> Void] = []
@@ -135,6 +137,7 @@ public final class ViewerAudio: @unchecked Sendable {
     /// Stops and lets go of the renderer's sound, waiting for the
     /// synchronizer to stop. It can't play after this.
     public func invalidate() {
+        invalidated = true
         forgetPrime()
         readyAt = nil
         isPlaying = false
@@ -162,6 +165,7 @@ public final class ViewerAudio: @unchecked Sendable {
     /// another prime, a load or a stop comes first. Asked again for the
     /// same place while a prime is under way, it waits for that one.
     public func prime(at time: Time, reverse: Bool, ready: @escaping () -> Void = {}) {
+        guard !invalidated else { return }
         if let priming, priming.reverse == reverse, Self.frame(of: priming.time) == Self.frame(of: time) {
             waiting.append(ready)
             return
@@ -196,12 +200,22 @@ public final class ViewerAudio: @unchecked Sendable {
             install(feed)
         }
         output.hold()
-        // A renderer with no output to play to takes one buffer, fails and
-        // never asks for more, so the prime would never be ready and play
-        // would never start. It starts, silently, instead.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-            guard let self, primes == prime, readyAt == nil, rendererFailed else { return }
-            feed.queue.async { feed.finished() }
+        watchForFailure(of: feed, prime: prime)
+    }
+
+    /// A renderer with no output to play to takes one buffer, fails and
+    /// never asks for more, so the prime would never be ready and play
+    /// would never start. Until the prime is ready, this looks every
+    /// quarter of a second, and if the renderer has failed, play starts,
+    /// silently.
+    private func watchForFailure(of feed: Feed, prime: Int) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+            guard let self, primes == prime, readyAt == nil else { return }
+            if rendererFailed {
+                feed.queue.async { feed.finished() }
+            } else {
+                watchForFailure(of: feed, prime: prime)
+            }
         }
     }
 
@@ -227,6 +241,7 @@ public final class ViewerAudio: @unchecked Sendable {
     /// Nothing is called if it's stopped or primed again first.
     public func start(rate: Double, at time: Time, started: @escaping (CMTime) -> Void) {
         guard rate != 0 else { return stop() }
+        guard !invalidated else { return }
         forgetPrime()
         let start = primes
         readyAt = nil
@@ -249,6 +264,7 @@ public final class ViewerAudio: @unchecked Sendable {
     /// `time` and `hostTime` the picture changes at too.
     public func start(rate: Double, at time: Time, hostTime: CMTime) {
         guard rate != 0 else { return stop() }
+        guard !invalidated else { return }
         forgetPrime()
         readyAt = nil
         isPlaying = true
@@ -263,13 +279,14 @@ public final class ViewerAudio: @unchecked Sendable {
     /// the host time it reaches `position` at. Its timebase gets a rate
     /// once it has chosen, 20 to 30 ms after it's asked with the output
     /// running (0.1 s when the output has to wake), with the start about
-    /// 0.1 s after that. With no output it never chooses, so after a
-    /// second the start is set for a moment from now instead.
+    /// 0.1 s after that. With no output it never chooses, so the start is
+    /// set for a moment from now instead, straight away when the renderer
+    /// has failed and after half a second otherwise.
     private func startSoon(_ speed: Float, at position: CMTime) -> CMTime {
         if !rendererFailed {
             synchronizer.setRate(speed, time: position)
             let asked = ProcessInfo.processInfo.systemUptime
-            while CMTimebaseGetRate(synchronizer.timebase) == 0, ProcessInfo.processInfo.systemUptime - asked < 1 {
+            while CMTimebaseGetRate(synchronizer.timebase) == 0, ProcessInfo.processInfo.systemUptime - asked < 0.5 {
                 usleep(500)
             }
             if CMTimebaseGetRate(synchronizer.timebase) != 0 {
@@ -408,11 +425,17 @@ public final class ViewerAudio: @unchecked Sendable {
     private func observe(_ renderer: AVSampleBufferAudioRenderer) {
         // The renderer drops what's queued when the output changes, and
         // may when the rate does; either way it needs the sound again.
+        // Heard where it's posted, perhaps inside a rate change on
+        // `control`, and passed to the main queue without waiting: an
+        // observer on the main queue would hold that change up until the
+        // main queue ran it, and `invalidate` waits for `control` there.
         for name in [Notification.Name.AVSampleBufferAudioRendererWasFlushedAutomatically, .AVSampleBufferAudioRendererOutputConfigurationDidChange] {
-            observers.append(NotificationCenter.default.addObserver(forName: name, object: renderer, queue: .main) { [weak self] _ in
-                guard let self else { return }
-                self.readyAt = nil
-                self.onInterruption?()
+            observers.append(NotificationCenter.default.addObserver(forName: name, object: renderer, queue: nil) { [weak self] _ in
+                DispatchQueue.main.async {
+                    guard let self, !self.invalidated else { return }
+                    self.readyAt = nil
+                    self.onInterruption?()
+                }
             })
         }
     }

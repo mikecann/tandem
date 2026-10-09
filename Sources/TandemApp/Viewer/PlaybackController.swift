@@ -172,6 +172,9 @@ final class PlaybackController {
 
     func invalidate() {
         keepAwake.hold(false)
+        rate = 0
+        // A cut still loading must not come on screen and start the sound.
+        buildGeneration += 1
         clock?.invalidate()
         clock = nil
         rebuildWork?.cancel()
@@ -770,10 +773,16 @@ final class PlaybackController {
     }
 
     private func playerAdvanced(to cmTime: CMTime, slot: Int) {
-        guard hasComposition, slot == front, players[slot].rate != 0, cmTime.isNumeric else { return }
+        guard hasComposition, slot == front, cmTime.isNumeric else { return }
+        // Backwards, the player stops at the start without saying so, and
+        // may already have its rate at 0 when it says where it is.
+        if rate < 0, pendingStart == nil, cmTime <= .zero {
+            time = .zero
+            pause()
+            return
+        }
+        guard players[slot].rate != 0 else { return }
         time = Time(cmTime: cmTime)
-        // Backwards, the player stops at the start without saying so.
-        if rate < 0, time <= .zero { pause() }
     }
 
     /// Where the picture and the sound are at the same moment, to check
@@ -785,10 +794,11 @@ final class PlaybackController {
     }
 
     private func reachedEnd() {
+        let backwards = rate < 0
         rate = 0
         keepAwake.hold(false)
         pendingStart = nil
-        time = duration
+        time = backwards ? .zero : duration
         audio.stop()
         scheduleStill()
     }

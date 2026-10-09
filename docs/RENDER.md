@@ -392,16 +392,18 @@ frames of a three-track mix arrive in about 10 ms.
   its sound (an output device change) stop both and start them again
   from the playhead, with the new mix after an edit: the picture stands
   still about 0.19 s. The renderer can't splice in new sound sooner than
-  a second ahead (Gotchas), so this is quicker than a seamless swap.
+  a second ahead (Gotchas), so a seamless swap would land an edit a
+  second late; this lands it at once, after a short stop.
 - The sound is padded with silence to the end of the timeline, so the
   renderer never runs dry before the picture does.
 - Scrubbing makes no sound, as before. `TANDEM_MUTED=1` (and every test)
   mutes the renderer.
 - With no output device to play to (a Mac with none, or CI), the renderer
   takes one buffer, fails and never asks for more. A prime then counts
-  as ready after half a second and play starts silently, on the host
-  clock, rather than waiting for sound that can't come; each prime makes
-  a new renderer, which fails the same way.
+  as ready once the failure shows (it's looked for every quarter of a
+  second) and play starts silently, on the host clock, rather than
+  waiting for sound that can't come; each prime makes a new renderer,
+  which fails the same way.
 - The synchronizer is told what to do on a queue of its own: stopping or
   changing speed holds up its caller for 30 to 40 ms. Each prime feeds
   the renderer from a queue of its own too, so a reader that stalls holds
