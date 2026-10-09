@@ -896,6 +896,10 @@ final class EditorBehaviourTests: XCTestCase {
         var at = editor.point(of: left.id)
         at.x = editor.x(at: 40)
         editor.drop("tandem-transition:push", at: at)
+        // A dropped transition goes on once its sound is ready, and the
+        // first drop of a run waits for the asset library to open too,
+        // which on a fresh CI runner takes longer than a settle.
+        editor.wait(for: "the push on the cut") { editor.project.track(named: "Camera")?.transitions.isEmpty == false }
         let transitions = try XCTUnwrap(editor.project.track(named: "Camera")).transitions
         XCTAssertEqual(transitions.count, 1)
         XCTAssertEqual(transitions.first?.type, .push)
@@ -906,6 +910,8 @@ final class EditorBehaviourTests: XCTestCase {
     func testATransitionDroppedAtAnOverlaysEndGoesOnItAlone() throws {
         let broll = editor.clip("B-roll")
         editor.drop("tandem-transition:push", at: editor.point(of: broll.id, at: broll.end.seconds - 0.2))
+        // As on a cut: it goes on once its sound is ready.
+        editor.wait(for: "the push at the B-roll's end") { editor.project.track(named: "B-roll")?.transitions.isEmpty == false }
         let transition = try XCTUnwrap(editor.project.track(named: "B-roll")?.transitions.first)
         XCTAssertEqual(transition.type, .push)
         XCTAssertEqual(transition.fromClipID, broll.id)
