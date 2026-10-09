@@ -45,6 +45,44 @@ CLI
 chmod +x "$APP/Contents/MacOS/tandem"
 [[ "$(TANDEM_APP_DIR="$APP" "$BIN/tandem" 'two words' --json)" == $'two words\n--json' ]]
 
+# `tandem url` adds this Mac's key to a tandem:// link and opens it in
+# the background. A fake `open` shows what it would have opened.
+FAKE_BIN="$SCRATCH/fake-bin"
+mkdir -p "$FAKE_BIN"
+cat > "$FAKE_BIN/open" <<'OPEN'
+#!/usr/bin/env bash
+printf '%s\n' "$@"
+OPEN
+chmod +x "$FAKE_BIN/open"
+if PATH="$FAKE_BIN:$PATH" "$BIN/tandem" url 'debug?out=/tmp/tree.txt' 2>/dev/null; then
+  echo "FAIL: tandem url sent a link without a key" >&2
+  exit 1
+fi
+mkdir -p "$HOME/Library/Application Support/Tandem"
+printf 'c0ffee' > "$HOME/Library/Application Support/Tandem/url-key"
+# A bare [[ ]] doesn't stop macOS's bash 3.2 under `set -e`, so these
+# checks say what went wrong and exit themselves.
+opens() {
+  local got
+  got="$(PATH="$FAKE_BIN:$PATH" "$BIN/tandem" url "$1")"
+  if [[ "$got" != "$2" ]]; then
+    echo "FAIL: tandem url '$1' opened '$got', not '$2'" >&2
+    exit 1
+  fi
+}
+opens 'screenshot?out=/tmp/a b.png' $'-g\ntandem://screenshot?out=/tmp/a b.png&key=c0ffee'
+opens 'command' $'-g\ntandem://command?key=c0ffee'
+opens 'tandem-dev://seek?t=3' $'-g\ntandem-dev://seek?t=3&key=c0ffee'
+# The key goes before a #fragment, in the query where the app reads it.
+opens 'seek?t=3#here' $'-g\ntandem://seek?t=3&key=c0ffee#here'
+# A link that isn't Tandem's never gets the key.
+for link in 'https://example.com/?' 'file:///tmp/a' 'tandemx://seek?t=3'; do
+  if OUT="$(PATH="$FAKE_BIN:$PATH" "$BIN/tandem" url "$link" 2>/dev/null)" || [[ -n "$OUT" ]]; then
+    echo "FAIL: tandem url sent the key to $link" >&2
+    exit 1
+  fi
+done
+
 # While an install swaps the app in, the launcher waits for it instead of
 # starting a build of its own. A copy of it with a fake setup shows which.
 LAUNCHER="$SCRATCH/launcher"

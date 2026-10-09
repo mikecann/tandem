@@ -248,6 +248,62 @@ final class AppURLCommandTests: XCTestCase {
     }
 }
 
+/// Any app or web page can open a tandem:// link, so a link only acts
+/// when it carries this Mac's key.
+final class AppURLKeyTests: XCTestCase {
+    private var folder: URL!
+
+    override func setUpWithError() throws {
+        folder = FileManager.default.temporaryDirectory.appendingPathComponent("tandem-url-key-\(UUID().uuidString)", isDirectory: true)
+    }
+
+    override func tearDownWithError() throws {
+        try? FileManager.default.removeItem(at: folder)
+    }
+
+    func testTheKeyIsMadeOnceAndOnlyItsOwnerCanReadIt() throws {
+        let file = folder.appendingPathComponent("Tandem/url-key")
+        let key = try AppURLKey.load(from: file)
+        XCTAssertEqual(key.value.count, 64, "256 bits as hex")
+        XCTAssertEqual(try AppURLKey.load(from: file), key, "kept, not made again")
+        let permissions = try FileManager.default.attributesOfItem(atPath: file.path)[.posixPermissions] as? Int
+        XCTAssertEqual(permissions, 0o600)
+        XCTAssertNotEqual(try AppURLKey.load(from: folder.appendingPathComponent("Other/url-key")), key, "each install has its own")
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: file.deletingLastPathComponent().path), ["url-key"], "no drafts left behind")
+    }
+
+    func testAFileThatIsntAKeyIsReplaced() throws {
+        let file = folder.appendingPathComponent("url-key")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try Data().write(to: file)
+        let key = try AppURLKey.load(from: file)
+        XCTAssertEqual(key.value.count, 64)
+        XCTAssertEqual(try String(contentsOf: file, encoding: .utf8), key.value)
+    }
+
+    func testAKeyFileOthersCanReadIsMadeOwnerOnly() throws {
+        let file = folder.appendingPathComponent("url-key")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let value = String(repeating: "c0ffee", count: 8)
+        XCTAssertTrue(FileManager.default.createFile(atPath: file.path, contents: Data(value.utf8), attributes: [.posixPermissions: 0o644]))
+        XCTAssertEqual(try AppURLKey.load(from: file).value, value, "kept")
+        let permissions = try FileManager.default.attributesOfItem(atPath: file.path)[.posixPermissions] as? Int
+        XCTAssertEqual(permissions, 0o600)
+    }
+
+    func testALinkActsOnlyWithTheKey() throws {
+        let key = try AppURLKey.load(from: folder.appendingPathComponent("url-key"))
+        let other = try AppURLKey.load(from: folder.appendingPathComponent("other-key"))
+        let link = try XCTUnwrap(URL(string: "tandem://command?name=save&key=\(key.value)"))
+        XCTAssertTrue(key.accepts(link))
+        XCTAssertEqual(AppURLCommand.parse(link), .command(.save), "the key isn't part of the command")
+        XCTAssertFalse(key.accepts(try XCTUnwrap(URL(string: "tandem://command?name=save"))))
+        XCTAssertFalse(key.accepts(try XCTUnwrap(URL(string: "tandem://command?name=save&key="))))
+        XCTAssertFalse(key.accepts(try XCTUnwrap(URL(string: "tandem://command?name=save&key=\(other.value)"))))
+        XCTAssertFalse(key.accepts(try XCTUnwrap(URL(string: "tandem://command?name=save&key=\(key.value.prefix(32))"))))
+    }
+}
+
 final class PauseTighteningTests: XCTestCase {
     /// Words at 0-1, 1.1-2, then a 1.5 s pause, then 3.5-4.
     func transcript() -> Transcript {

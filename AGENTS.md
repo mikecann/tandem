@@ -14,6 +14,11 @@ this repo root. It requires macOS 15 or newer and Xcode 26 or newer with Swift 6
 - For an app change, run `bash restart.sh` after the tests and verify the
   actual interaction in the staged app. Set `TANDEM_APP_DIR` to stage an
   isolated app instead of replacing `~/Applications/Tandem.app`.
+- Drive and capture the running app with `tandem url`, as in
+  `tandem url "simulate?click=600,700"` or
+  `tandem url "screenshot?out=/tmp/shot.png"` (see `InputSimulator` and
+  `AppURLCommand`). The app ignores a tandem:// link without this Mac's
+  key, since any web page can open one; `tandem url` adds it.
 - Keep private footage, API keys, generated apps, caches and build outputs
   out of git. Tests requiring footage, permission grants, live APIs or paid
   generation are opt-in through their existing `TANDEM_*` environment guards.

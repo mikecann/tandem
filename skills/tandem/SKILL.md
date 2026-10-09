@@ -199,9 +199,9 @@ From his review comments on the Daytona and Build Your Own Convex videos
 - Change the project only through `tandem` (apply, undo, and tools run
   with `--apply`). Never edit `.tandem` files or anything in a `.tandem/`
   folder by hand or with scripts.
-- Never run `open tandem://...`, and never install, quit or restart the
-  Tandem app, or launch it for anything except opening the project at
-  hand-back. While it restarts, commands wait for it (up to 90 s).
+- Never run `open tandem://...` or `tandem url`, and never install, quit
+  or restart the Tandem app, or launch it for anything except opening the
+  project at hand-back. While it restarts, commands wait for it (up to 90 s).
 - Mike may be editing at the same time: keep batches small, label them, and
   always pass `--expect`.
 - Undo only your own edits: `tandem undo --expect <revision>`.

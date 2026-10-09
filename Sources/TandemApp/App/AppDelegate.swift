@@ -8,6 +8,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, EditorCommandHandling 
     private let documents = ProjectDocuments.shared
     private var launched = false
     private var pendingURLs: [URL] = []
+    /// What a tandem:// link must carry for the app to act on it (see
+    /// `AppURLKey`). Nil if it couldn't be read or made: then no link acts.
+    private var urlKey: AppURLKey?
     private var terminationSignal: DispatchSourceSignal?
 
     func applicationWillFinishLaunching(_ notification: Notification) {
@@ -25,6 +28,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, EditorCommandHandling 
     func applicationDidFinishLaunching(_ notification: Notification) {
         launched = true
         quitCleanlyOnSIGTERM()
+        // Made at launch, before any link is handled, so `tandem url` can
+        // read it.
+        do {
+            urlKey = try AppURLKey.load()
+        } catch {
+            NSLog("Tandem: no key for tandem:// links, so they're ignored: %@", error.localizedDescription)
+        }
         MainThreadMeter.install()
         ShortcutHints.shared.install()
         // Opens the asset library in the background, adding the starter
@@ -114,6 +124,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, EditorCommandHandling 
             if url.isFileURL {
                 documents.open(url)
             } else if let command = AppURLCommand.parse(url) {
+                // Any app or web page can open a tandem:// link, so only
+                // links with this Mac's key act (`tandem url` adds it).
+                guard urlKey?.accepts(url) == true else {
+                    NSLog("Tandem: ignored a tandem://%@ link without this Mac's key (send it with `tandem url`)", url.host ?? "")
+                    continue
+                }
                 guard let name = AppURLCommand.project(in: url) else {
                     run(command, for: documents.frontmost)
                     continue
@@ -126,7 +142,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, EditorCommandHandling 
                 }
                 run(command, for: target)
             } else {
-                NSLog("Tandem: ignored %@", url.absoluteString)
+                // Not the whole link: a mistyped `tandem url` command would
+                // put this Mac's key in the log.
+                NSLog("Tandem: ignored a %@://%@ link", url.scheme ?? "", url.host ?? "")
             }
         }
     }
