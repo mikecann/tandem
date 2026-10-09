@@ -176,6 +176,15 @@ From his review comments on the Daytona and Build Your Own Convex videos
   them. Find every page change from the screen recording itself (diff its
   frames or run scene detection), not from your cue list: one built from
   cues missed 10 on Build Your Own Convex, and Mike pushed them by hand.
+- **Picture-in-picture only when he's driving the screen.** When Mike clicks
+  and moves the mouse on a recording, he sits in the corner (pipRight) over
+  it. When he's reading a script to camera, B-roll goes full screen on the
+  B-roll track above him and the edit cuts back to him every so often: no
+  corner ("What I need from you" video, 2026-10-09: "this is not a picture
+  in picture video"). Give long runs of B-roll a 2 s+ cut-back to him on a
+  reaction or bridging line, and tell the B-roll builder which layout it's
+  for before it renders, since a corner-safe layout looks off-centre full
+  screen.
 - **Screen recordings fill the frame,** for people watching on a phone:
   one static `zoomToRegion` per page, fitted to the content with a small
   margin, at most 1.5x, and no zoom changes within a page.
