@@ -6,7 +6,8 @@ import XCTest
 // back a whole frame late, and Vision takes many times longer than on a Mac.
 // Tests that make those assertions still run by default on a Mac. They skip
 // on CI (GitHub Actions sets CI=true) unless TANDEM_TIMING_TESTS=1.
-// TandemMediaTests and TandemAppTests each keep an identical copy.
+// TandemMediaTests, TandemRenderTests and TandemAppTests each keep an
+// identical copy.
 
 func skipsTimingSensitiveTests(environment: [String: String] = ProcessInfo.processInfo.environment) -> Bool {
     environment["CI"] == "true" && environment["TANDEM_TIMING_TESTS"] != "1"

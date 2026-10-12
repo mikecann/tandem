@@ -177,9 +177,23 @@ struct FakeRenderer: RenderBackend {
     /// What a scan measures, frame by frame; nil makes plain grey frames
     /// over every range.
     var scanned: [FrameStats]?
+    /// What a scan of the screen recordings on their own measures (the
+    /// scan that asks for scanlines); nil makes plain grey frames.
+    var screenScanned: [FrameStats]?
+    /// The ranges each scan was asked for, screen scans marked.
+    let scans = ScanLog()
 
-    func scan(context: RenderContext, ranges: [TimeRange], width: Int) async throws -> [FrameStats] {
-        if let scanned { return scanned }
+    final class ScanLog: @unchecked Sendable {
+        private let lock = NSLock()
+        private var entries: [(ranges: [TimeRange], screen: Bool)] = []
+        func add(_ ranges: [TimeRange], screen: Bool) { lock.withLock { entries.append((ranges, screen)) } }
+        var all: [(ranges: [TimeRange], screen: Bool)] { lock.withLock { entries } }
+    }
+
+    func scan(context: RenderContext, ranges: [TimeRange], width: Int, scanlines: Bool) async throws -> [FrameStats] {
+        scans.add(ranges, screen: scanlines)
+        if scanlines, let screenScanned { return screenScanned }
+        if !scanlines, let scanned { return scanned }
         let step = context.project.settings.frameRate.frameDuration
         var frames: [FrameStats] = []
         for range in ranges {

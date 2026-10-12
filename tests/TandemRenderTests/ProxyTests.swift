@@ -129,11 +129,16 @@ final class ProxyExactFrameTests: XCTestCase {
             // where a source frame starts exactly on a timeline frame (every
             // 0.2 s here), playing backwards shows the one before, as it
             // does from all-intra proxies.
+            let start = expected(from)
             let wrong = frames.filter { seconds, index in
-                index != (rate > 0 ? Int((seconds * 30 + 1e-6).rounded(.down)) : Int((seconds * 30 - 1e-6).rounded(.up)) - 1)
+                // The paused frame again, at its own time, is still the
+                // picture that was showing. A slow CI runner hands it
+                // back before its first reversed frame is ready, and the
+                // start check below allows it.
+                if index == start && abs(seconds - Double(start) / 30) < 1e-6 { return false }
+                return index != (rate > 0 ? Int((seconds * 30 + 1e-6).rounded(.down)) : Int((seconds * 30 - 1e-6).rounded(.up)) - 1)
             }
             XCTAssertEqual(wrong.map { "\($0.seconds) s: source frame \($0.index)" }, [], "playing at \(rate)x")
-            let start = expected(from)
             let first = frames.first?.index ?? -1
             let near = rate > 0 ? start...(start + 3) : (start - 3)...start
             XCTAssertTrue(near.contains(first), "playing at \(rate)x from source frame \(start) started at \(first)")

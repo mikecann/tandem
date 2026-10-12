@@ -14,7 +14,10 @@ public enum FrameScanner {
     /// Tiles across the frame; rows keep them about square (18 for 16:9).
     static let columns = 32
 
-    public static func scan(_ context: RenderContext, ranges: [TimeRange], width: Int = 384) async throws -> [FrameStats] {
+    /// Every frame of `ranges`, rendered `width` wide and measured. With
+    /// `scanlines`, each frame's lines are measured too (in
+    /// `QualityCheck.scanlineBands` bands), to tell a scroll from a new page.
+    public static func scan(_ context: RenderContext, ranges: [TimeRange], width: Int = 384, scanlines: Bool = false) async throws -> [FrameStats] {
         var context = context
         let canvas = context.renderSize
         let height = Int((Double(width) * canvas.height / max(canvas.width, 1)).rounded())
@@ -28,18 +31,18 @@ public enum FrameScanner {
         for range in ranges {
             guard let wanted = range.intersection(timeline), wanted.duration > .zero else { continue }
             try Task.checkCancellation()
-            stats += try await read(built, tracks: tracks, range: wanted)
+            stats += try await read(built, tracks: tracks, range: wanted, scanlines: scanlines)
         }
         return stats
     }
 
     /// Reads one stretch on a thread of its own: the reader blocks.
-    private static func read(_ built: BuiltComposition, tracks: [AVAssetTrack], range: TimeRange) async throws -> [FrameStats] {
+    private static func read(_ built: BuiltComposition, tracks: [AVAssetTrack], range: TimeRange, scanlines: Bool) async throws -> [FrameStats] {
         let source = Unchecked((built: built, tracks: tracks))
         return try await withCheckedThrowingContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
                 do {
-                    continuation.resume(returning: try readNow(source.value.built, tracks: source.value.tracks, range: range))
+                    continuation.resume(returning: try readNow(source.value.built, tracks: source.value.tracks, range: range, scanlines: scanlines))
                 } catch {
                     continuation.resume(throwing: error)
                 }
@@ -47,7 +50,7 @@ public enum FrameScanner {
         }
     }
 
-    private static func readNow(_ built: BuiltComposition, tracks: [AVAssetTrack], range: TimeRange) throws -> [FrameStats] {
+    private static func readNow(_ built: BuiltComposition, tracks: [AVAssetTrack], range: TimeRange, scanlines: Bool) throws -> [FrameStats] {
         let reader = try AVAssetReader(asset: built.composition)
         // As an export does: frames that can't be decoded from a seek are
         // read from their keyframe, and those before the range dropped.
@@ -65,29 +68,43 @@ public enum FrameScanner {
         while let sample = output.copyNextSampleBuffer() {
             let time = Time(cmTime: CMSampleBufferGetPresentationTimeStamp(sample))
             guard time >= range.start, let pixels = CMSampleBufferGetImageBuffer(sample) else { continue }
-            stats.append(FrameStats(time: time, tiles: tiles(of: pixels)))
+            stats.append(measure(pixels, at: time, scanlines: scanlines))
         }
         if reader.status == .failed { throw reader.error ?? RenderError.export("reading the timeline failed") }
         return stats
     }
 
-    /// The tile grid over a BGRA frame.
-    static func tiles(of pixels: CVPixelBuffer) -> [FrameStats.Tile] {
+    /// A BGRA frame's tile grid, and its scanlines when asked for.
+    static func measure(_ pixels: CVPixelBuffer, at time: Time, scanlines: Bool = false) -> FrameStats {
+        let (grid, lines) = tiles(of: pixels, scanlines: scanlines)
+        return FrameStats(time: time, tiles: grid, columns: columns, scanlines: lines)
+    }
+
+    /// The tile grid over a BGRA frame, and with `scanlines` the mean luma
+    /// of each line in `QualityCheck.scanlineBands` bands across it, band by
+    /// band.
+    static func tiles(of pixels: CVPixelBuffer, scanlines: Bool = false) -> (tiles: [FrameStats.Tile], scanlines: [UInt8]) {
         CVPixelBufferLockBaseAddress(pixels, .readOnly)
         defer { CVPixelBufferUnlockBaseAddress(pixels, .readOnly) }
         let width = CVPixelBufferGetWidth(pixels)
         let height = CVPixelBufferGetHeight(pixels)
         let rowBytes = CVPixelBufferGetBytesPerRow(pixels)
-        guard width > 0, height > 0, let base = CVPixelBufferGetBaseAddress(pixels) else { return [] }
+        guard width > 0, height > 0, let base = CVPixelBufferGetBaseAddress(pixels) else { return ([], []) }
         let bytes = base.assumingMemoryBound(to: UInt8.self)
         let columns = Self.columns
         let rows = max(1, Int((Double(columns) * Double(height) / Double(width)).rounded()))
+        let bands = scanlines ? QualityCheck.scanlineBands : 0
         var red = [UInt32](repeating: 0, count: columns * rows)
         var green = red
         var blue = red
         var luma = red
         var lumaSquared = [UInt64](repeating: 0, count: columns * rows)
         var count = red
+        var lines = [UInt32](repeating: 0, count: bands * height)
+        var lineCounts = [UInt32](repeating: 0, count: bands * height)
+        // Which tile column, and which band's lines, each x falls in.
+        let tileColumn = (0..<width).map { $0 * columns / width }
+        let bandStart = bands > 0 ? (0..<width).map { $0 * bands / width * height } : []
         for y in 0..<height {
             let row = bytes + y * rowBytes
             let tileRow = y * rows / height * columns
@@ -96,16 +113,21 @@ public enum FrameScanner {
                 let b = UInt32(pixel[0]), g = UInt32(pixel[1]), r = UInt32(pixel[2])
                 // Rec. 709 weights in 256ths.
                 let l = (54 * r + 183 * g + 19 * b) >> 8
-                let tile = tileRow + x * columns / width
+                let tile = tileRow + tileColumn[x]
                 red[tile] += r
                 green[tile] += g
                 blue[tile] += b
                 luma[tile] += l
                 lumaSquared[tile] += UInt64(l * l)
                 count[tile] += 1
+                if bands > 0 {
+                    let line = bandStart[x] + y
+                    lines[line] += l
+                    lineCounts[line] += 1
+                }
             }
         }
-        return (0..<(columns * rows)).map { tile in
+        let grid = (0..<(columns * rows)).map { tile in
             let n = Double(max(count[tile], 1))
             let mean = Double(luma[tile]) / n
             let variance = max(0, Double(lumaSquared[tile]) / n - mean * mean)
@@ -114,5 +136,7 @@ public enum FrameScanner {
                 spread: variance.squareRoot() / 255
             )
         }
+        let profile = lines.indices.map { UInt8(clamping: lines[$0] / max(lineCounts[$0], 1)) }
+        return (grid, profile)
     }
 }

@@ -51,7 +51,8 @@ public struct CheckResult: Codable, Sendable {
     public var seconds: Double
     /// What's wrong: black frames, gaps, flickers, keys that didn't happen.
     public var problems: [CheckProblem]
-    /// Worth knowing but not wrong: pictures zoomed past their own pixels.
+    /// Worth knowing but not wrong: pictures zoomed past their own pixels,
+    /// dead air, and page changes with no transition.
     public var notes: [CheckProblem]
     /// Names for the clips the problems mention.
     public var clipNames: [String: String]
@@ -167,17 +168,45 @@ extension TandemService {
         let scans = request.quick != true && !ranges.isEmpty
         let toCheck = ranges
         let why = note
+        let (speech, untranscribed) = Self.checkSpeech(project, analysis: analysis)
+        var warnings: [String] = []
+        if scans, !untranscribed.isEmpty {
+            let names = untranscribed.compactMap { project.media($0).map { URL(fileURLWithPath: $0.path).lastPathComponent } }
+            warnings.append("No transcript yet for \(names.joined(separator: ", ")), so dead air isn't checked where it plays.")
+        }
+        // Page changes are judged from the screen recordings on their own,
+        // scanned beside the composite.
+        var screenContext: RenderContext?
+        var screenRanges: [TimeRange] = []
+        if scans, let screens = QualityCheck.screenOnly(project) {
+            screenRanges = QualityCheck.screenRanges(in: project, within: toCheck)
+            if !screenRanges.isEmpty {
+                screenContext = context
+                screenContext?.project = screens
+            }
+        }
+        let screenScan = screenContext
+        let screenStretches = screenRanges
+        let notices = warnings
         return {
             let started = Date()
             var frames: [FrameStats]?
+            var screenFrames: [FrameStats]?
             if scans {
                 do {
-                    frames = try await renderer.scan(context: context, ranges: toCheck, width: width)
+                    // Side by side: the screen recording on its own reads far
+                    // less than the composite (no camera, no mattes), so it's
+                    // done first and adds little to the wait.
+                    async let composite = renderer.scan(context: context, ranges: toCheck, width: width, scanlines: false)
+                    if let screenScan {
+                        screenFrames = try await renderer.scan(context: screenScan, ranges: screenStretches, width: width, scanlines: true)
+                    }
+                    frames = try await composite
                 } catch {
                     throw ServiceError.wrap(error)
                 }
             }
-            let found = QualityCheck.problems(in: project, ranges: toCheck, frames: frames)
+            let found = QualityCheck.problems(in: project, ranges: toCheck, frames: frames, screenFrames: screenFrames, speech: speech)
             var names: [String: String] = [:]
             for id in Set(found.flatMap(\.clipIDs)) {
                 guard let clip = project.clip(id) else { continue }
@@ -185,9 +214,29 @@ extension TandemService {
             }
             return CheckResult(
                 ranges: toCheck, frames: frames?.count ?? 0, seconds: Date().timeIntervalSince(started),
-                problems: found.filter { !$0.kind.isNote }, notes: found.filter(\.kind.isNote), clipNames: names, note: why
+                problems: found.filter { !$0.kind.isNote }, notes: found.filter(\.kind.isNote), clipNames: names, note: why,
+                warnings: notices
             )
         }
+    }
+
+    /// What the check hears said, for dead air: the words `tandem pauses`
+    /// reads (edges on the voice), and the voice clips they come from. A
+    /// sound effect on a voice track isn't a voice, so it counts as sound
+    /// for as long as it plays, as does a voice whose transcript isn't
+    /// ready. Also returns the voices' media with no transcript yet.
+    static func checkSpeech(_ project: Project, analysis: AnalysisSource) -> (speech: QualityCheck.Speech, untranscribed: [String]) {
+        let map = TranscriptTools.speechMap(project, analysis: analysis)
+        let missing = Set(map.missing)
+        func isVoice(_ mediaID: String?) -> Bool {
+            guard let mediaID, let item = project.media(mediaID) else { return false }
+            return item.role != .sfx && item.role != .music
+        }
+        let voices = Set(map.clips.filter { isVoice($0.mediaID) && !missing.contains($0.mediaID ?? "") }.map(\.id))
+        let words = map.words.filter { voices.contains($0.clipID) }.map {
+            QualityCheck.Speech.Word(text: $0.text, start: $0.start, end: $0.end)
+        }
+        return (QualityCheck.Speech(words: words, clipIDs: voices), map.missing.filter(isVoice))
     }
 
     /// What a problem's clip is called in the check's words.

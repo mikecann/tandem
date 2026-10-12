@@ -23,19 +23,27 @@ final class EditorHarness {
     var window: NSWindow { controller.window! }
     private let previousKeymap: Keymap
 
-    init(file: StaticString = #filePath, line: UInt = #line) throws {
-        folder = FileManager.default.temporaryDirectory.appendingPathComponent("tandem-behaviour-\(UUID().uuidString)", isDirectory: true)
+    /// With `sound`, the project is those takes instead of the fixture's
+    /// (whose media are only names), so the viewer plays real picture and
+    /// sound. Either way it never makes a sound.
+    init(sound: SoundTakes? = nil, file: StaticString = #filePath, line: UInt = #line) throws {
+        folder = sound?.folder ?? FileManager.default.temporaryDirectory.appendingPathComponent("tandem-behaviour-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        PlaybackController.muted = true
         let session = try ProjectSession.create(at: folder.appendingPathComponent("Behaviour.tandem"), name: "Behaviour", owner: .app)
         model = EditorModel(session: session)
-        let fixture = try AppFixture()
-        model.apply(EditBatch(label: "Media", commands: fixture.project.media.map { .addMedia(item: $0) }))
-        model.apply(EditBatch(label: "Build", commands: [
-            .placeMedia(mediaIDs: ["med_camera", "med_screen"], at: .zero, duration: t(60)),
-            .placeMedia(mediaIDs: ["med_broll"], at: t(20), sourceStart: t(1), duration: t(5)),
-            .placeMedia(mediaIDs: ["med_music"], at: .zero, duration: t(60)),
-            .addMarker(marker: Marker(id: "mk_s2", time: t(30), name: "Section 2", kind: .section))
-        ]))
+        if let sound {
+            model.apply(EditBatch(label: "Build", commands: sound.build()))
+        } else {
+            let fixture = try AppFixture()
+            model.apply(EditBatch(label: "Media", commands: fixture.project.media.map { .addMedia(item: $0) }))
+            model.apply(EditBatch(label: "Build", commands: [
+                .placeMedia(mediaIDs: ["med_camera", "med_screen"], at: .zero, duration: t(60)),
+                .placeMedia(mediaIDs: ["med_broll"], at: t(20), sourceStart: t(1), duration: t(5)),
+                .placeMedia(mediaIDs: ["med_music"], at: .zero, duration: t(60)),
+                .addMarker(marker: Marker(id: "mk_s2", time: t(30), name: "Section 2", kind: .section))
+            ]))
+        }
         let keymap = try Keymap.load(KeymapTests.bundledKeymapData())
         // The buttons' tooltips and ⌘ hints read the app's keymap.
         previousKeymap = ProjectDocuments.shared.keymap
@@ -77,15 +85,29 @@ final class EditorHarness {
     }
 
     /// Lets observation, layout and anything queued on the main thread
-    /// catch up.
+    /// catch up: for `seconds`, and for at least `minimumTurns` turns of
+    /// the run loop.
     func settle(_ seconds: TimeInterval = 0.25) {
         let end = Date().addingTimeInterval(seconds)
-        while Date() < end {
+        var turns = 0
+        while Date() < end || turns < Self.minimumTurns {
+            turns += 1
             RunLoop.main.run(until: Date().addingTimeInterval(0.02))
             window.contentView?.layoutSubtreeIfNeeded()
             window.displayIfNeeded()
         }
     }
+
+    /// A model change reaches the views over a few turns: the observation
+    /// loop hears of it on one, the timeline's frame pacer copies it on
+    /// the next, and only then are the strips and lanes laid out where a
+    /// click lands. On a CI runner one turn of drawing can take longer
+    /// than the whole quarter second, so a wait counted only in time
+    /// clicked the old layout: a click meant for a comment moved the
+    /// playhead, and a transition dropped on a clip missed it. With every
+    /// turn slowed to 0.4 s the behaviour tests pass with three, and two
+    /// isn't enough.
+    static let minimumTurns = 3
 
     // MARK: - The project
 
@@ -105,17 +127,35 @@ final class EditorHarness {
     // MARK: - Keys
 
     /// Presses a chord written as in a keymap file: `c`, `shift+delete`,
-    /// `cmd+shift+a`, `option+]`.
+    /// `cmd+shift+a`, `option+]`. `settling` is how long to let things
+    /// catch up afterwards; 0 is for timing what the key does from the
+    /// moment it's pressed.
     @discardableResult
-    func press(_ chord: String, file: StaticString = #filePath, line: UInt = #line) -> Bool {
+    func press(_ chord: String, settling: TimeInterval = 0.25, file: StaticString = #filePath, line: UInt = #line) -> Bool {
         guard let parsed = KeyChord(chord) else {
             XCTFail("\(chord) isn't a chord", file: file, line: line)
             return false
         }
         let used = controller.router.route(parsed, keyUp: false, isRepeat: false)
         _ = controller.router.route(parsed, keyUp: true, isRepeat: false)
-        settle()
+        if settling > 0 { settle(settling) }
         return used
+    }
+
+    /// Runs the main run loop until `condition` holds, and says how long
+    /// that took, or fails after `timeout`.
+    @discardableResult
+    func wait(for what: String, timeout: TimeInterval = 5, file: StaticString = #filePath, line: UInt = #line, until condition: () -> Bool) -> TimeInterval {
+        let start = ProcessInfo.processInfo.systemUptime
+        while !condition() {
+            let waited = ProcessInfo.processInfo.systemUptime - start
+            if waited > timeout {
+                XCTFail("waited \(timeout) s for \(what)", file: file, line: line)
+                return waited
+            }
+            RunLoop.main.run(until: Date().addingTimeInterval(0.001))
+        }
+        return ProcessInfo.processInfo.systemUptime - start
     }
 
     // MARK: - The mouse
@@ -194,6 +234,12 @@ final class EditorHarness {
         }
         guard let root = window.contentView?.superview ?? window.contentView, let anchor = find(root) else { return nil }
         return windowPoint(CGPoint(x: anchor.bounds.midX, y: anchor.bounds.midY), in: anchor)
+    }
+
+    /// A turn of the wheel over `point` (window points from the top left):
+    /// Option or Cmd with it zooms the timeline.
+    func scroll(at point: CGPoint, dx: CGFloat = 0, dy: CGFloat, modifiers: NSEvent.ModifierFlags = []) {
+        run(InputSimulator.Gesture(kind: .scroll(dx: dx, dy: dy, steps: 1), at: point, modifiers: modifiers))
     }
 
     func click(_ point: CGPoint, count: Int = 1, modifiers: NSEvent.ModifierFlags = []) {

@@ -315,8 +315,8 @@ final class TimelineContainerView: NSView {
 
     /// Horizontal gestures scroll time; vertical ones scroll the tracks when
     /// they don't fit, otherwise time. Option or Cmd with the wheel zooms
-    /// around the pointer.
-    func handleScroll(_ event: NSEvent, lanesX: CGFloat) {
+    /// around the playhead (the edge nearest it when it's off screen).
+    func handleScroll(_ event: NSEvent) {
         var dx = event.scrollingDeltaX
         var dy = event.scrollingDeltaY
         if !event.hasPreciseScrollingDeltas {
@@ -324,8 +324,10 @@ final class TimelineContainerView: NSView {
             dy *= 12
         }
         if event.modifierFlags.contains(.option) || event.modifierFlags.contains(.command) {
+            // Around the playhead, as the zoom keys do, not the pointer:
+            // the moment Mike's looking at stays put (Filmora's way).
             let factor = pow(1.01, Double(dy + dx))
-            model.timeline.zoom(by: factor, anchorX: lanesX)
+            model.timeline.zoom(by: factor, anchorX: nil)
             return
         }
         let overflow = layoutCache.contentHeight > lanes.bounds.height + 1
@@ -339,8 +341,9 @@ final class TimelineContainerView: NSView {
         }
     }
 
-    func handleMagnify(_ event: NSEvent, lanesX: CGFloat) {
-        model.timeline.zoom(by: 1 + Double(event.magnification), anchorX: lanesX)
+    /// A pinch zooms around the playhead too.
+    func handleMagnify(_ event: NSEvent) {
+        model.timeline.zoom(by: 1 + Double(event.magnification), anchorX: nil)
     }
 
     /// How far right you can scroll: until the end of the project sits in
@@ -351,7 +354,7 @@ final class TimelineContainerView: NSView {
     }
 
     override func scrollWheel(with event: NSEvent) {
-        handleScroll(event, lanesX: convert(event.locationInWindow, from: nil).x - Theme.Metrics.trackHeaderWidth)
+        handleScroll(event)
     }
 
     // MARK: - Hand drag
@@ -405,17 +408,11 @@ class TimelineChildView: NSView {
 
     override func scrollWheel(with event: NSEvent) {
         guard let container else { return super.scrollWheel(with: event) }
-        container.handleScroll(event, lanesX: laneX(event))
+        container.handleScroll(event)
     }
 
     override func magnify(with event: NSEvent) {
-        container?.handleMagnify(event, lanesX: laneX(event))
-    }
-
-    /// The pointer's x in lane coordinates.
-    func laneX(_ event: NSEvent) -> CGFloat {
-        guard let container else { return 0 }
-        return container.convert(event.locationInWindow, from: nil).x - Theme.Metrics.trackHeaderWidth
+        container?.handleMagnify(event)
     }
 }
 

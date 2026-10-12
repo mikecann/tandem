@@ -10,17 +10,25 @@ import TandemRender
 
 /// Plays the timeline and owns the playhead.
 ///
-/// The render module builds the project into a composition that plays
-/// through `AVPlayer`, from 1080p proxies where they exist (`useProxies`).
-/// It can also lay an exact frame from the originals over a paused player
+/// The render module builds the project into a composition. Its picture
+/// plays through `AVPlayer`, from 1080p proxies where they exist
+/// (`useProxies`). Its sound plays through `ViewerAudio`, which reads the
+/// mix ahead of time with the same gain taps as export: an AVPlayer with
+/// the taps took half a second to start. The players run on the sound's
+/// clock. A start begins the sound as soon as the output can play it and
+/// the picture at that same host time; a change of speed sets both for
+/// the same host time, so they stay together. While paused, the sound
+/// from the playhead waits in the renderer, so play only has to start
+/// them, about 0.13 s after the key. It can also lay
+/// an exact frame from the originals over a paused player
 /// (`stillsFromOriginals`), rendered by `FrameRenderer` at the viewer's
-/// size; that's off for now, see the flag.
+/// size.
 ///
 /// Two players take turns. A rebuilt composition loads into the one that's
 /// hidden, seeks to the playhead and swaps in once its first frame is up,
 /// so an edit never flashes the viewer black or loses the playhead. If a
 /// build fails, a clock moves the playhead instead, so transport, J K L and
-/// the timeline behave the same either way.
+/// the timeline behave the same either way, silently.
 @MainActor
 @Observable
 final class PlaybackController {
@@ -47,6 +55,8 @@ final class PlaybackController {
 
     /// Keeps the screen saver and the lock screen away while it plays.
     @ObservationIgnored let keepAwake = KeepAwake()
+    /// The sound, read ahead of time; the players show the picture only.
+    @ObservationIgnored let audio: ViewerAudio
 
     /// The layers the viewer hosts: the two players (one hidden) and the
     /// paused still above them. The controller shows and hides them.
@@ -71,6 +81,19 @@ final class PlaybackController {
 
     @ObservationIgnored private let players: [AVPlayer]
     @ObservationIgnored private var outputs: [AVPlayerItemVideoOutput?] = [nil, nil]
+    /// What each player shows, for its sound once it's on screen.
+    @ObservationIgnored private var builds: [BuiltComposition?] = [nil, nil]
+    /// A start waiting for the picture to get to the playhead, the sound
+    /// to be queued from it, or the sound to say when it begins. Pausing,
+    /// or another start, replaces it.
+    @ObservationIgnored private var pendingStart: Int?
+    /// The start whose sound has been asked to begin.
+    @ObservationIgnored private var soundStarting: Int?
+    @ObservationIgnored private var starts = 0
+    /// When the start waiting was asked for, for `describe`.
+    @ObservationIgnored private var startAsked: TimeInterval = 0
+    /// Queues the sound from the playhead once it rests (`queueSound`).
+    @ObservationIgnored private var soundWork: DispatchWorkItem?
     /// The player on screen.
     @ObservationIgnored private var front = 0
     @ObservationIgnored private var timeObservers: [Any] = []
@@ -80,6 +103,8 @@ final class PlaybackController {
     @ObservationIgnored private var clock: Timer?
     @ObservationIgnored private var lastTick: TimeInterval = 0
     @ObservationIgnored private var seeking = false
+    /// Where the seek under way is going.
+    @ObservationIgnored private var seekTarget: Time?
     @ObservationIgnored private var pendingSeek: Time?
     @ObservationIgnored private var rebuildWork: DispatchWorkItem?
     @ObservationIgnored private var buildTask: Task<Void, Never>?
@@ -102,12 +127,16 @@ final class PlaybackController {
     init() {
         players = [AVPlayer(), AVPlayer()]
         playerLayers = players.map { AVPlayerLayer(player: $0) }
+        // For unattended test runs, so a screenshot session makes no sound.
+        audio = ViewerAudio(muted: Self.muted)
         for (index, player) in players.enumerated() {
             player.actionAtItemEnd = .pause
-            // For unattended test runs, so a screenshot session makes no sound.
             player.isMuted = Self.muted
-            // Local files: start at once rather than buffering first.
+            // Local files: start at once rather than buffering first. It's
+            // also what lets a start be set for a host time.
             player.automaticallyWaitsToMinimizeStalling = false
+            // The picture keeps time with the sound.
+            player.sourceClock = audio.clock
             let layer = playerLayers[index]
             layer.videoGravity = .resizeAspect
             layer.isHidden = true
@@ -132,19 +161,29 @@ final class PlaybackController {
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.scheduleRebuild(delay: 0.2) }
         }
+        audio.onInterruption = { [weak self] in
+            MainActor.assumeIsolated { self?.soundInterrupted() }
+        }
     }
 
-    /// `TANDEM_MUTED=1` silences playback and previews.
-    nonisolated static let muted = ProcessInfo.processInfo.environment["TANDEM_MUTED"] == "1"
+    /// `TANDEM_MUTED=1` silences playback and previews. Tests set it too,
+    /// before they make a viewer.
+    nonisolated(unsafe) static var muted = ProcessInfo.processInfo.environment["TANDEM_MUTED"] == "1"
 
     func invalidate() {
         keepAwake.hold(false)
+        rate = 0
+        // A cut still loading must not come on screen and start the sound.
+        buildGeneration += 1
         clock?.invalidate()
         clock = nil
         rebuildWork?.cancel()
         buildTask?.cancel()
         stillWork?.cancel()
         stillTask?.cancel()
+        soundWork?.cancel()
+        pendingStart = nil
+        audio.invalidate()
         readyObservation = nil
         for (index, player) in players.enumerated() {
             if index < timeObservers.count { player.removeTimeObserver(timeObservers[index]) }
@@ -227,8 +266,12 @@ final class PlaybackController {
                 player.pause()
                 player.replaceCurrentItem(with: nil)
                 outputs[index] = nil
+                builds[index] = nil
                 playerLayers[index].isHidden = true
             }
+            pendingStart = nil
+            audio.load(nil)
+            audio.stop()
             hideStill()
             if case EditError.notImplemented = error {
                 renderMessage = "Preview arrives with the render module"
@@ -252,6 +295,7 @@ final class PlaybackController {
         player.pause()
         player.replaceCurrentItem(with: item)
         outputs[slot] = output
+        builds[slot] = built
         readyObservation = nil
         loadStarted = ProcessInfo.processInfo.systemUptime
         player.seek(to: time.cmTime, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
@@ -298,13 +342,19 @@ final class PlaybackController {
         DrawTiming.record("new cut on screen", ProcessInfo.processInfo.systemUptime - loadStarted)
         let old = front
         let wasShowing = hasComposition
+        // Playing, the old cut stops where it is and the new one starts
+        // from there, picture and sound together (`startTogether`).
+        if wasShowing, old != slot, players[old].rate != 0 {
+            players[old].pause()
+            time = Time(cmTime: players[old].currentTime())
+        }
         front = slot
         seeking = false
         pendingSeek = nil
-        let player = players[slot]
+        pendingStart = nil
         // The playhead may have moved while the new cut loaded.
-        if player.currentTime() != time.cmTime {
-            player.seek(to: time.cmTime, toleranceBefore: .zero, toleranceAfter: .zero)
+        if players[slot].currentTime() != time.cmTime {
+            seekPlayer(to: time)
         }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -315,7 +365,9 @@ final class PlaybackController {
             players[old].pause()
             players[old].replaceCurrentItem(with: nil)
             outputs[old] = nil
+            builds[old] = nil
         }
+        audio.load(builds[slot])
         lastFrame = nil
         lastFrameTime = nil
         hasComposition = true
@@ -328,6 +380,7 @@ final class PlaybackController {
             // The still over the player is from the old cut.
             hideStill()
             scheduleStill()
+            queueSound()
         }
     }
 
@@ -483,13 +536,25 @@ final class PlaybackController {
 
     // MARK: - Transport
 
+    /// Whether the players and the sound are playing (or about to), as
+    /// opposed to the clock stepping the picture or nothing moving.
+    private var playingTogether: Bool { rate != 0 && clock == nil && hasComposition }
+
     func seek(to target: Time) {
         let clamped = min(max(target, .zero), max(duration, .zero))
         time = clamped
         if stillTime != clamped { hideStill() }
         scheduleStill()
         guard hasComposition else { return }
-        seekPlayer(to: clamped)
+        if playingTogether {
+            // Playing: both stop, and start again from there together.
+            startTogether(at: clamped)
+        } else {
+            seekPlayer(to: clamped)
+            // Scrubbing seeks many times a second, so the sound waits for
+            // the playhead to rest.
+            queueSound(after: 0.1)
+        }
     }
 
     /// Exact seeks, one at a time: while one is running, only the latest
@@ -500,6 +565,7 @@ final class PlaybackController {
             return
         }
         seeking = true
+        seekTarget = target
         let slot = front
         players[slot].seek(to: target.cmTime, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
             DispatchQueue.main.async {
@@ -509,6 +575,8 @@ final class PlaybackController {
                     if let next = self.pendingSeek {
                         self.pendingSeek = nil
                         self.seekPlayer(to: next)
+                    } else if let start = self.pendingStart {
+                        self.startIfReady(start)
                     }
                 }
             }
@@ -518,32 +586,140 @@ final class PlaybackController {
     func play(rate newRate: Double = 1) {
         if newRate > 0 && time >= duration { seek(to: .zero) }
         if newRate < 0 && time <= .zero { return }
+        let previous = rate
         rate = newRate
         keepAwake.hold(true)
         stillWork?.cancel()
         hideStill()
-        if hasComposition {
-            let player = players[front]
-            if newRate < 0, player.currentItem?.canPlayReverse == false {
-                // The composition can't run backwards, so the clock steps it.
-                player.pause()
-                startClock()
-            } else {
-                clock?.invalidate()
-                clock = nil
-                player.rate = Float(newRate)
-            }
-        } else {
+        soundWork?.cancel()
+        guard hasComposition else {
             startClock()
+            return
+        }
+        let player = players[front]
+        if newRate < 0, player.currentItem?.canPlayReverse == false {
+            // The composition can't run backwards, so the clock steps it,
+            // with no sound.
+            pendingStart = nil
+            player.pause()
+            audio.stop()
+            startClock()
+            return
+        }
+        clock?.invalidate()
+        clock = nil
+        if previous != 0, (previous < 0) == (newRate < 0), pendingStart == nil, player.rate != 0, audio.isPlaying {
+            changeSpeed(to: newRate)
+        } else {
+            startTogether()
+        }
+    }
+
+    /// Stops whatever moves, then starts the picture and the sound from
+    /// `target` (or where the picture is) together, once the player is
+    /// there and the sound is queued from there. Paused after a seek, both
+    /// usually are already, so it's only the start's lead.
+    private func startTogether(at target: Time? = nil) {
+        starts += 1
+        let start = starts
+        pendingStart = start
+        startAsked = ProcessInfo.processInfo.systemUptime
+        let player = players[front]
+        if player.rate != 0 {
+            player.pause()
+            time = target ?? Time(cmTime: player.currentTime())
+        } else if let target {
+            time = target
+        }
+        let goingTo = seeking ? pendingSeek ?? seekTarget : Time(cmTime: player.currentTime())
+        if goingTo != time {
+            seekPlayer(to: time)
+        }
+        let reverse = rate < 0
+        if !audio.isReady(at: time, reverse: reverse) {
+            audio.prime(at: time, reverse: reverse) { [weak self] in
+                MainActor.assumeIsolated { self?.startIfReady(start) }
+            }
+        }
+        startIfReady(start)
+    }
+
+    private func startIfReady(_ start: Int) {
+        guard pendingStart == start, soundStarting != start, playingTogether, !seeking, audio.isReady(at: time, reverse: rate < 0) else { return }
+        soundStarting = start
+        audio.start(rate: rate, at: time) { [weak self] host in
+            MainActor.assumeIsolated { self?.startPicture(start, at: host) }
+        }
+    }
+
+    /// The sound begins at `host`: the picture starts then too.
+    private func startPicture(_ start: Int, at host: CMTime) {
+        guard pendingStart == start, playingTogether else { return }
+        pendingStart = nil
+        soundStarting = nil
+        players[front].setRate(Float(rate), time: time.cmTime, atHostTime: host)
+        let now = CMClockGetTime(CMClockGetHostTimeClock())
+        DrawTiming.record("playback starts", ProcessInfo.processInfo.systemUptime - startAsked + (host - now).seconds)
+    }
+
+    /// J or L again while playing: both change speed at the same moment,
+    /// a start's lead from now, with the sound already queued.
+    private func changeSpeed(to newRate: Double) {
+        let player = players[front]
+        guard let timebase = player.currentItem?.timebase else { return startTogether() }
+        let host = CMClockGetTime(CMClockGetHostTimeClock()) + CMTime(seconds: ViewerAudio.startLead, preferredTimescale: 1_000_000_000)
+        let at = Time(cmTime: CMSyncConvertTime(host, from: CMClockGetHostTimeClock(), to: timebase))
+        audio.start(rate: newRate, at: at, hostTime: host)
+        player.setRate(Float(newRate), time: at.cmTime, atHostTime: host)
+    }
+
+    /// Queues the sound from the playhead while paused, so play needs only
+    /// the start's lead.
+    private func queueSound(after delay: TimeInterval = 0) {
+        soundWork?.cancel()
+        guard hasComposition, rate == 0 else { return }
+        let work = DispatchWorkItem { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self, self.rate == 0, self.hasComposition, !self.audio.isReady(at: self.time, reverse: false) else { return }
+                self.audio.prime(at: self.time, reverse: false)
+            }
+        }
+        soundWork = work
+        if delay > 0 {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+        } else {
+            work.perform()
+        }
+    }
+
+    /// The renderer threw away its sound (the output device changed):
+    /// playing, start again from the playhead; paused, queue it again.
+    private func soundInterrupted() {
+        if playingTogether {
+            startTogether()
+        } else {
+            queueSound()
         }
     }
 
     func pause() {
+        let moving = players[front].rate != 0
         rate = 0
         keepAwake.hold(false)
+        pendingStart = nil
         for player in players { player.pause() }
         clock?.invalidate()
         clock = nil
+        // Where the picture stopped is where the sound starts next time:
+        // it's queued from there again, rather than trusting what the
+        // renderer kept.
+        if hasComposition, moving {
+            time = Time(cmTime: players[front].currentTime())
+        }
+        if audio.isPlaying || audio.readyAt?.reverse == true {
+            audio.stop()
+        }
+        queueSound()
         scheduleStill()
     }
 
@@ -597,14 +773,33 @@ final class PlaybackController {
     }
 
     private func playerAdvanced(to cmTime: CMTime, slot: Int) {
-        guard hasComposition, slot == front, players[slot].rate != 0, cmTime.isNumeric else { return }
+        guard hasComposition, slot == front, cmTime.isNumeric else { return }
+        // Backwards, the player stops at the start without saying so, and
+        // may already have its rate at 0 when it says where it is.
+        if rate < 0, pendingStart == nil, cmTime <= .zero {
+            time = .zero
+            pause()
+            return
+        }
+        guard players[slot].rate != 0 else { return }
         time = Time(cmTime: cmTime)
     }
 
+    /// Where the picture and the sound are at the same moment, to check
+    /// they keep together. Nil with no composition on screen.
+    func pictureAndSoundTimes() -> (picture: Time, sound: Time)? {
+        guard hasComposition, let timebase = players[front].currentItem?.timebase else { return nil }
+        let host = CMClockGetTime(CMClockGetHostTimeClock())
+        return (Time(cmTime: CMSyncConvertTime(host, from: CMClockGetHostTimeClock(), to: timebase)), audio.time(atHost: host))
+    }
+
     private func reachedEnd() {
+        let backwards = rate < 0
         rate = 0
         keepAwake.hold(false)
-        time = duration
+        pendingStart = nil
+        time = backwards ? .zero : duration
+        audio.stop()
         scheduleStill()
     }
 }

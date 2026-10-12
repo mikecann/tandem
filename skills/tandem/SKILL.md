@@ -43,7 +43,15 @@ rounds up.
 4. **Check.** `tandem check --changed` before you hand back. It renders
    what you changed and finds black frames, flickers, green screen that
    didn't key and white blocks. Fix every problem it reports. Its notes
-   (soft zooms) are judgement calls.
+   are judgement calls, but go through each one:
+   - soft zooms;
+   - dead air: 0.8 s or more of a still picture with nothing said and no
+     sound effect or music swell. Cut it, or keep it only if the pause
+     earns it (see "Longer gaps where they earn it");
+   - page changes with no transition: the screen recording turns to a new
+     page and nothing covers it. Push it if it's a page in an explainer or
+     slides (see "Page changes in an explainer or slides"); a demo button
+     that redraws the page can show up too.
 5. **Hand back.** Open the project in the app for Mike with
    `open "<video folder>/<name>.tandem"` (skip it if `tandem status` says
    the app already has it open), rather than asking him to open it. Then
@@ -83,14 +91,17 @@ and the music (Build Your Own Convex retro).
   Dock popping up, him looking blank before the next section. He flagged
   about 15 of those 1 to 3 s holds as "awkward silence" in Build Your Own
   Convex. Look at the frames: a mean frame difference can't tell an
-  animation from a click or a page flick. One exception: a celebration line
+  animation from a click or a page flick. `tandem check` notes the still,
+  silent ones as dead air: Mike only caught one at 3:56 on his final watch,
+  and it cost a 13.7 GB re-export. One exception: a celebration line
   ("Congratulations, party time") cuts straight on, even over confetti; he
   doesn't want to sit there silently smiling.
 - **No clips under 2 s,** where all it takes is putting back a pause of a
   second or less between sentences. Never bring back a thinking pause or a
   long silence to do it.
 - **The ending:** run on about 5 s after the sign-off, fade to black, and
-  fade the music out with it.
+  fade the music out with it. Run on with the real footage: a freeze of
+  his last frame "looks weird" (What I Need video, 2026-10-09).
 - **Mid-sentence pauses:** close his thinking pauses, 0.5 s or longer,
   right up (to about 0.08 s), so a sentence sounds like one thought. Leave
   shorter ones (a breath, a natural pause) as he said them: closing every
@@ -127,13 +138,22 @@ From his review comments on the Daytona and Build Your Own Convex videos
 - **Show what he says.** When he names a thing (a dashboard table, a docs
   page, a claim someone made, a price), put the real thing on screen while
   he says it. A highlight (the $200 free credit) appears when he says it,
-  not before.
+  not before. When he mentions a person (Jamie Turner, Convex's CEO), put
+  their photo above their name's lower third.
+- **One thing at a time.** A card with the wrong and the right example side
+  by side was "a bit too much to read at the same time as listen to what
+  I'm saying": put each up on its own as he says it (What I Need video,
+  2026-10-09). Text he points at must be readable on a phone; if a real
+  page's line is too small ("Mad Scientist @ convex.dev" in his X bio),
+  mock that bit up bigger rather than shrinking the page.
 - **Section cards: about 3.2 s.** 4 to 4.8 s felt a touch long, 2 s far too
   short. "A touch shorter" means a modest change, not the number he floats.
   To lengthen or shorten a card, open or close time only in the take's gap
   under it (`insertTime` or `rippleDeleteRange`). The cards wipe over the
   edges of speech. Then stretch the music bed that spans the card, because
-  clips that span an inserted point don't grow.
+  clips that span an inserted point don't grow. Titles and subtitles have
+  to make sense on their own: he swapped "Adding it" for "Setup", and
+  "VIBES FIRST, THEN DATA" "doesn't really make any sense".
 - **Music around cards.** The track plays through the whole card and never
   cuts out under it. A new track starts right after a card ends, at chapter
   breaks only. Swell about +14 dB in the card's speech-free middle with
@@ -153,9 +173,15 @@ From his review comments on the Daytona and Build Your Own Convex videos
   about 85 BPM, with no hi-hats, bells, glockenspiel or marimba.
 - **Linked sounds:** a card's whooshes are linked to it, so trim either with
   `"includeLinked": false` or you drag the other along.
-- **On-screen text moves in and out.** A question or callout slides in and
-  slides off (position keyframes), rather than popping in and vanishing. He
-  liked the typewriter reveal with a typing sound.
+- **On-screen text moves in and out,** in his words. A question or callout
+  slides in and slides off (position keyframes), rather than popping in and
+  vanishing. He liked the typewriter reveal with a typing sound. Use his
+  exact words, a word or phrase at a time as he says them: "WHAT, NOT HOW"
+  over "what to do next, not how to do it" "doesn't align with what I
+  actually say". A cliché he's sending up gets a gag: "one weird trick"
+  went up word by word with WEIRD wobbling to a wobble sound, and "game
+  changer" flashed and shook to three air horns (What I Need video,
+  2026-10-09).
 - **Demos where speed is the point** play in real time, with no cuts, so
   viewers can see how fast it really is.
 - **Demo sound effects land on the picture.** Snap each sound to the first
@@ -173,9 +199,26 @@ From his review comments on the Daytona and Build Your Own Convex videos
   visually. Check the page flip isn't within half the push's length of the
   cut, or a borrowed frame shows the wrong page. For a flip inside a clip,
   freeze 0.35 s either side of it (`freezeFrame` clips) and push between
-  them. Find every page change from the screen recording itself (diff its
-  frames or run scene detection), not from your cue list: one built from
-  cues missed 10 on Build Your Own Convex, and Mike pushed them by hand.
+  them. Find every page change from the screen recording itself, not from
+  your cue list: one built from cues missed 10 on Build Your Own Convex,
+  and Mike pushed them by hand. `tandem check` lists the ones with no
+  transition as page change notes.
+- **Picture-in-picture only when he's driving the screen.** When Mike clicks
+  and moves the mouse on a recording, he sits in the corner (pipRight) over
+  it. When he's reading a script to camera, B-roll goes full screen on the
+  B-roll track above him and the edit cuts back to him every so often: no
+  corner ("What I need from you" video, 2026-10-09: "this is not a picture
+  in picture video"). Give long runs of B-roll a 2 s+ cut-back to him on a
+  reaction or bridging line, and tell the B-roll builder which layout it's
+  for before it renders, since a corner-safe layout looks off-centre full
+  screen. Cut back for an aside he acts out, too: "Bruce being one of the
+  Mac minis in my house here" wanted his face ("it's the important things
+  to focus on my face when I'm saying something like that").
+- **Break up long talking-head stretches.** A 10 s opening line in the cold
+  open and a 14 s run mid-video both got "break up this big long talking
+  head section". A cartoon (`mike-cartoon-broll`) suits a feeling ("so
+  frustrated... so much text"); a screen that carries the example on suits
+  a point.
 - **Screen recordings fill the frame,** for people watching on a phone:
   one static `zoomToRegion` per page, fitted to the content with a small
   margin, at most 1.5x, and no zoom changes within a page.
@@ -187,8 +230,99 @@ From his review comments on the Daytona and Build Your Own Convex videos
 - **Before uploading,** watch the start of the export, where sync problems
   show first. The limiter takes about 8 dB off his voice's peaks to reach
   -14 LUFS, and he hears that as artificial, so he asked for -16 after
-  Daytona: `updateSettings {"patch": {"loudnessTarget": -16}}`. Every
-  export preset masters to the project's target and says what it used.
+  Daytona: `updateSettings {"patch": {"loudnessTarget": -16}}`. Set it when
+  the edit starts, not at the end: Let's Build It sat at -14 until the
+  last round, where the limiter squashed 18 s of it (up to 10 dB off his
+  loudest words), and -16 left 4 s. Every export preset masters to the
+  project's target and says what it used.
+
+### A second voice: the Let's Build It announcement (with his son Josh)
+
+A personal video for X and YouTube (October 2026): no Convex branding,
+transitions or swipes. Export `youtube1080` for X and `youtube4k` for
+YouTube.
+
+- **Lift the quieter voice, not Mike.** Each of Josh's lines gets one gain
+  that brings it up to Mike's level (up to +24 dB), ramping in over about
+  0.35 s before and out over 0.5 s after, and stopping short of anything
+  that isn't Josh (a breath, Mike's next word). Mike stays at one steady
+  level: levelling his words up and down was "quite distracting". Where he
+  turns from the mic to talk to Josh, lift that whole stretch by one amount
+  (+6 dB), and give a phrase that trails off a further 10 dB its own extra
+  lift. Keep dips on his loud words small: he took a -9 dB dip on a shouted
+  "Cool!" back to about -3.
+- **Check each word, not just the line.** A child's word can fade at its
+  end inside a lift: the "-tion" of Josh's "question" sat 10 dB under its
+  start, so Mike only heard the "Q". Pitch alone mistakes who's talking (a
+  120 Hz "Yeah?" was Mike, and Josh's "Dad?" came a second before the line
+  it belonged to), so check the picture and where Mike put his comment.
+- **Their lines pop up as text, word by word as they say them.** One text
+  clip per step holding the words so far, with the left edge fixed so the
+  line grows to the right: measure each prefix's width with `tandem frame`
+  in a scratch project and set each clip's x. The first step lasts the
+  0.25 s pop and later ones at least 0.12 s, so merge words said faster.
+  The `words` field only highlights the spoken word, so it can't do this.
+  No full word captions on an announcement video: "I don't think people do
+  them in announcement videos".
+- **iPad recordings show whole,** over a blurred, darkened copy of
+  themselves on the track below (scale 1.3, blur 60, exposure -1). Filling
+  16:9 crops the app's edges, and he called that cut off.
+- **Keep his mic in the corner cutout.** The cutout can drop the desk mic,
+  so the screen shows through it. An include repair mask over the mic
+  (`video.cutout.repairMasks`, a rounded rectangle in fractions of the
+  source frame) fixes every corner clip of the take; check frames across
+  them for holes. Slide the corner off when he turns back to stare at the
+  camera mid-demo: "a bit weird".
+- **A website he names shows as its live homepage,** scrolling slowly in a
+  plain browser window (traffic lights, an address bar with the domain)
+  over a blurred copy of the page. Playwright captures one frame per scroll
+  position and then composes the window at 4K; the recipe is in
+  `~/dev/convex/convex-videos/lets-build-it-announcement/.work/screen-build/`.
+
+### Shorts cut from a conference talk: James's Abstract keynote
+
+Two 9:16 shorts from a filmmaker's 1080p multi-camera edit of James Cowling's
+talk (October 2026), for the team to see in Slack first. The project,
+scripts and the speaker tracker are in
+`~/dev/convex/convex-videos/abstract-clips/` (`.work/`).
+
+- **Music goes in before his big watch, on a personal video too.** Let's
+  Build It went to export with none, and he noticed afterwards: "we
+  haven't got any music in the background". Three ElevenLabs beds by
+  section (playful for the intro and demo, warm and curious in the middle,
+  heartfelt for the sign-off), all ukulele, acoustic guitar, soft piano,
+  brushed drums and warm bass at 95 to 100 BPM, with no bells, glockenspiel
+  or marimba under the game's sounds, at -45 LUFS. He passed them first
+  time: "musics good".
+- **Full-bleed, not framed.** Mike compared a framed layout (hook title
+  above a square window of the talk over a blurred copy, captions below)
+  with a 9:16 crop on the speaker, and picked full-bleed: "the full bleed is
+  probably better". Use `tandem new --portrait` and crop each camera angle
+  separately (blade at the filmmaker's cuts). Where the speaker walks, follow
+  him with `video.transform.position` keyframes every 0.5 s from a smoothed
+  track. Track the upper body only: on the front shot the light wood floor
+  pulled a whole-frame track off him. A 1080p wide shot cropped to 9:16 goes
+  soft past about 1.35x; the raw camera files would crop better.
+- **A film clip or slide inside the talk stays whole,** in a square window
+  over a blurred copy. Cropping it to 9:16 split the two actors.
+- **The hook title only over the opening shot,** sliding off at the cut to
+  the close-up: on full-bleed close-ups it covered the speaker's face. The
+  speaker's name ("James Cowling, Convex CTO, at Abstract") stays up longer,
+  until the first jump cut (about 7 s), moved up above his head on the
+  close-up: Mike asked for it longer. Captions at `--y 0.70`.
+- **A pro-filmed edit has no webcam lag.** `tandem new` gives a camera file
+  in `source/` the 80 ms picture delay; clear it with
+  `tandem sync 0 --media <id>`.
+- **Cutting a speaker's "right?"s:** only where there's a gap after it.
+  Where it runs straight into the next word ("economy, right? And..."),
+  leave it. The transcript's word times ran about 0.2 s early on this
+  footage, so find the edges on a spectrogram, and don't trust the
+  transcript view after the cut: it hid "You're" and "That's" that were
+  still in the audio. Copy fixed captions across rather than running
+  `tandem captions` again, which drops those words.
+- **B-roll never freezes.** Holding a 6 s cartoon's last frame for 2.85 s to
+  cover a line read as a freeze frame to Mike. Pick a span the clip fits,
+  or slow it a touch (0.93x was invisible).
 
 ## Rules
 

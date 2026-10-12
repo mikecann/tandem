@@ -74,7 +74,8 @@ public struct BuiltComposition: @unchecked Sendable {
     public var composition: AVComposition
     public var videoComposition: AVVideoComposition
     /// Each audio track's gain, applied to its samples by a tap
-    /// (`GainTap`), for the viewer and export alike.
+    /// (`GainTap`). Export reads with it; the viewer's sound
+    /// (`ViewerAudio`) reads through taps of its own, the same gains.
     public var audioMix: AVAudioMix
     public var renderSize: CGSize
     public var duration: Time
@@ -94,13 +95,16 @@ public struct BuiltComposition: @unchecked Sendable {
         self.warnings = warnings
     }
 
-    /// A player item ready for the viewer.
+    /// A player item ready for the viewer: the picture only. The viewer's
+    /// sound is read ahead of time by `ViewerAudio`, because an AVPlayer
+    /// playing the mix through its gain taps takes half a second to start.
     public func makePlayerItem() -> AVPlayerItem {
-        let item = AVPlayerItem(asset: composition)
+        let picture = (composition.mutableCopy() as? AVMutableComposition) ?? AVMutableComposition()
+        for track in picture.tracks(withMediaType: .audio) {
+            picture.removeTrack(track)
+        }
+        let item = AVPlayerItem(asset: picture)
         item.videoComposition = videoComposition
-        item.audioMix = audioMix
-        // Speed changes keep their pitch, as they do in export.
-        item.audioTimePitchAlgorithm = .spectral
         return item
     }
 }

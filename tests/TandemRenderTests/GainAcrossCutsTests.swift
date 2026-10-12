@@ -10,9 +10,14 @@ import TandemMedia
 /// of a second, a keyframed ramp inside a clip landed late, and the 3 ms
 /// fades at hard cuts never happened. A tap on each track now applies the
 /// gain to the samples, for the viewer and export alike. These read the mix
-/// the way export does, which the old volume ramps lagged in just the same
-/// way as the player.
+/// the way export does and the way the viewer does (`ViewerAudio`'s
+/// stream, from a seek to where reading starts), and both must land.
 final class GainAcrossCutsTests: XCTestCase {
+    /// How a mix is read: export's reader, or what the viewer queues for
+    /// its renderer after a seek.
+    enum Reading: String, CaseIterable {
+        case export, viewer
+    }
     static let rate = 48_000
 
     /// A steady 1 kHz tone: 48 samples a cycle, so any whole millisecond
@@ -122,6 +127,42 @@ final class GainAcrossCutsTests: XCTestCase {
         return result.left
     }
 
+    /// The left channel from `start` to `end`, read one way or the other.
+    func heard(_ built: BuiltComposition, from start: Double, to end: Double, by reading: Reading, file: StaticString = #filePath, line: UInt = #line) async throws -> [Float] {
+        switch reading {
+        case .export: return try await mix(built, from: start, to: end, file: file, line: line)
+        case .viewer: return try await viewerMix(built, from: start, to: end, file: file, line: line)
+        }
+    }
+
+    /// The left channel of what the viewer queues for its renderer after a
+    /// seek to `start`, up to `end`. On a thread of its own with a time
+    /// limit, like `mix`.
+    func viewerMix(_ built: BuiltComposition, from start: Double, to end: Double, file: StaticString = #filePath, line: UInt = #line) async throws -> [Float] {
+        final class Result: @unchecked Sendable { var left: [Float] = [] }
+        let result = Result()
+        let finished = DispatchSemaphore(value: 0)
+        let mix = ViewerMix(built)
+        let wanted = Int(((end - start) * Double(Self.rate)).rounded())
+        Thread {
+            defer { finished.signal() }
+            let sound = ForwardSound(mix, from: ViewerAudio.frame(of: t(start)))
+            while result.left.count < wanted, let chunk = sound.next() {
+                result.left += stride(from: 0, to: chunk.samples.count, by: 2).map { chunk.samples[$0] }
+            }
+            sound.cancel()
+        }.start()
+        let done = await withCheckedContinuation { (resume: CheckedContinuation<Bool, Never>) in
+            DispatchQueue.global().async { resume.resume(returning: finished.wait(timeout: .now() + 20) == .success) }
+        }
+        guard done else {
+            XCTFail("reading the viewer's sound from \(start) to \(end) s stalled", file: file, line: line)
+            return []
+        }
+        XCTAssertGreaterThanOrEqual(result.left.count, wanted, "the viewer's sound runs to the end of the timeline", file: file, line: line)
+        return Array(result.left.prefix(wanted))
+    }
+
     /// RMS level in dB of `seconds` of `samples` from `time` (seconds after
     /// the first sample).
     func level(_ samples: [Float], at time: Double, seconds: Double) -> Double {
@@ -176,12 +217,15 @@ final class GainAcrossCutsTests: XCTestCase {
         let project = smallProject(video: [], audio: [Track(kind: .audio, name: "Voice", clips: [a, b])], media: [item])
         let built = try await CompositionBuilder.build(RenderContext(project: project, folder: media.projectFolder))
 
-        // Read from part way in, as a review clip does.
-        let samples = try await mix(built, from: 1.5, to: 3.0)
-        assertSteadyAfterCut(samples, readFrom: 1.5, cut: 2)
-        // A is at +12 dB right up to its own fade out.
-        let a12 = level(samples, at: 1.99 - 1.5, seconds: 0.005) - level(samples, at: 2.5 - 1.5, seconds: 0.2)
-        XCTAssertEqual(a12, 12, accuracy: 0.2)
+        // Read from part way in, as a review clip does and as the viewer
+        // does after a seek.
+        for reading in Reading.allCases {
+            let samples = try await heard(built, from: 1.5, to: 3.0, by: reading)
+            assertSteadyAfterCut(samples, readFrom: 1.5, cut: 2, reading.rawValue)
+            // A is at +12 dB right up to its own fade out.
+            let a12 = level(samples, at: 1.99 - 1.5, seconds: 0.005) - level(samples, at: 2.5 - 1.5, seconds: 0.2)
+            XCTAssertEqual(a12, 12, accuracy: 0.2, reading.rawValue)
+        }
     }
 
     /// The 3 ms fades either side of a hard cut, which keep it from
@@ -194,14 +238,16 @@ final class GainAcrossCutsTests: XCTestCase {
         let b = Clip(id: "clip_b", content: .media(mediaID: item.id), start: t(2), duration: t(2), sourceStart: t(6))
         let project = smallProject(video: [], audio: [Track(kind: .audio, name: "Voice", clips: [a, b])], media: [item])
         let built = try await CompositionBuilder.build(RenderContext(project: project, folder: media.projectFolder))
-        let samples = try await mix(built, from: 1.9, to: 2.1)
-        // A constant source, so every sample shows the gain it got.
-        func gain(_ time: Double) -> Double { Double(samples[Int(((time - 1.9) * Double(Self.rate)).rounded())]) / 0.25 }
-        XCTAssertEqual(gain(1.996), 1, accuracy: 0.001)
-        XCTAssertEqual(gain(1.9985), 0.5, accuracy: 0.01)
-        XCTAssertEqual(gain(2.0), 0, accuracy: 0.01)
-        XCTAssertEqual(gain(2.0015), 0.5, accuracy: 0.01)
-        XCTAssertEqual(gain(2.004), 1, accuracy: 0.001)
+        for reading in Reading.allCases {
+            let samples = try await heard(built, from: 1.9, to: 2.1, by: reading)
+            // A constant source, so every sample shows the gain it got.
+            func gain(_ time: Double) -> Double { Double(samples[Int(((time - 1.9) * Double(Self.rate)).rounded())]) / 0.25 }
+            XCTAssertEqual(gain(1.996), 1, accuracy: 0.001, reading.rawValue)
+            XCTAssertEqual(gain(1.9985), 0.5, accuracy: 0.01, reading.rawValue)
+            XCTAssertEqual(gain(2.0), 0, accuracy: 0.01, reading.rawValue)
+            XCTAssertEqual(gain(2.0015), 0.5, accuracy: 0.01, reading.rawValue)
+            XCTAssertEqual(gain(2.004), 1, accuracy: 0.001, reading.rawValue)
+        }
     }
 
     /// A camera take normalised from -28 to -20 LUFS (+8 dB), keyframed to
@@ -253,8 +299,10 @@ final class GainAcrossCutsTests: XCTestCase {
             ], media: [camera, bed, whoosh])
             let built = try await CompositionBuilder.build(RenderContext(project: project, folder: media.projectFolder, assets: assets))
             XCTAssertGreaterThanOrEqual(built.audioMix.inputParameters.count, 3, arrangement.name)
-            let samples = try await mix(built, from: 3.5, to: 5.0)
-            assertSteadyAfterCut(samples, readFrom: 3.5, cut: cut, arrangement.name)
+            for reading in Reading.allCases {
+                let samples = try await heard(built, from: 3.5, to: 5.0, by: reading)
+                assertSteadyAfterCut(samples, readFrom: 3.5, cut: cut, "\(arrangement.name), \(reading)")
+            }
         }
     }
 
@@ -270,23 +318,25 @@ final class GainAcrossCutsTests: XCTestCase {
         clip.keyframes["audio.gainDB"] = gainKeyframes([(1.0, 0), (1.15, 16), (2.0, 16), (4.0, -20), (5.0, -20)])
         let project = smallProject(video: [], audio: [Track(kind: .audio, name: "Voice", clips: [clip])], media: [item])
         let built = try await CompositionBuilder.build(RenderContext(project: project, folder: media.projectFolder))
-        let samples = try await mix(built, from: 0.5, to: 5.5)
         let envelope = RenderPlanner.plan(project, format: nil, assets: nil).audioSegments[0].envelope
-        var worst = 0.0
-        var previous: Double?
-        var biggestStep = 0.0
-        var time = 0.6
-        while time < 5.4 {
-            let heard = Double(samples[Int(((time - 0.5) * Double(Self.rate)).rounded())]) / 0.05
-            let planned = gainAt(envelope, t(time))
-            worst = max(worst, abs(20 * log10(heard / planned)))
-            if let previous { biggestStep = max(biggestStep, abs(20 * log10(heard / previous))) }
-            previous = heard
-            time += 0.001
+        for reading in Reading.allCases {
+            let samples = try await heard(built, from: 0.5, to: 5.5, by: reading)
+            var worst = 0.0
+            var previous: Double?
+            var biggestStep = 0.0
+            var time = 0.6
+            while time < 5.4 {
+                let heard = Double(samples[Int(((time - 0.5) * Double(Self.rate)).rounded())]) / 0.05
+                let planned = gainAt(envelope, t(time))
+                worst = max(worst, abs(20 * log10(heard / planned)))
+                if let previous { biggestStep = max(biggestStep, abs(20 * log10(heard / previous))) }
+                previous = heard
+                time += 0.001
+            }
+            XCTAssertLessThan(worst, 0.05, "dB from the planned curve, \(reading)")
+            // The fast rise is 16 dB in 150 ms: about 0.11 dB a millisecond.
+            XCTAssertLessThan(biggestStep, 0.2, "dB in one millisecond, \(reading)")
         }
-        XCTAssertLessThan(worst, 0.05, "dB from the planned curve")
-        // The fast rise is 16 dB in 150 ms: about 0.11 dB a millisecond.
-        XCTAssertLessThan(biggestStep, 0.2, "dB in one millisecond")
     }
 
     /// Mike's other case: a long voice clip, normalised up 8 dB, keyframed
@@ -336,25 +386,28 @@ final class GainAcrossCutsTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(built.audioMix.inputParameters.count, 3)
         XCTAssertGreaterThanOrEqual(built.composition.tracks(withMediaType: .video).count, 3)
 
-        // Read from part way through the clip, as `tandem clip` does.
+        // Read from part way through the clip, as `tandem clip` does and as
+        // the viewer does after a seek there.
         let from = 5.0
-        let samples = try await mix(built, from: from, to: 9.0)
         let plan = RenderPlanner.plan(project, format: nil, assets: assets)
         let envelope = try XCTUnwrap(plan.audioSegments.first { $0.clipID == "clip_talk" }).envelope
-        let base = level(samples, at: 8.5 - from, seconds: 0.2) - 20 * log10(gainAt(envelope, t(8.5)))
-        // Every millisecond against the keyframes.
-        var worst = 0.0, worstAt = 0.0
-        var time = 6.5
-        while time < 8.0 {
-            let heard = level(samples, at: time - from, seconds: 0.001)
-            let planned = base + 20 * log10(gainAt(envelope, t(time + 0.0005)))
-            if abs(heard - planned) > worst { worst = abs(heard - planned); worstAt = time }
-            time += 0.001
+        for reading in Reading.allCases {
+            let samples = try await heard(built, from: from, to: 9.0, by: reading)
+            let base = level(samples, at: 8.5 - from, seconds: 0.2) - 20 * log10(gainAt(envelope, t(8.5)))
+            // Every millisecond against the keyframes.
+            var worst = 0.0, worstAt = 0.0
+            var time = 6.5
+            while time < 8.0 {
+                let heard = level(samples, at: time - from, seconds: 0.001)
+                let planned = base + 20 * log10(gainAt(envelope, t(time + 0.0005)))
+                if abs(heard - planned) > worst { worst = abs(heard - planned); worstAt = time }
+                time += 0.001
+            }
+            XCTAssertLessThan(worst, 0.3, String(format: "dB from the keyframes, worst at %.3f s, %@", worstAt, reading.rawValue))
+            // It's back to 0 dB (plus the normalising) at the keyframe, not later.
+            let settled = level(samples, at: 7.3 - from, seconds: 0.01) - base
+            XCTAssertEqual(settled, 20 * log10(gainAt(envelope, t(7.31))), accuracy: 0.3, reading.rawValue)
         }
-        XCTAssertLessThan(worst, 0.3, String(format: "dB from the keyframes, worst at %.3f s", worstAt))
-        // It's back to 0 dB (plus the normalising) at the keyframe, not later.
-        let settled = level(samples, at: 7.3 - from, seconds: 0.01) - base
-        XCTAssertEqual(settled, 20 * log10(gainAt(envelope, t(7.31))), accuracy: 0.3)
     }
 
     // MARK: - Formats
@@ -395,12 +448,15 @@ final class GainAcrossCutsTests: XCTestCase {
         let built = try await CompositionBuilder.build(RenderContext(project: project, folder: media.projectFolder))
 
         // The whole timeline, and from part way into each clip, as review
-        // clips start.
+        // clips start and as the viewer starts after a seek.
         let whole = try await mix(built, from: 0, to: 8)
         XCTAssertEqual(whole.count, 8 * Self.rate)
         for start in [0.5, 2.25, 3.6, 6.1] {
             let part = try await mix(built, from: start, to: start + 1.5)
             XCTAssertEqual(part.count, Int(1.5 * Double(Self.rate)), "from \(start) s")
+            let viewer = try await viewerMix(built, from: start, to: start + 1.5)
+            XCTAssertEqual(viewer.count, part.count, "the viewer from \(start) s")
+            XCTAssertLessThanOrEqual(zip(viewer, part).map { abs($0 - $1) }.max() ?? 1, 1e-6, "the viewer plays what export reads, from \(start) s")
         }
         // Every clip at its own gain right after its cut: its file's level
         // plus the clip's gain. (Writing mono AAC from stereo takes 3 dB
@@ -442,9 +498,11 @@ final class GainAcrossCutsTests: XCTestCase {
         assertSteadyAfterCut(samples, readFrom: 1.5, cut: 2)
     }
 
-    /// The viewer plays the same mix: its gain is in the taps, and no input
-    /// has volume ramps for AVFoundation to lag.
-    func testThePlayerItemCarriesTheGainTaps() async throws {
+    /// The viewer's player shows the picture only. Its sound comes from
+    /// `ViewerAudio`, which reads the mix through taps of its own with each
+    /// track's gain, and no input has volume ramps for AVFoundation to lag.
+    @MainActor
+    func testTheViewerReadsItsSoundThroughTheGainTaps() async throws {
         let media = try TestMedia()
         try wav(media, "tone.wav", seconds: 12, sample: Self.tone(peakDB: -20))
         let item = MediaItem(id: "med_tone", path: "tone.wav", kind: .audio, role: .other, duration: t(12), hasAudio: true)
@@ -453,7 +511,17 @@ final class GainAcrossCutsTests: XCTestCase {
         let b = Clip(id: "clip_b", content: .media(mediaID: item.id), start: t(2), duration: t(3), sourceStart: t(5))
         let project = smallProject(video: [], audio: [Track(kind: .audio, name: "Voice", clips: [a, b])], media: [item])
         let built = try await CompositionBuilder.build(RenderContext(project: project, folder: media.projectFolder, useProxies: true))
-        let inputs = try XCTUnwrap(built.makePlayerItem().audioMix).inputParameters
+        let player = built.makePlayerItem()
+        XCTAssertNil(player.audioMix)
+        XCTAssertEqual((player.asset as? AVComposition)?.tracks(withMediaType: .audio).count, 0, "the player plays no sound of its own")
+        XCTAssertFalse(built.composition.tracks(withMediaType: .audio).isEmpty)
+
+        let mix = ViewerMix(built)
+        XCTAssertEqual(mix.tracks.map(\.id), built.audioMix.inputParameters.map(\.trackID))
+        XCTAssertEqual(mix.tracks.map(\.gain), built.audioGains)
+        let (reader, output) = try XCTUnwrap(mix.reader(from: 0, to: 48_000))
+        defer { reader.cancelReading() }
+        let inputs = try XCTUnwrap(output.audioMix).inputParameters
         XCTAssertFalse(inputs.isEmpty)
         XCTAssertEqual(inputs.filter { $0.audioTapProcessor == nil }.count, 0, "inputs without a gain tap")
         let ramped = inputs.filter { input in
@@ -465,7 +533,7 @@ final class GainAcrossCutsTests: XCTestCase {
         }
         XCTAssertEqual(ramped.count, 0, "inputs with volume ramps")
         // The taps have A's +12 dB up to its fade out and B's 0 dB after the cut.
-        XCTAssertEqual(built.audioGains.map { $0.gain(at: 1.99) }.max() ?? 0, Float(pow(10, 12.0 / 20)), accuracy: 0.001)
-        XCTAssertEqual(built.audioGains.map { $0.gain(at: 2.01) }.max() ?? 0, 1, accuracy: 0.001)
+        XCTAssertEqual(mix.tracks.map { $0.gain.gain(at: 1.99) }.max() ?? 0, Float(pow(10, 12.0 / 20)), accuracy: 0.001)
+        XCTAssertEqual(mix.tracks.map { $0.gain.gain(at: 2.01) }.max() ?? 0, 1, accuracy: 0.001)
     }
 }
