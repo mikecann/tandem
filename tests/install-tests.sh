@@ -58,23 +58,26 @@ if PATH="$FAKE_BIN:$PATH" "$BIN/tandem" url 'debug?out=/tmp/tree.txt' 2>/dev/nul
   echo "FAIL: tandem url sent a link without a key" >&2
   exit 1
 fi
+KEY=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
 mkdir -p "$HOME/Library/Application Support/Tandem"
-printf 'c0ffee' > "$HOME/Library/Application Support/Tandem/url-key"
+printf '%s' "$KEY" > "$HOME/Library/Application Support/Tandem/url-key"
 # A bare [[ ]] doesn't stop macOS's bash 3.2 under `set -e`, so these
-# checks say what went wrong and exit themselves.
+# checks say what went wrong and exit themselves. The link goes to the
+# selected app (here the fake one), never whichever app claims the scheme.
 opens() {
-  local got
-  got="$(PATH="$FAKE_BIN:$PATH" "$BIN/tandem" url "$1")"
-  if [[ "$got" != "$2" ]]; then
-    echo "FAIL: tandem url '$1' opened '$got', not '$2'" >&2
+  local got want
+  got="$(PATH="$FAKE_BIN:$PATH" TANDEM_APP_DIR="$APP" "$BIN/tandem" url "$1")"
+  want="$(printf '%s\n' -g -a "$APP" "$2")"
+  if [[ "$got" != "$want" ]]; then
+    echo "FAIL: tandem url '$1' opened '$got', not '$want'" >&2
     exit 1
   fi
 }
-opens 'screenshot?out=/tmp/a b.png' $'-g\ntandem://screenshot?out=/tmp/a b.png&key=c0ffee'
-opens 'command' $'-g\ntandem://command?key=c0ffee'
-opens 'tandem-dev://seek?t=3' $'-g\ntandem-dev://seek?t=3&key=c0ffee'
+opens 'screenshot?out=/tmp/a b.png' "tandem://screenshot?out=/tmp/a b.png&key=$KEY"
+opens 'command' "tandem://command?key=$KEY"
+opens 'tandem-dev://seek?t=3' "tandem-dev://seek?t=3&key=$KEY"
 # The key goes before a #fragment, in the query where the app reads it.
-opens 'seek?t=3#here' $'-g\ntandem://seek?t=3&key=c0ffee#here'
+opens 'seek?t=3#here' "tandem://seek?t=3&key=$KEY#here"
 # A link that isn't Tandem's never gets the key.
 for link in 'https://example.com/?' 'file:///tmp/a' 'tandemx://seek?t=3'; do
   if OUT="$(PATH="$FAKE_BIN:$PATH" "$BIN/tandem" url "$link" 2>/dev/null)" || [[ -n "$OUT" ]]; then

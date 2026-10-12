@@ -275,16 +275,26 @@ final class AppURLKeyTests: XCTestCase {
     func testAFileThatIsntAKeyIsReplaced() throws {
         let file = folder.appendingPathComponent("url-key")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        try Data().write(to: file)
-        let key = try AppURLKey.load(from: file)
-        XCTAssertEqual(key.value.count, 64)
-        XCTAssertEqual(try String(contentsOf: file, encoding: .utf8), key.value)
+        // Empty, and a 128-bit key, which is too short.
+        for contents in ["", String(repeating: "ab", count: 16)] {
+            try Data(contents.utf8).write(to: file)
+            let key = try AppURLKey.load(from: file)
+            XCTAssertEqual(key.value.count, 64)
+            XCTAssertEqual(try String(contentsOf: file, encoding: .utf8), key.value)
+        }
+    }
+
+    /// The `tandem url` launcher reads `$HOME/Library/Application
+    /// Support/Tandem/url-key`, so the app has to make it there.
+    func testTheAppKeepsTheKeyWhereTandemURLReadsIt() {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        XCTAssertEqual(AppURLKey.defaultFile.standardizedFileURL.path, home + "/Library/Application Support/Tandem/url-key")
     }
 
     func testAKeyFileOthersCanReadIsMadeOwnerOnly() throws {
         let file = folder.appendingPathComponent("url-key")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        let value = String(repeating: "c0ffee", count: 8)
+        let value = String(repeating: "0123456789abcdef", count: 4)
         XCTAssertTrue(FileManager.default.createFile(atPath: file.path, contents: Data(value.utf8), attributes: [.posixPermissions: 0o644]))
         XCTAssertEqual(try AppURLKey.load(from: file).value, value, "kept")
         let permissions = try FileManager.default.attributesOfItem(atPath: file.path)[.posixPermissions] as? Int

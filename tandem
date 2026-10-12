@@ -34,7 +34,9 @@ case "${1:-}" in
     fi
     LINK="$1"
     # The key only ever goes to Tandem: tandem://, or tandem-something://
-    # for a copy built under another bundle ID. Any other link is refused.
+    # for a copy built under another bundle ID. Any other link is refused,
+    # and the link is opened with $APP_DIR itself, since Launch Services
+    # could hand a scheme claimed by several apps to any of them.
     SCHEME_PATTERN='^([A-Za-z][A-Za-z0-9+.-]*)://'
     if [[ "$LINK" =~ $SCHEME_PATTERN ]]; then
       SCHEME="$(printf '%s' "${BASH_REMATCH[1]}" | tr '[:upper:]' '[:lower:]')"
@@ -58,7 +60,7 @@ case "${1:-}" in
     fi
     SEPARATOR="?"
     [[ "$LINK" == *"?"* ]] && SEPARATOR="&"
-    exec open -g "$LINK${SEPARATOR}key=$(<"$KEY_FILE")$FRAGMENT"
+    exec open -g -a "$APP_DIR" "$LINK${SEPARATOR}key=$(<"$KEY_FILE")$FRAGMENT"
     ;;
   setup)
     exec bash "$SCRIPT_DIR/setup_mac.sh"

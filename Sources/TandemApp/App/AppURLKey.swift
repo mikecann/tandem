@@ -28,8 +28,9 @@ struct AppURLKey: Equatable {
     /// The key in `file`, made the first time.
     static func load(from file: URL = defaultFile) throws -> AppURLKey {
         if let key = read(file) {
-            // One made or copied by hand may be readable by everyone.
-            try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+            // One made or copied by hand may be readable by everyone. If it
+            // can't be made owner-only, throw, so no link acts.
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
             return key
         }
         let folder = file.deletingLastPathComponent()
@@ -57,7 +58,9 @@ struct AppURLKey: Equatable {
     private static func read(_ file: URL) -> AppURLKey? {
         guard let text = try? String(contentsOf: file, encoding: .utf8) else { return nil }
         let value = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard value.count >= 32, value.allSatisfy(\.isHexDigit) else { return nil }
+        // 256 bits as hex, as `makeToken()` makes it. Anything shorter is
+        // replaced.
+        guard value.count == 64, value.allSatisfy(\.isHexDigit) else { return nil }
         return AppURLKey(value: value)
     }
 
