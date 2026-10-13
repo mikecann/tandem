@@ -24,6 +24,11 @@ Paste this into your AI coding agent (Claude Code, Codex, Cursor...):
 > Cann's personal tools, so read the README first, change anything specific to his
 > setup to suit mine, then help me get it running.
 
+Heads up, I'm not taking issues or pull requests on this one, so only I can open
+them. It's built around my setup and I don't want to be the one deciding what goes
+in, or accidentally breaking your version when I change something. Fork it and have
+your agent make it your own instead.
+
 ### Or set it up by hand
 
 You'll need macOS 15 or newer and Xcode 26 or newer with Swift 6. Some analysis
