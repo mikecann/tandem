@@ -86,6 +86,9 @@ public final class ProjectSession: @unchecked Sendable {
             Self.measuredSound(in: project) { analysis.loudness(for: $0) }
         }
         self.owner = owner
+        // A command's process ends with it, and Bark's download with it, so
+        // its transcripts wait for the model rather than leave it half done.
+        if owner == .cli { analysis.waitsForTranscriptModel = true }
         self.savedRevision = recovered ? -1 : revision
         self.recoveredEdits = recovered
     }

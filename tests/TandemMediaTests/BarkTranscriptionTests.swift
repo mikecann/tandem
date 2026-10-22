@@ -154,7 +154,7 @@ final class BarkTranscriptionTests: TempFolderTestCase {
         }
         let folder = temp.appendingPathComponent("Models/bark", isDirectory: true)
         return BarkModelStore(folder: folder, compiledFolder: folder.appendingPathComponent("compiled", isDirectory: true), files: files,
-                              remote: URL(string: "https://example.invalid/coreml/")!, fetch: { url, progress in
+                              remote: URL(string: "https://example.invalid/coreml/")!, fetch: { url, _, progress in
                                   downloads.increment()
                                   let path = url.path.replacingOccurrences(of: "/coreml/", with: "")
                                   let data = served[path] ?? contents[path]!
@@ -225,6 +225,38 @@ final class BarkTranscriptionTests: TempFolderTestCase {
         XCTAssertNotEqual(store.stamp(), ready, "so transcripts that fell back meanwhile are made again")
     }
 
+    func testADownloadCutOffLastTimeIsFinishedNotStartedAgain() async throws {
+        let contents = Data("0123456789abcdef".utf8)
+        let store = store(["weights.bin": contents])
+        let partial = store.partialFile(store.files[0])
+        try FileManager.default.createDirectory(at: partial.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try contents.prefix(6).write(to: partial)
+        RangeServer.serve(contents)
+        let downloaded = try await ModelDownload.fetch(URL(string: "https://example.invalid/coreml/weights.bin")!, into: partial,
+                                                       configuration: RangeServer.configuration()) { _ in }
+        XCTAssertEqual(try Data(contentsOf: downloaded), contents)
+        XCTAssertEqual(RangeServer.ranges, ["bytes=6-"], "it asked for the rest")
+
+        // A server that ignores the range sends it all, which starts it again.
+        try contents.prefix(6).write(to: partial)
+        RangeServer.serve(contents, honoursRange: false)
+        _ = try await ModelDownload.fetch(URL(string: "https://example.invalid/coreml/weights.bin")!, into: partial,
+                                          configuration: RangeServer.configuration()) { _ in }
+        XCTAssertEqual(try Data(contentsOf: partial), contents)
+    }
+
+    func testAPartialThatIsAllThereIsUsedWithoutDownloading() async throws {
+        let downloads = Counter()
+        let store = store(["vocab.json": Data("{}".utf8)], downloads: downloads)
+        let partial = store.partialFile(store.files[0])
+        try FileManager.default.createDirectory(at: partial.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("{}".utf8).write(to: partial)
+        try await store.prepare()
+        XCTAssertNotNil(store.readyFolder())
+        XCTAssertEqual(downloads.value, 0)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: partial.path), "placed, so the partial goes")
+    }
+
     func testThePreparerMakesTheModelReadyInTheBackgroundAndSaysSo() async throws {
         let store = store(["vocab.json": Data("{}".utf8)])
         let announced = expectation(forNotification: BarkModelStore.readyNotification, object: nil)
@@ -235,6 +267,24 @@ final class BarkTranscriptionTests: TempFolderTestCase {
         let state = await BarkModelPreparer.shared.state(of: store)
         XCTAssertFalse(state.running)
         XCTAssertNil(state.failure)
+    }
+
+    /// A `tandem` command would end the download when it exits, so its
+    /// transcripts wait for the model; the app's fall back meanwhile.
+    func testACommandWaitsForTheModelWhereTheAppFallsBack() async throws {
+        let context = JobContext(id: "t", kind: .transcript, scheduler: nil)
+        var app = store(["vocab.json": Data("{}".utf8)], autoPrepare: true)
+        app.folder = temp.appendingPathComponent("Models/app-bark", isDirectory: true)
+        app.compiledFolder = app.folder.appendingPathComponent("compiled", isDirectory: true)
+        let none = try await TranscriptJob.readyModel(app, context: context)
+        XCTAssertNil(none, "the app doesn't wait: SpeechAnalyzer stands in")
+        await BarkModelPreparer.shared.wait(for: app)
+        XCTAssertNotNil(app.readyFolder(), "while the download carries on in the background")
+
+        var command = store(["vocab.json": Data("{}".utf8)], autoPrepare: true)
+        command.waitsForModel = true
+        let models = try await TranscriptJob.readyModel(command, context: context)
+        XCTAssertEqual(models, command.compiledFolder, "the command waited for it, so Bark makes its transcript")
     }
 
     // MARK: - Falling back
@@ -291,6 +341,34 @@ final class BarkTranscriptionTests: TempFolderTestCase {
         XCTAssertFalse(analysis.needsRebuild(.transcript, key: key, settings: analysis.settings))
     }
 
+    /// The stand-in was read (and remembered) before Bark's transcript
+    /// replaced it under the same key; the same `MediaAnalysis` reads Bark's.
+    func testATranscriptRemadeWithBarkIsReadInPlaceOfTheRememberedStandIn() async throws {
+        try SyntheticMedia.writeAudioFile(to: file("source/take-camera.wav"), segments: [(1, 0.3)])
+        let folder = ProjectFolder(root: temp)
+        let take = try await MediaScanner.probe(file("source/take-camera.wav"), folder: folder)
+        let analysis = MediaAnalysis(folder: folder, encoderLock: EncoderLock())
+        analysis.barkStore = store(["vocab.json": Data("{}".utf8)])
+        let key = try XCTUnwrap(analysis.cacheKey(.transcript, for: take))
+        func commit(_ engine: String, fallback: Bool) throws {
+            let pending = try analysis.cache.begin(kind: .transcript, key: key)
+            try CacheJSON.write(Transcript(language: "en-US", engine: engine, words: [TranscriptWord(text: engine, start: .zero, end: Time(seconds: 0.5))]),
+                                to: pending.folder.appendingPathComponent(TranscriptJob.file))
+            if fallback { try TranscriptFallback(reason: "Bark 3.0 Pro isn't downloaded", model: "absent").write(to: pending.folder) }
+            // As `MediaAnalysis.make` commits a rebuild.
+            if analysis.cache.contains(kind: .transcript, key: key) { analysis.cache.remove(kind: .transcript, key: key) }
+            try analysis.cache.commit(pending, fingerprint: try XCTUnwrap(take.fingerprint), algorithmVersion: AnalysisKind.transcript.algorithmVersion,
+                                      settings: analysis.settings.canonical(for: .transcript, item: take), source: take.path)
+        }
+        try commit("SpeechAnalyzer", fallback: true)
+        XCTAssertEqual(analysis.rawTranscript(for: take)?.engine, "SpeechAnalyzer")
+        XCTAssertEqual(analysis.transcript(for: take)?.engine, "SpeechAnalyzer")
+
+        try commit("Bark 3.0 Pro", fallback: false)
+        XCTAssertEqual(analysis.rawTranscript(for: take)?.engine, "Bark 3.0 Pro")
+        XCTAssertEqual(analysis.transcript(for: take)?.words.first?.text, "Bark 3.0 Pro")
+    }
+
     /// The whole job with the model missing: SpeechAnalyzer makes the
     /// transcript and the status says so. Needs the Mac's speech services.
     func testTheJobFallsBackToSpeechAnalyzerSayingSo() async throws {
@@ -340,4 +418,45 @@ final class BarkTranscriptionTests: TempFolderTestCase {
         XCTAssertGreaterThanOrEqual(transcript.words.first?.start.seconds ?? 0, 1.05, "after the lead-in of silence, in media time")
         XCTAssertTrue(transcript.words.allSatisfy { $0.confidence != nil })
     }
+}
+
+/// Serves one file for `ModelDownload`, honouring a Range header (206 and
+/// the rest) unless told not to, and remembers the ranges it was asked for.
+final class RangeServer: URLProtocol {
+    nonisolated(unsafe) private static var contents = Data()
+    nonisolated(unsafe) private static var honoursRange = true
+    nonisolated(unsafe) static var ranges: [String] = []
+
+    static func serve(_ data: Data, honoursRange: Bool = true) {
+        contents = data
+        self.honoursRange = honoursRange
+        ranges = []
+    }
+
+    static func configuration() -> URLSessionConfiguration {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [RangeServer.self]
+        return configuration
+    }
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        var body = Self.contents
+        var status = 200
+        if let range = request.value(forHTTPHeaderField: "Range") {
+            Self.ranges.append(range)
+            if Self.honoursRange, let from = Int(range.dropFirst("bytes=".count).dropLast()) {
+                body = Self.contents.subdata(in: from..<Self.contents.count)
+                status = 206
+            }
+        }
+        let response = HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: "HTTP/1.1", headerFields: ["Content-Length": "\(body.count)"])!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: body)
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
 }

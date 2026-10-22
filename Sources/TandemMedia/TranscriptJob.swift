@@ -6,8 +6,9 @@ import TandemCore
 
 /// Word-level transcript, word times in media time. Bark 3.0 Pro makes it
 /// (`BarkTranscription`) unless the settings say SpeechAnalyzer or the
-/// locale isn't English. When Bark's model isn't here yet (it downloads in
-/// the background), fails its check or throws, SpeechAnalyzer (macOS 26)
+/// locale isn't English. When Bark's model isn't here yet (in the app it
+/// downloads in the background; a `tandem` command waits for it), fails its
+/// check or throws, SpeechAnalyzer (macOS 26)
 /// makes it instead and the job says so: its status keeps a "Made with
 /// SpeechAnalyzer" line, and `TranscriptFallback` gets the transcript made
 /// again with Bark once the model changes. Either engine streams the audio
@@ -49,10 +50,12 @@ enum TranscriptJob {
 
     /// Bark's transcript, or `Unavailable` saying why SpeechAnalyzer should
     /// make it. A model that isn't ready starts getting ready in the
-    /// background rather than holding the job up for a 1.23 GB download.
+    /// background rather than holding the job up for a 1.23 GB download,
+    /// unless the store waits for it (`tandem` commands, which would end the
+    /// download when they exit): then the job shows the download's progress
+    /// and goes on with Bark once it's ready.
     static func bark(source: URL, context: JobContext, timeRange: CMTimeRange?, store: BarkModelStore) async throws -> Transcript {
-        guard let models = store.readyFolder() else {
-            if store.autoPrepare { await BarkModelPreparer.shared.start(store) }
+        guard let models = try await readyModel(store, context: context) else {
             let state = await BarkModelPreparer.shared.state(of: store)
             if state.running {
                 throw BarkTranscription.Unavailable(reason: "\(BarkTranscription.engine) is downloading (\(Int((state.progress * 100).rounded()))%)")
@@ -66,6 +69,24 @@ enum TranscriptJob {
             if case MediaError.fileChanged = error { throw error }
             throw BarkTranscription.Unavailable(reason: "\(BarkTranscription.engine) failed: \((error as? LocalizedError)?.errorDescription ?? "\(error)")")
         }
+    }
+
+    /// The compiled model, starting its download when it isn't here, and
+    /// waiting for that when the store says to. Nil when it isn't ready.
+    static func readyModel(_ store: BarkModelStore, context: JobContext) async throws -> URL? {
+        if let models = store.readyFolder() { return models }
+        guard store.autoPrepare else { return nil }
+        await BarkModelPreparer.shared.start(store)
+        guard store.waitsForModel else { return nil }
+        var state = await BarkModelPreparer.shared.state(of: store)
+        while state.running {
+            // The job's progress is the download's for now; the line says so.
+            context.progress(state.progress, message: "\(state.message) (\(String(format: "%.2f", Double(store.totalBytes) / 1e9)) GB, once only), then transcribing")
+            try context.checkCancellation()
+            try await Task.sleep(nanoseconds: 500_000_000)
+            state = await BarkModelPreparer.shared.state(of: store)
+        }
+        return store.readyFolder()
     }
 
     static func read(from folder: URL) -> Transcript? {

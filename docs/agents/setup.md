@@ -174,8 +174,8 @@ wait timed out.
 Tandem transcribes camera takes and whatever is on a speech track (Voice)
 by itself. `tandem transcribe <media id, clip id or path>` makes a
 transcript of any other file with sound, with the same on-device engine
-(Bark 3.0 Pro, or SpeechAnalyzer while Bark's model downloads or for a
-language other than English): a generated clip you're checking for made-up speech, a
+(Bark 3.0 Pro, or SpeechAnalyzer for a language other than English, or
+in the app while Bark's model downloads): a generated clip you're checking for made-up speech, a
 sound effect, a music cue. It marks the file (`transcribe: true` on the
 media, one undo step) so the transcript is made wherever the project is
 open, and with the app closed it waits for it and prints each file's word
@@ -186,6 +186,15 @@ app open it queues it and returns; add `--wait` to wait. Then read it with
 engine supports, say). A transcript job whose status says "Made with
 SpeechAnalyzer: ..." used the stand-in; Tandem makes it again with Bark
 once the model is there.
+
+The first transcript on a Mac needs Bark's model, a 1.23 GB download. The
+app fetches it in the background and has SpeechAnalyzer stand in
+meanwhile. A `tandem` command making transcripts itself (the app closed)
+waits for it instead, since the download would stop when the command
+exits: its progress lines say "Downloading Bark 3.0 Pro (1.23 GB, once
+only), then transcribing". If the wait times out or you stop it, the next
+command carries on the download from where it got to. With no network it
+fails fast and SpeechAnalyzer makes the transcript.
 
 ## MCP
 

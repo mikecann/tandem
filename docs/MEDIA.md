@@ -347,7 +347,17 @@ Notes on each:
   file's size and SHA-256, compiles the four packages once into
   `compiled/` and writes `compiled/ready.json` with each file's size and
   date. Jobs only compare those. The download runs in the background
-  (`BarkModelPreparer`); a transcript never waits for it. The loaded model
+  (`BarkModelPreparer`), one run per model folder in a process. In the
+  app a transcript doesn't wait for it. A `tandem` command would end the
+  download when it exits, so its sessions (owner `.cli`) set
+  `waitsForTranscriptModel` and their transcript jobs wait for the run,
+  showing its progress as theirs ("Downloading Bark 3.0 Pro (1.23 GB, once
+  only), then transcribing"), then go on with Bark; a run that fails
+  (no network) falls back as below. Each file downloads into
+  `.downloads/<sha256 prefix>-<name>` and carries on from there with an
+  HTTP range request, so a command that timed out or was stopped still got
+  somewhere; the partial is locked while it's written, so a second process
+  gets an error (and SpeechAnalyzer) rather than appending to it. The loaded model
   is shared by the process's transcripts, one piece at a time, and goes a
   minute after the last. Tests never download it.
 

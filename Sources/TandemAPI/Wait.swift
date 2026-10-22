@@ -439,7 +439,10 @@ private final class ExportLog: @unchecked Sendable {
 // MARK: - Progress
 
 /// Progress lines for a wait, from the service's job and export events:
-/// one when a job starts, every 10% and when it ends.
+/// one when a job starts, every 10%, when it goes back to the start of
+/// another stage (a transcript that waited for Bark's model to download,
+/// then transcribes) and when it ends. Running lines carry the job's message,
+/// so a long wait says what it's waiting for.
 public final class WaitProgress: @unchecked Sendable {
     private let what: WaitTarget
     private let media: Set<String>
@@ -477,10 +480,10 @@ public final class WaitProgress: @unchecked Sendable {
             let previous = last[id]
             // A job that ended before the wait began isn't news.
             if terminal && previous == nil { return nil }
-            if let previous, previous.state == state, state != "running" || step <= previous.step { return nil }
+            if let previous, previous.state == state, state != "running" || step == previous.step { return nil }
             last[id] = (state, step)
             switch state {
-            case "running": return "\(name) running \(Int((progress * 100).rounded(.down)))%"
+            case "running": return "\(name) running \(Int((progress * 100).rounded(.down)))%" + (message.map { ": \($0)" } ?? "")
             case "failed": return "\(name) failed" + (message.map { ": \($0)" } ?? "")
             default: return "\(name) \(state)"
             }

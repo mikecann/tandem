@@ -67,6 +67,16 @@ public final class MediaAnalysis: @unchecked Sendable {
         set { lock.withLock { storedBarkStore = newValue } }
     }
 
+    /// Whether transcripts wait for Bark's model to download rather than
+    /// have SpeechAnalyzer stand in meanwhile. `tandem` commands turn it on:
+    /// they exit when they're done, which would end the download, so the
+    /// app's way (download in the background, remake the transcript once
+    /// it's here) would never get there.
+    public var waitsForTranscriptModel: Bool {
+        get { lock.withLock { storedBarkStore.waitsForModel } }
+        set { lock.withLock { storedBarkStore.waitsForModel = newValue } }
+    }
+
     /// Converts video macOS can't decode; nil when it isn't installed.
     var ffmpeg: FFmpeg? {
         get { lock.withLock { storedFFmpeg } }
@@ -86,8 +96,9 @@ public final class MediaAnalysis: @unchecked Sendable {
         guard let transcriptKey = cacheKey(.transcript, for: item), let waveformKey = cacheKey(.waveform, for: item),
               let waveform = waveform(for: item) else { return raw }
         let memoKey = "aligned-\(TranscriptAlignment.version)/\(transcriptKey)/\(waveformKey)" as NSString
-        // The copy remembers what it was made from, so it follows a
-        // transcript replaced under the same key.
+        // The copy remembers what it was made from (`rawTranscript` reads
+        // the entry there now), so it follows a transcript replaced under
+        // the same key.
         if let hit = decoded.object(forKey: memoKey)?.value as? (raw: Transcript, aligned: Transcript), hit.raw == raw { return hit.aligned }
         let aligned = raw.aligned(to: waveform)
         decoded.setObject(DecodedResult((raw: raw, aligned: aligned)), forKey: memoKey)
@@ -386,9 +397,16 @@ public final class MediaAnalysis: @unchecked Sendable {
         return cache.lookup(kind: kind, key: key)
     }
 
+    /// Memoized by the entry folder as well as its key: a fallback rebuilt
+    /// under the same key (a Bark transcript replacing SpeechAnalyzer's),
+    /// here or by a `tandem` command, commits a new folder, so the copy
+    /// decoded from the old one isn't served in its place.
     private func decodedResult<T>(_ kind: AnalysisKind, for item: MediaItem, _ load: (URL) -> T?) -> T? {
         guard let key = cacheKey(kind, for: item), let folder = cache.lookup(kind: kind, key: key) else { return nil }
-        let memoKey = "\(kind.rawValue)/\(key)" as NSString
+        var info = stat()
+        guard stat(folder.path, &info) == 0 else { return nil }
+        let created = "\(info.st_birthtimespec.tv_sec).\(info.st_birthtimespec.tv_nsec)"
+        let memoKey = "\(kind.rawValue)/\(key)/\(info.st_ino)-\(created)" as NSString
         if let hit = decoded.object(forKey: memoKey)?.value as? T { return hit }
         guard let value = load(folder) else { return nil }
         decoded.setObject(DecodedResult(value), forKey: memoKey)

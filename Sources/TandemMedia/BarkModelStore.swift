@@ -13,10 +13,14 @@ import Foundation
 /// 1.2 GB of checksums; a file that changed since sends the model back
 /// through the checks and the compile.
 ///
-/// The download is 1.23 GB, so a transcript never waits for it:
+/// The download is 1.23 GB, so in the app a transcript doesn't wait for it:
 /// `BarkModelPreparer` fetches and compiles it in the background while
 /// transcripts use SpeechAnalyzer, then says so with
-/// `BarkModelStore.readyNotification`.
+/// `BarkModelStore.readyNotification`. A `tandem` command exits when its
+/// work is done, which would end that download, so its transcripts wait for
+/// the model instead (`waitsForModel`). Each file downloads into
+/// `.downloads/` and carries on from there next time, so a command that
+/// timed out or was stopped still got somewhere.
 ///
 /// Licence: CC-BY 4.0 (from NVIDIA's Parakeet TDT 0.6B v3 and Moondream's
 /// Parakeet Ultra). The model's own `LICENSE` and `NOTICE` come down with it
@@ -61,14 +65,21 @@ public struct BarkModelStore: Sendable {
     var compiledFolder: URL
     var files: [File] = Self.files
     var remote: URL = Self.remote
-    /// Downloads one URL to a temporary file the store may delete, calling
-    /// back with the bytes so far. Tests swap in copies so they never touch
-    /// the network.
-    var fetch: @Sendable (URL, @escaping @Sendable (Int64) -> Void) async throws -> URL
+    /// Downloads one URL into the partial file given (carrying on from
+    /// what's already in it) and returns the finished file, which the store
+    /// may delete, calling back with the bytes so far. Tests swap in copies
+    /// so they never touch the network.
+    var fetch: @Sendable (URL, URL, @escaping @Sendable (Int64) -> Void) async throws -> URL
     /// Whether a transcript that finds no model starts the download. Off
     /// while testing: tests never download, or compile 1.2 GB, behind
     /// anyone's back.
     var autoPrepare: Bool
+    /// Whether a transcript that finds no model waits for it (showing the
+    /// download's progress) rather than falling back to SpeechAnalyzer
+    /// while it downloads. On for `tandem` commands, which exit when they're
+    /// done and would take the download with them; off in the app, which
+    /// stays open to finish it and remake the transcript.
+    var waitsForModel = false
 
     static let standard: BarkModelStore = {
         let root = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -76,9 +87,9 @@ public struct BarkModelStore: Sendable {
         let testing = NSClassFromString("XCTestCase") != nil
         return BarkModelStore(
             folder: root, compiledFolder: root.appendingPathComponent("compiled", isDirectory: true),
-            fetch: { url, progress in
+            fetch: { url, partial, progress in
                 if testing { throw MediaError.failed("downloads are off while testing") }
-                return try await ModelDownload.fetch(url, progress: progress)
+                return try await ModelDownload.fetch(url, into: partial, progress: progress)
             },
             autoPrepare: !testing
         )
@@ -89,14 +100,14 @@ public struct BarkModelStore: Sendable {
     /// fetches missing or damaged files from the pinned commit; without, a
     /// missing file is an error.
     public init(folder: URL, compiledFolder: URL, download: Bool = false) {
-        self.init(folder: folder, compiledFolder: compiledFolder, fetch: { url, progress in
+        self.init(folder: folder, compiledFolder: compiledFolder, fetch: { url, partial, progress in
             guard download else { throw MediaError.failed("\(url.lastPathComponent) isn't in the Bark model folder") }
-            return try await ModelDownload.fetch(url, progress: progress)
+            return try await ModelDownload.fetch(url, into: partial, progress: progress)
         }, autoPrepare: false)
     }
 
     init(folder: URL, compiledFolder: URL, files: [File] = Self.files, remote: URL = Self.remote,
-         fetch: @escaping @Sendable (URL, @escaping @Sendable (Int64) -> Void) async throws -> URL, autoPrepare: Bool) {
+         fetch: @escaping @Sendable (URL, URL, @escaping @Sendable (Int64) -> Void) async throws -> URL, autoPrepare: Bool) {
         self.folder = folder
         self.compiledFolder = compiledFolder
         self.files = files
@@ -117,6 +128,14 @@ public struct BarkModelStore: Sendable {
         return names
     }
     var readyFile: URL { compiledFolder.appendingPathComponent("ready.json") }
+
+    /// Where a file downloads to until it's checked: outside the packages,
+    /// so a compile never sees one, and named by its checksum, so a part of
+    /// some other revision's file is never carried on.
+    func partialFile(_ file: File) -> URL {
+        folder.appendingPathComponent(".downloads", isDirectory: true)
+            .appendingPathComponent("\(file.sha256.prefix(16))-\((file.path as NSString).lastPathComponent)")
+    }
 
     /// What a ready model was checked against.
     struct Ready: Codable, Equatable {
@@ -173,8 +192,21 @@ public struct BarkModelStore: Sendable {
             let target = folder.appendingPathComponent(file.path)
             if !(try Self.matches(target, file)) {
                 let before = done
-                let downloaded = try await fetch(remote.appendingPathComponent(file.path)) { bytes in
-                    progress(0.95 * Double(before + bytes) / total, "Downloading Bark 3.0 Pro")
+                let partial = partialFile(file)
+                try FileManager.default.createDirectory(at: partial.deletingLastPathComponent(), withIntermediateDirectories: true)
+                // A partial that's all there (the last run stopped before
+                // checking it) is used as it is. One as long as the file or
+                // longer, but wrong, can't be the start of it.
+                let downloaded: URL
+                if try Self.matches(partial, file) {
+                    downloaded = partial
+                } else {
+                    if let size = (try? FileManager.default.attributesOfItem(atPath: partial.path))?[.size] as? NSNumber, size.int64Value >= file.size {
+                        try? FileManager.default.removeItem(at: partial)
+                    }
+                    downloaded = try await fetch(remote.appendingPathComponent(file.path), partial) { bytes in
+                        progress(0.95 * Double(before + bytes) / total, "Downloading Bark 3.0 Pro")
+                    }
                 }
                 defer { try? FileManager.default.removeItem(at: downloaded) }
                 guard try Self.matches(downloaded, file) else {
@@ -253,6 +285,7 @@ public actor BarkModelPreparer {
     struct Run {
         var task: Task<Void, Never>?
         var progress: Double = 0
+        var message = "Downloading Bark 3.0 Pro"
         var failure: String?
         var failedAt: Date?
     }
@@ -266,10 +299,12 @@ public actor BarkModelPreparer {
         guard run.task == nil, store.readyFolder() == nil else { return }
         if let failedAt = run.failedAt, Date().timeIntervalSince(failedAt) < 60 { return }
         run.failure = nil
+        run.progress = 0
+        run.message = "Downloading Bark 3.0 Pro"
         run.task = Task.detached(priority: .utility) { [self] in
             do {
-                try await store.prepare { fraction, _ in
-                    Task { await self.report(key, progress: fraction) }
+                try await store.prepare { fraction, message in
+                    Task { await self.report(key, progress: fraction, message: message) }
                 }
                 await finish(key, failure: nil)
                 NotificationCenter.default.post(name: BarkModelStore.readyNotification, object: nil)
@@ -280,10 +315,10 @@ public actor BarkModelPreparer {
         runs[key] = run
     }
 
-    /// How far a run has got, or why the last one failed.
-    func state(of store: BarkModelStore) -> (running: Bool, progress: Double, failure: String?) {
+    /// How far a run has got and what it's doing, or why the last one failed.
+    func state(of store: BarkModelStore) -> (running: Bool, progress: Double, message: String, failure: String?) {
         let run = runs[store.folder.standardizedFileURL] ?? Run()
-        return (run.task != nil, run.progress, run.failure)
+        return (run.task != nil, run.progress, run.message, run.failure)
     }
 
     /// Waits for the store's current run, if there is one (tests).
@@ -291,9 +326,10 @@ public actor BarkModelPreparer {
         await runs[store.folder.standardizedFileURL]?.task?.value
     }
 
-    private func report(_ key: URL, progress: Double) {
-        guard var run = runs[key] else { return }
-        run.progress = max(run.progress, progress)
+    private func report(_ key: URL, progress: Double, message: String) {
+        guard var run = runs[key], run.task != nil, progress >= run.progress else { return }
+        run.progress = progress
+        run.message = message
         runs[key] = run
     }
 
@@ -304,53 +340,107 @@ public actor BarkModelPreparer {
     }
 }
 
-/// One file from the network to a temporary file, with progress.
+/// One file from the network into a partial file, carrying on from what's
+/// already there with an HTTP range request, so a download that was cut off
+/// (a command that timed out, a Mac that went to sleep) loses nothing. A
+/// server that ignores the range sends the whole file, which starts it again.
+/// The partial is locked while it's written, so two processes never append
+/// to the same one.
 enum ModelDownload {
-    static func fetch(_ url: URL, progress: @escaping @Sendable (Int64) -> Void) async throws -> URL {
-        let delegate = Delegate(progress: progress)
-        let session = URLSession(configuration: .default, delegate: delegate, delegateQueue: nil)
+    /// - Parameter configuration: tests pass one with a stand-in server.
+    static func fetch(_ url: URL, into partial: URL, configuration: URLSessionConfiguration = .default,
+                      progress: @escaping @Sendable (Int64) -> Void) async throws -> URL {
+        let descriptor = open(partial.path, O_WRONLY | O_CREAT | O_EXLOCK | O_NONBLOCK, 0o644)
+        guard descriptor >= 0 else {
+            if errno == EWOULDBLOCK { throw MediaError.failed("Another Tandem is downloading \(url.lastPathComponent)") }
+            throw MediaError.failed("Couldn't write \(partial.path) (\(String(cString: strerror(errno))))")
+        }
+        let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
+        defer { try? handle.close() }
+        let offset = try handle.seekToEnd()
+        var request = URLRequest(url: url)
+        if offset > 0 { request.setValue("bytes=\(offset)-", forHTTPHeaderField: "Range") }
+        let delegate = Delegate(handle: handle, offset: Int64(offset), progress: progress)
+        let session = URLSession(configuration: configuration, delegate: delegate, delegateQueue: nil)
         defer { session.finishTasksAndInvalidate() }
-        return try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { continuation in
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
                 delegate.continuation = continuation
-                session.downloadTask(with: url).resume()
+                session.dataTask(with: request).resume()
             }
         } onCancel: {
             session.invalidateAndCancel()
         }
+        return partial
     }
 
-    final class Delegate: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
+    final class Delegate: NSObject, URLSessionDataDelegate, @unchecked Sendable {
+        let handle: FileHandle
         let progress: @Sendable (Int64) -> Void
-        var continuation: CheckedContinuation<URL, Error>?
-        private var result: Result<URL, Error>?
+        var continuation: CheckedContinuation<Void, Error>?
+        private var written: Int64
+        private var reported: Int64
+        private var failure: Error?
 
-        init(progress: @escaping @Sendable (Int64) -> Void) {
+        init(handle: FileHandle, offset: Int64, progress: @escaping @Sendable (Int64) -> Void) {
+            self.handle = handle
+            written = offset
+            reported = offset
             self.progress = progress
         }
 
-        private var reported: Int64 = 0
-
-        /// Every 8 MB: a chunk at a time would be thousands of calls.
-        func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64, totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
-            guard totalBytesWritten - reported >= 8 << 20 else { return }
-            reported = totalBytesWritten
-            progress(totalBytesWritten)
+        func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse,
+                        completionHandler: @escaping @Sendable (URLSession.ResponseDisposition) -> Void) {
+            let status = (response as? HTTPURLResponse)?.statusCode ?? 200
+            switch status {
+            case 206:
+                // Carrying on from `written`.
+                completionHandler(.allow)
+            case 200:
+                // The whole file: start the partial again.
+                do {
+                    try handle.truncate(atOffset: 0)
+                    try handle.seek(toOffset: 0)
+                    written = 0
+                    reported = 0
+                    completionHandler(.allow)
+                } catch {
+                    failure = error
+                    completionHandler(.cancel)
+                }
+            default:
+                // 416 when the partial is no use: it goes, and the next try
+                // starts from nothing.
+                if status == 416 { try? handle.truncate(atOffset: 0) }
+                failure = MediaError.failed("Downloading \(dataTask.originalRequest?.url?.lastPathComponent ?? "the model") failed (HTTP \(status))")
+                completionHandler(.cancel)
+            }
         }
 
-        func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
-            if let http = downloadTask.response as? HTTPURLResponse, http.statusCode != 200 {
-                result = .failure(MediaError.failed("Downloading \(downloadTask.originalRequest?.url?.lastPathComponent ?? "the model") failed (HTTP \(http.statusCode))"))
+        /// Every 8 MB: a chunk at a time would be thousands of calls.
+        func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+            guard failure == nil else { return }
+            do {
+                try handle.write(contentsOf: data)
+                written += Int64(data.count)
+            } catch {
+                failure = error
+                dataTask.cancel()
                 return
             }
-            // URLSession's file goes when this call returns.
-            let kept = FileManager.default.temporaryDirectory.appendingPathComponent("tandem-bark-\(UUID().uuidString)")
-            result = Result { try FileManager.default.moveItem(at: location, to: kept); return kept }
+            guard written - reported >= 8 << 20 else { return }
+            reported = written
+            progress(written)
         }
 
         func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
-            let outcome: Result<URL, Error> = error.map { .failure($0) } ?? result ?? .failure(MediaError.failed("The download ended without a file"))
-            continuation?.resume(with: outcome)
+            if let error = failure ?? error {
+                continuation?.resume(throwing: error)
+            } else {
+                try? handle.synchronize()
+                progress(written)
+                continuation?.resume()
+            }
             continuation = nil
         }
     }

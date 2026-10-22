@@ -240,6 +240,19 @@ final class WaitTests: XCTestCase {
         XCTAssertEqual(progress.lines(for: jobs([JobStatus(id: "j1", kind: .transcript, mediaID: "med_camera", state: .running, progress: 0.25)])), ["transcript med_camera running 25%"])
         XCTAssertEqual(progress.lines(for: jobs([JobStatus(id: "j1", kind: .transcript, mediaID: "med_camera", state: .done, progress: 1)])), ["transcript med_camera done"])
     }
+
+    /// A transcript that waits for Bark's model says so, and says when it
+    /// goes back to the start to transcribe.
+    func testProgressLinesSayWhatALongStageIsAndWhenTheNextStarts() {
+        let progress = WaitProgress(WaitRequest(what: .transcript, media: ["med_camera"]))
+        func running(_ fraction: Double, _ message: String) -> ServiceEvent {
+            ServiceEvent(seq: 1, kind: .jobs, jobs: [JobStatus(id: "j1", kind: .transcript, mediaID: "med_camera", state: .running, progress: fraction, message: message)])
+        }
+        let downloading = "Downloading Bark 3.0 Pro (1.23 GB, once only), then transcribing"
+        XCTAssertEqual(progress.lines(for: running(0.42, downloading)), ["transcript med_camera running 42%: \(downloading)"])
+        XCTAssertEqual(progress.lines(for: running(0, "Transcribing with Bark 3.0 Pro")), ["transcript med_camera running 0%: Transcribing with Bark 3.0 Pro"])
+        XCTAssertEqual(progress.lines(for: running(0.05, "Transcribing with Bark 3.0 Pro")), [])
+    }
 }
 
 /// With nothing holding the project, a wait runs the analysis itself and

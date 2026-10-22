@@ -36,8 +36,9 @@ your agent make it your own instead.
 You'll need macOS 15 or newer and Xcode 26 or newer with Swift 6. Some analysis
 features, such as SpeechAnalyzer transcription (the stand-in when Bark can't),
 need macOS 26. SwiftPM fetches the Lottie and FluidAudio dependencies during the
-first build. The first transcript downloads the Bark 3.0 Pro model (1.23 GB) in
-the background. Install ffmpeg if you want to
+first build. The first transcript downloads the Bark 3.0 Pro model (1.23 GB): in
+the background in the app, while a `tandem` command waits for it and shows its
+progress. Install ffmpeg if you want to
 import formats macOS can't decode, such as WebM (`brew install ffmpeg`).
 
 ```bash
