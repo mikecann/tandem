@@ -157,7 +157,7 @@ enum Help {
                     """),
         CommandHelp(name: "transcribe", usage: "tandem transcribe <media id | clip id | path>... [--wait | --no-wait] [--timeout <seconds>]", summary: "Make a transcript of any file with sound, whatever its role or track (a generated clip, a sound effect), and wait for it.", options: ["wait", "no-wait", "timeout", "label"],
                     details: """
-                    Tandem transcribes camera takes and what's on a speech track by itself. This asks for anything else with sound, with the same on-device SpeechAnalyzer, and marks the file (transcribe: true, one undo step) so the transcript is made wherever the project is open. An empty transcript means no speech.
+                    Tandem transcribes camera takes and what's on a speech track by itself. This asks for anything else with sound, with the same on-device engine (Bark 3.0 Pro; SpeechAnalyzer for a language other than English, or while Bark's model downloads, and the job says so), and marks the file (transcribe: true, one undo step) so the transcript is made wherever the project is open. An empty transcript means no speech.
                     With the app closed it waits by default, making the transcript here and printing progress; with the app open it queues it and returns, unless --wait. --no-wait only queues it. --timeout defaults to 600 seconds.
                     Then `tandem transcript <id>` reads it. Exit code 1 if a transcript failed or the wait timed out.
                     """),

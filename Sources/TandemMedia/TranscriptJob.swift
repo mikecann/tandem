@@ -4,27 +4,92 @@ import Foundation
 import Speech
 import TandemCore
 
-/// Word-level transcript with SpeechAnalyzer (macOS 26), word times in media
-/// time. The audio streams from the file a second at a time as the analyzer
-/// asks for it, so a long take never sits in memory.
+/// Word-level transcript, word times in media time. Bark 3.0 Pro makes it
+/// (`BarkTranscription`) unless the settings say SpeechAnalyzer or the
+/// locale isn't English. When Bark's model isn't here yet (it downloads in
+/// the background), fails its check or throws, SpeechAnalyzer (macOS 26)
+/// makes it instead and the job says so: its status keeps a "Made with
+/// SpeechAnalyzer" line, and `TranscriptFallback` gets the transcript made
+/// again with Bark once the model changes. Either engine streams the audio
+/// from the file, so a long take never sits in memory.
 ///
-/// The cache keeps the engine's own word times. They run end to end and
-/// swallow the pauses; `TranscriptAlignment` pulls them in to the voice
-/// when the transcript is read, so transcripts made before it existed get
-/// it too.
+/// The cache keeps the engine's own word times. SpeechAnalyzer's run end
+/// to end and swallow the pauses; `TranscriptAlignment` pulls them in to the
+/// voice when the transcript is read, so transcripts made before it existed
+/// get it too.
 enum TranscriptJob {
     static let file = "transcript.json"
 
-    static func run(source: URL, locale: String, into folder: URL, context: JobContext, timeRange: CMTimeRange? = nil) async throws {
-        guard #available(macOS 26, *) else {
-            throw MediaError.notApplicable("Transcripts need macOS 26 (SpeechAnalyzer)")
+    static func run(source: URL, settings: AnalysisSettings, into folder: URL, context: JobContext, timeRange: CMTimeRange? = nil, barkStore: BarkModelStore = .standard) async throws {
+        var fellBack: String?
+        if settings.transcriptEngine == .bark {
+            if settings.usesBark {
+                do {
+                    let transcript = try await bark(source: source, context: context, timeRange: timeRange, store: barkStore)
+                    try CacheJSON.write(transcript, to: folder.appendingPathComponent(file))
+                    return
+                } catch let unavailable as BarkTranscription.Unavailable {
+                    // Not silently: the job's status keeps this line, and the
+                    // fallback file gets the transcript made again with Bark
+                    // once the model changes (see MediaAnalysis).
+                    fellBack = unavailable.reason
+                    context.note("Made with SpeechAnalyzer: \(unavailable.reason)")
+                    try TranscriptFallback(reason: unavailable.reason, model: barkStore.stamp()).write(to: folder)
+                }
+            } else {
+                context.note("Made with SpeechAnalyzer: Bark 3.0 Pro is English only, and the transcript locale is \(settings.transcriptLocale)")
+            }
         }
-        let transcript = try await SpeechTranscription.transcribe(source: source, localeID: locale, context: context, timeRange: timeRange)
+        guard #available(macOS 26, *) else {
+            throw MediaError.notApplicable("Transcripts need macOS 26 (SpeechAnalyzer)" + (fellBack.map { " when \(BarkTranscription.engine) can't: \($0)" } ?? ""))
+        }
+        let transcript = try await SpeechTranscription.transcribe(source: source, localeID: settings.transcriptLocale, context: context, timeRange: timeRange)
         try CacheJSON.write(transcript, to: folder.appendingPathComponent(file))
+    }
+
+    /// Bark's transcript, or `Unavailable` saying why SpeechAnalyzer should
+    /// make it. A model that isn't ready starts getting ready in the
+    /// background rather than holding the job up for a 1.23 GB download.
+    static func bark(source: URL, context: JobContext, timeRange: CMTimeRange?, store: BarkModelStore) async throws -> Transcript {
+        guard let models = store.readyFolder() else {
+            if store.autoPrepare { await BarkModelPreparer.shared.start(store) }
+            let state = await BarkModelPreparer.shared.state(of: store)
+            if state.running {
+                throw BarkTranscription.Unavailable(reason: "\(BarkTranscription.engine) is downloading (\(Int((state.progress * 100).rounded()))%)")
+            }
+            throw BarkTranscription.Unavailable(reason: "\(BarkTranscription.engine) isn't downloaded" + (state.failure.map { " (\($0))" } ?? ""))
+        }
+        do {
+            return try await BarkTranscription.transcribe(source: source, context: context, timeRange: timeRange, models: models,
+                                                          vocabulary: store.folder.appendingPathComponent(BarkModelStore.vocabulary))
+        } catch let error where !(error is CancellationError) && !context.isCancelled {
+            if case MediaError.fileChanged = error { throw error }
+            throw BarkTranscription.Unavailable(reason: "\(BarkTranscription.engine) failed: \((error as? LocalizedError)?.errorDescription ?? "\(error)")")
+        }
     }
 
     static func read(from folder: URL) -> Transcript? {
         CacheJSON.read(Transcript.self, from: folder.appendingPathComponent(file))
+    }
+}
+
+/// Written next to a transcript SpeechAnalyzer made because Bark couldn't,
+/// with the state Bark's model was in. Once that changes (the model arrived,
+/// or was made ready again), `MediaAnalysis` makes the transcript again
+/// once, like `MatteFallback`.
+struct TranscriptFallback: Codable, Equatable {
+    static let file = "fallback.json"
+    var reason: String
+    /// `BarkModelStore.stamp()` when it fell back.
+    var model: String
+
+    static func read(from folder: URL) -> TranscriptFallback? {
+        guard let data = try? Data(contentsOf: folder.appendingPathComponent(file)) else { return nil }
+        return try? JSONDecoder().decode(TranscriptFallback.self, from: data)
+    }
+
+    func write(to folder: URL) throws {
+        try JSONEncoder().encode(self).write(to: folder.appendingPathComponent(Self.file))
     }
 }
 

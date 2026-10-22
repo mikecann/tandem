@@ -46,8 +46,8 @@ rounds up.
    `matte`, `proxy`, plain `tandem wait` for every job), which makes it
    itself when the app is closed. Never start `tandem serve` just to get a
    transcript, and never poll `tandem media` or `tandem status` in a sleep
-   loop. Only if SpeechAnalyzer can't do it (a language it doesn't
-   support), local Whisper runs offline:
+   loop. Only if Tandem's transcript can't do it (a language its
+   engines don't support), local Whisper runs offline:
    `mlx_whisper --model mlx-community/whisper-large-v3-turbo --language en --word-timestamps True -o "$TMPDIR" <file>`
    (one file per call; on long recordings with silences add
    `--condition-on-previous-text False`, or it loops one phrase through

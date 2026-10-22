@@ -173,16 +173,19 @@ wait timed out.
 
 Tandem transcribes camera takes and whatever is on a speech track (Voice)
 by itself. `tandem transcribe <media id, clip id or path>` makes a
-transcript of any other file with sound, with the same on-device
-SpeechAnalyzer: a generated clip you're checking for made-up speech, a
+transcript of any other file with sound, with the same on-device engine
+(Bark 3.0 Pro, or SpeechAnalyzer while Bark's model downloads or for a
+language other than English): a generated clip you're checking for made-up speech, a
 sound effect, a music cue. It marks the file (`transcribe: true` on the
 media, one undo step) so the transcript is made wherever the project is
 open, and with the app closed it waits for it and prints each file's word
 count. An empty transcript (`ready, no speech`) is an answer too. With the
 app open it queues it and returns; add `--wait` to wait. Then read it with
 `tandem transcript <id>`, or do both at once with `tandem transcript <id>
---make`. Only reach for Whisper if SpeechAnalyzer can't do it (another
-language it doesn't support, say).
+--make`. Only reach for Whisper if Tandem can't do it (a language neither
+engine supports, say). A transcript job whose status says "Made with
+SpeechAnalyzer: ..." used the stand-in; Tandem makes it again with Bark
+once the model is there.
 
 ## MCP
 

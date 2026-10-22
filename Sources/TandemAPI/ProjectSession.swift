@@ -56,6 +56,7 @@ public final class ProjectSession: @unchecked Sendable {
     private var watcher: FolderWatcher?
     private var analysisObserver: UUID?
     private var analysisWork: DispatchWorkItem?
+    private var modelObserver: NSObjectProtocol?
     private var _saveProblem: String?
     /// Set on a project this session created, until a refresh finds its
     /// camera take: the project then takes the take's frame rate
@@ -265,7 +266,15 @@ public final class ProjectSession: @unchecked Sendable {
         // Placing a take or turning on a cutout queues its analysis. A burst
         // of edits (dragging, tightening) settles first.
         let token = coordinator.observe { [weak self] _ in self?.scheduleAnalysisCheck() }
-        queue.sync { analysisObserver = token }
+        // Transcripts SpeechAnalyzer made while Bark's model downloaded are
+        // made again once it's ready.
+        let model = NotificationCenter.default.addObserver(forName: BarkModelStore.readyNotification, object: nil, queue: nil) { [weak self] _ in
+            self?.scheduleAnalysisCheck()
+        }
+        queue.sync {
+            analysisObserver = token
+            modelObserver = model
+        }
         Task { [weak self] in _ = try? await self?.refreshMedia() }
     }
 
@@ -283,17 +292,19 @@ public final class ProjectSession: @unchecked Sendable {
     }
 
     public func stopWatching() {
-        let (current, token): (FolderWatcher?, UUID?) = queue.sync {
+        let (current, token, model): (FolderWatcher?, UUID?, NSObjectProtocol?) = queue.sync {
             defer {
                 watcher = nil
                 analysisObserver = nil
+                modelObserver = nil
                 analysisWork?.cancel()
                 analysisWork = nil
             }
-            return (watcher, analysisObserver)
+            return (watcher, analysisObserver, modelObserver)
         }
         current?.stop()
         if let token { coordinator.removeObserver(token) }
+        if let model { NotificationCenter.default.removeObserver(model) }
     }
 
     public var isWatching: Bool { queue.sync { watcher != nil } }

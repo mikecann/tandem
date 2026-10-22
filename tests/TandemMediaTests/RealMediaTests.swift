@@ -405,7 +405,7 @@ final class RealMediaTests: XCTestCase {
         let before = peakMemory()
         let folder = try output("transcript-full")
         let (_, seconds) = try await time {
-            try await TranscriptJob.run(source: Self.camera, locale: "en-US", into: folder, context: context(.transcript))
+            try await TranscriptJob.run(source: Self.camera, settings: AnalysisSettings(transcriptEngine: .speechAnalyzer), into: folder, context: context(.transcript))
         }
         let transcript = try XCTUnwrap(TranscriptJob.read(from: folder))
         let after = peakMemory()
@@ -413,6 +413,32 @@ final class RealMediaTests: XCTestCase {
                       transcript.words.count, seconds, 1446 / seconds, after / 1e6, before / 1e6))
         XCTAssertGreaterThan(transcript.words.count, 2000)
         XCTAssertLessThan(after - before, 400e6, "streams instead of loading the take")
+    }
+
+    /// Bark on the whole take, with Tandem's downloaded model (or
+    /// TANDEM_BARK_MODEL's coreml folder). Its memory is the model's (about
+    /// 1.4 GB on the CPU), not the take's: one 14.75 s piece at a time.
+    func testBarkTranscriptOfTheWholeCamera() async throws {
+        try XCTSkipUnless(ProcessInfo.processInfo.environment["TANDEM_REAL_MEDIA_FULL"] == "1", "set TANDEM_REAL_MEDIA_FULL=1 for the whole take")
+        var store = BarkModelStore.standard
+        if let path = ProcessInfo.processInfo.environment["TANDEM_BARK_MODEL"] {
+            store = BarkModelStore(folder: URL(fileURLWithPath: path, isDirectory: true), compiledFolder: try output("bark-compiled"))
+            try await store.prepare()
+        }
+        try XCTSkipUnless(store.readyFolder() != nil, "Bark's model isn't on this Mac (tests never download it)")
+        let before = peakMemory()
+        let folder = try output("transcript-bark-full")
+        let job = context(.transcript)
+        let (_, seconds) = try await time {
+            try await TranscriptJob.run(source: Self.camera, settings: AnalysisSettings(), into: folder, context: job, barkStore: store)
+        }
+        let transcript = try XCTUnwrap(TranscriptJob.read(from: folder))
+        XCTAssertEqual(transcript.engine, "Bark 3.0 Pro", job.lastNote ?? "")
+        let after = peakMemory()
+        report(String(format: "Bark transcript whole camera (1446 s): %d words in %.1f s = %.0fx realtime; peak memory %.0f MB (was %.0f MB before)",
+                      transcript.words.count, seconds, 1446 / seconds, after / 1e6, before / 1e6))
+        XCTAssertGreaterThan(transcript.words.count, 2000)
+        XCTAssertLessThan(after - before, 2_500e6, "the model and one piece, not the take")
     }
 
     func peakMemory() -> Double {

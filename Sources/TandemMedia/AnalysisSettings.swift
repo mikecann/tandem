@@ -35,6 +35,17 @@ public struct AnalysisSettings: Codable, Equatable, Sendable {
     /// SpeechAnalyzer locale. en-US beat en-AU on Mike's voice (7.1% against
     /// 8.8% word error rate in the transcription spike).
     public var transcriptLocale: String
+    /// What makes transcripts: Bark 3.0 Pro by default, SpeechAnalyzer when
+    /// the locale isn't English or Bark's model isn't here yet. On ten
+    /// minutes of Mike and Ian (tandem-research spike 10), Bark Pro got 1.5%
+    /// of words wrong (0.5% by the 3-of-5 engines majority) against
+    /// SpeechAnalyzer's 5.1% (4.6%). It keeps the "um"s, which
+    /// SpeechAnalyzer mostly drops (11 of 16 against 3), so they can be cut.
+    /// And its words end about 0.15 s into a pause and start about 0.08 s
+    /// before the voice comes back, where SpeechAnalyzer's run 0.5 s on and
+    /// start 0.77 s early, covering 37 s of the clips' 134 s of pauses
+    /// against 75.
+    public var transcriptEngine: TranscriptEngine
     /// What makes the cutout matte: RVM by default, with Vision (version 2)
     /// standing in when RVM's model can't be had.
     public var matteModel: MatteModel
@@ -58,6 +69,7 @@ public struct AnalysisSettings: Codable, Equatable, Sendable {
         proxyQuality: Double = 0.78,
         proxyKeyFrameInterval: Int = 15,
         transcriptLocale: String = "en-US",
+        transcriptEngine: TranscriptEngine = .bark,
         matteModel: MatteModel = .robustVideoMatting,
         matteQuality: MatteQuality = .accurate,
         matteMode: CutoutMode = .personAndProps,
@@ -75,6 +87,7 @@ public struct AnalysisSettings: Codable, Equatable, Sendable {
         self.proxyQuality = proxyQuality
         self.proxyKeyFrameInterval = proxyKeyFrameInterval
         self.transcriptLocale = transcriptLocale
+        self.transcriptEngine = transcriptEngine
         self.matteModel = matteModel
         self.matteQuality = matteQuality
         self.matteMode = matteMode
@@ -111,7 +124,12 @@ public struct AnalysisSettings: Codable, Equatable, Sendable {
         case .waveform: values = ["rate": "\(waveformRate)"]
         case .loudness: values = [:]
         case .proxy: values = ["box": "\(proxyMaxWidth)x\(proxyMaxHeight)", "keyframes": "\(proxyKeyFrameInterval)", "quality": "\(proxyQuality)"]
-        case .transcript: values = ["locale": transcriptLocale]
+        case .transcript:
+            // SpeechAnalyzer transcripts keep the key they always had. Bark's
+            // has the engine in it, so switching to Bark remakes them.
+            var transcript = ["locale": transcriptLocale]
+            if usesBark { transcript["engine"] = BarkTranscription.cacheName }
+            values = transcript
         case .matte where matteModel == .robustVideoMatting:
             // RVM keeps what the person holds either way, so both cutout
             // modes share one matte; its own version rebuilds only RVM mattes.
@@ -127,9 +145,33 @@ public struct AnalysisSettings: Codable, Equatable, Sendable {
         return values
     }
 
+    /// Whether transcripts are Bark's: it's English only, so any other
+    /// locale gets SpeechAnalyzer whatever the engine says.
+    var usesBark: Bool {
+        transcriptEngine == .bark && TranscriptEngine.isEnglish(transcriptLocale)
+    }
+
     private static func json(_ values: [String: String]) -> String {
         let body = values.keys.sorted().map { "\"\($0)\":\"\(values[$0]!)\"" }.joined(separator: ",")
         return "{\(body)}"
+    }
+}
+
+/// What makes transcripts.
+public enum TranscriptEngine: String, Codable, Sendable, CaseIterable {
+    /// Underdog Bark 3.0 Pro (ConwayResearch, CC-BY 4.0, from NVIDIA's
+    /// Parakeet TDT 0.6B v3) on the Neural Engine through FluidAudio. English
+    /// only. Its model (1.23 GB) is downloaded on first use; until it's
+    /// here, or if it fails, SpeechAnalyzer makes the transcript and the
+    /// job says so (see `BarkTranscription`). The default.
+    case bark
+    /// Apple's SpeechAnalyzer (macOS 26), in the transcript locale.
+    case speechAnalyzer
+
+    /// "en", "en-US", "en_GB" and so on.
+    static func isEnglish(_ locale: String) -> Bool {
+        let language = locale.lowercased().split(whereSeparator: { $0 == "-" || $0 == "_" }).first
+        return language == "en"
     }
 }
 

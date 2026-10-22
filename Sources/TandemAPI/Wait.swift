@@ -148,7 +148,7 @@ extension WaitResult: ReadableResult {
 
 /// Asks for transcripts of files Tandem wouldn't otherwise transcribe
 /// (anything with sound, whatever its role or track), with the same
-/// on-device SpeechAnalyzer as camera takes. The request is saved on the
+/// on-device engine as camera takes. The request is saved on the
 /// media (`transcribe: true`), so it's made wherever the project is opened
 /// next, and with `wait` the call waits for it.
 public struct TranscribeRequest: ServiceCall {

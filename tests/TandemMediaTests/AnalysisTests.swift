@@ -548,7 +548,8 @@ final class TranscriptTests: TempFolderTestCase {
         try XCTSkipUnless(spoken, "no system voice to make test speech with")
         let folder = ProjectFolder(root: temp)
         let item = try await MediaScanner.probe(url, folder: folder)
-        let analysis = MediaAnalysis(folder: folder, encoderLock: EncoderLock())
+        // SpeechAnalyzer's own path; BarkTranscriptionTests has Bark's.
+        let analysis = MediaAnalysis(folder: folder, settings: AnalysisSettings(transcriptEngine: .speechAnalyzer), encoderLock: EncoderLock())
         let state = await analysis.waitFor(.transcript, for: item)
         XCTAssertEqual(state, .ready)
 

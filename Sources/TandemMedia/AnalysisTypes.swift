@@ -43,7 +43,7 @@ public struct TranscriptWord: Codable, Equatable, Sendable {
 
 public struct Transcript: Codable, Equatable, Sendable {
     public var language: String
-    /// For example "SpeechAnalyzer" or "whisper-medium.en".
+    /// "Bark 3.0 Pro" or "SpeechAnalyzer".
     public var engine: String
     public var words: [TranscriptWord]
 

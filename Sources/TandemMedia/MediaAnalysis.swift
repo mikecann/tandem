@@ -19,6 +19,7 @@ public final class MediaAnalysis: @unchecked Sendable {
     private let lock = NSLock()
     private var storedSettings: AnalysisSettings
     private var storedRVMStore = RVMModelStore.standard
+    private var storedBarkStore = BarkModelStore.standard
     private var storedFFmpeg = FFmpeg.locate()
     /// Requests for the picture of a file that's still being converted,
     /// by media ID: submitted once its `converted` copy lands.
@@ -58,6 +59,12 @@ public final class MediaAnalysis: @unchecked Sendable {
     var rvmStore: RVMModelStore {
         get { lock.withLock { storedRVMStore } }
         set { lock.withLock { storedRVMStore = newValue } }
+    }
+
+    /// Where Bark transcripts get their model. Tests point it elsewhere.
+    var barkStore: BarkModelStore {
+        get { lock.withLock { storedBarkStore } }
+        set { lock.withLock { storedBarkStore = newValue } }
     }
 
     /// Converts video macOS can't decode; nil when it isn't installed.
@@ -149,11 +156,21 @@ public final class MediaAnalysis: @unchecked Sendable {
     /// rebuild once the RVM model file has changed since: it arrived, or
     /// was replaced. Until then it keeps serving, and if the rebuild falls
     /// back again it records the new state, so there's one try per change.
+    /// A transcript SpeechAnalyzer made in Bark's place (`TranscriptFallback`)
+    /// goes the same way once Bark's model is ready (or ready again).
     func needsRebuild(_ kind: AnalysisKind, key: String, settings: AnalysisSettings) -> Bool {
-        guard kind == .matte, settings.matteModel == .robustVideoMatting,
-              let folder = cache.lookup(kind: kind, key: key),
-              let fallback = MatteFallback.read(from: folder) else { return false }
-        return fallback.model != rvmStore.stamp()
+        switch kind {
+        case .matte where settings.matteModel == .robustVideoMatting:
+            guard let folder = cache.lookup(kind: kind, key: key),
+                  let fallback = MatteFallback.read(from: folder) else { return false }
+            return fallback.model != rvmStore.stamp()
+        case .transcript where settings.usesBark:
+            guard let folder = cache.lookup(kind: kind, key: key),
+                  let fallback = TranscriptFallback.read(from: folder) else { return false }
+            return fallback.model != barkStore.stamp()
+        default:
+            return false
+        }
     }
 
     /// The cache key for one analysis of one item, or nil when the file
@@ -191,7 +208,16 @@ public final class MediaAnalysis: @unchecked Sendable {
         let settings = requested ?? self.settings
         let canonical = settings.canonical(for: kind, item: item)
         let key = AnalysisCache.key(fingerprint: fingerprint, kind: kind, algorithmVersion: kind.algorithmVersion, settings: canonical)
-        guard !cache.contains(kind: kind, key: key) || needsRebuild(kind, key: key, settings: settings) else { return nil }
+        guard !cache.contains(kind: kind, key: key) || needsRebuild(kind, key: key, settings: settings) else {
+            // A SpeechAnalyzer stand-in waits for Bark's model; if its
+            // download failed, asking again is what tries it again.
+            if kind == .transcript, settings.usesBark, barkStore.autoPrepare, let folder = cache.lookup(kind: kind, key: key),
+               TranscriptFallback.read(from: folder) != nil {
+                let store = barkStore
+                Task { await BarkModelPreparer.shared.start(store) }
+            }
+            return nil
+        }
         let source = folder.url(for: item)
         let input: URL
         if kind.readsPicture, AnalysisKind.converted.applies(to: item) {
@@ -212,11 +238,12 @@ public final class MediaAnalysis: @unchecked Sendable {
         }
         let cache = self.cache
         let rvmStore = self.rvmStore
+        let barkStore = self.barkStore
         let ffmpeg = self.ffmpeg
         let job = JobScheduler.Job(id: Self.jobID(kind, key: key), kind: kind, mediaID: item.id, priority: priority) { [weak self] context in
             do {
                 try await Self.make(kind, item: item, source: source, input: input, fingerprint: fingerprint, key: key, settings: settings, cache: cache,
-                                    rvmStore: rvmStore, ffmpeg: ffmpeg, context: context)
+                                    rvmStore: rvmStore, barkStore: barkStore, ffmpeg: ffmpeg, context: context)
             } catch {
                 if kind == .converted { self?.conversionFinished(item, succeeded: false) }
                 throw error
@@ -335,16 +362,17 @@ public final class MediaAnalysis: @unchecked Sendable {
     /// `input` is the file to read: the source, or for the picture of a
     /// file macOS can't decode, its converted copy.
     static func make(_ kind: AnalysisKind, item: MediaItem, source: URL, input: URL, fingerprint: String, key: String, settings: AnalysisSettings, cache: AnalysisCache,
-                     rvmStore: RVMModelStore = .standard, ffmpeg: FFmpeg?, context: JobContext) async throws {
+                     rvmStore: RVMModelStore = .standard, barkStore: BarkModelStore = .standard, ffmpeg: FFmpeg?, context: JobContext) async throws {
         guard let expected = Fingerprint(fingerprint), expected.matchesStat(of: source) else {
             throw MediaError.fileChanged(item.path)
         }
         let pending = try cache.begin(kind: kind, key: key)
         do {
-            try await AnalysisJobs.run(kind, source: input, item: item, settings: settings, into: pending.folder, context: context, rvmStore: rvmStore, ffmpeg: ffmpeg)
+            try await AnalysisJobs.run(kind, source: input, item: item, settings: settings, into: pending.folder, context: context, rvmStore: rvmStore,
+                                       barkStore: barkStore, ffmpeg: ffmpeg)
             try context.checkCancellation()
             guard expected.matchesStat(of: source) else { throw MediaError.fileChanged(item.path) }
-            // Only a fallback matte due for a rebuild is still there.
+            // Only a fallback matte or transcript due for a rebuild is still there.
             if cache.contains(kind: kind, key: key) { cache.remove(kind: kind, key: key) }
             try cache.commit(pending, fingerprint: fingerprint, algorithmVersion: kind.algorithmVersion, settings: settings.canonical(for: kind, item: item), source: item.path)
         } catch {
@@ -405,7 +433,7 @@ private final class DecodedResult {
 /// Runs one kind of analysis into a folder.
 enum AnalysisJobs {
     static func run(_ kind: AnalysisKind, source: URL, item: MediaItem, settings: AnalysisSettings, into folder: URL, context: JobContext, timeRange: CMTimeRange? = nil,
-                    rvmStore: RVMModelStore = .standard, ffmpeg: FFmpeg?) async throws {
+                    rvmStore: RVMModelStore = .standard, barkStore: BarkModelStore = .standard, ffmpeg: FFmpeg?) async throws {
         switch kind {
         case .thumbnails:
             try await ThumbnailJob.run(source: source, kind: item.kind, interval: settings.thumbnailInterval, width: settings.thumbnailWidth, into: folder, context: context, timeRange: timeRange)
@@ -416,7 +444,7 @@ enum AnalysisJobs {
         case .proxy:
             try await ProxyJob.run(source: source, settings: settings, into: folder, context: context, timeRange: timeRange)
         case .transcript:
-            try await TranscriptJob.run(source: source, locale: settings.transcriptLocale, into: folder, context: context, timeRange: timeRange)
+            try await TranscriptJob.run(source: source, settings: settings, into: folder, context: context, timeRange: timeRange, barkStore: barkStore)
         case .matte:
             var tuning = MatteJob.Tuning()
             tuning.rvmStore = rvmStore

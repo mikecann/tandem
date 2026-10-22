@@ -535,7 +535,7 @@ enum MCPTools {
         ),
         Tool(
             name: "transcribe", title: "Transcribe a file",
-            description: "Makes a transcript of any media with sound, whatever its role or track (a generated clip to check for made-up speech, a sound effect), with the same on-device SpeechAnalyzer as camera takes. Camera takes and what's on a speech track are transcribed anyway. Marks the file (transcribe: true, one undo step) so the transcript is made wherever the project is open. With wait: true it waits and returns each file's state and word count (0 words: no speech); then `transcript` reads it. Use this instead of Whisper or an online model.",
+            description: "Makes a transcript of any media with sound, whatever its role or track (a generated clip to check for made-up speech, a sound effect), with the same on-device engine as camera takes (Bark 3.0 Pro, or SpeechAnalyzer when Bark can't). Camera takes and what's on a speech track are transcribed anyway. Marks the file (transcribe: true, one undo step) so the transcript is made wherever the project is open. With wait: true it waits and returns each file's state and word count (0 words: no speech); then `transcript` reads it. Use this instead of Whisper or an online model.",
             operation: .transcribe,
             properties: [
                 "media": S.array(S.string("A media ID, clip ID or path."), "The files to transcribe."),

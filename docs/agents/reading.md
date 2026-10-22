@@ -70,8 +70,9 @@ clips in the range).
 - `transcript <clip ID>` gives word timings in timeline time;
   `transcript <media ID>` gives the whole file in file time; with no ID you
   get everything said on the timeline.
-- Word times are trimmed to the voice. SpeechAnalyzer times its words end
-  to end, so each pause hides inside a word; Tandem pulls every word in to
+- Word times are trimmed to the voice. Bark 3.0 Pro's words stop within
+  about 0.1 s of it already; SpeechAnalyzer (the stand-in) times its words
+  end to end, so each pause hides inside a word. Tandem pulls every word in to
   where the take's waveform is over its noise floor (about what ffmpeg's
   silencedetect hears at -32 dB on a phone take) when it reads the
   transcript, including transcripts made before it did.
@@ -91,8 +92,10 @@ clips in the range).
   gap is listened to on every unmuted track of the take: `sound` has the
   gap as it's heard (from the end of the last word's sound to the start of
   the next's), its real pauses, and any sound in it no word accounts for
-  (`heard`, with the tracks it's on): a breath, an "um" SpeechAnalyzer left
+  (`heard`, with the tracks it's on): a breath, an "um" the transcript left
   out, someone off mic. `tighten` cuts beside that sound, never through it.
+  Bark writes most "um"s and "uh"s as words (SpeechAnalyzer leaves them
+  out), so those split the pause and stay until they're cut like any word.
 - `media` shows each file's analysis state. Transcripts, loudness, proxies
   and cutout mattes are made in the background; tools that need a
   transcript say which files don't have one yet. `tandem wait` waits for

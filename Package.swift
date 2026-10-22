@@ -1,4 +1,4 @@
-// swift-tools-version: 6.0
+// swift-tools-version: 6.2
 import PackageDescription
 
 // Tandem is split so every client (the app, the CLI and the MCP server) goes
@@ -11,6 +11,7 @@ let package = Package(
     products: [
         .executable(name: "tandem-app", targets: ["TandemApp"]),
         .executable(name: "tandem", targets: ["TandemCLI"]),
+        .executable(name: "tandem-bark-check", targets: ["TandemBarkCheck"]),
         .library(name: "TandemCore", targets: ["TandemCore"]),
         .library(name: "TandemMedia", targets: ["TandemMedia"]),
         .library(name: "TandemRender", targets: ["TandemRender"]),
@@ -19,7 +20,12 @@ let package = Package(
     ],
     dependencies: [
         // Renders Lottie stickers to video at import (TandemAssets only).
-        .package(url: "https://github.com/airbnb/lottie-ios.git", from: "4.6.1")
+        .package(url: "https://github.com/airbnb/lottie-ios.git", from: "4.6.1"),
+        // Runs Bark 3.0 Pro, the transcript engine, on the Neural Engine
+        // (TandemMedia only). Pinned to the revision Underdog tested Bark
+        // Pro's Core ML runtime with. No traits: Tandem doesn't need its
+        // text normalisation, a prebuilt Rust library.
+        .package(url: "https://github.com/FluidInference/FluidAudio.git", revision: "a00964e1aa8eff99c4bce80bc9c8ff2d4dd1568d", traits: [])
     ],
     targets: [
         // Timeline model, time maths, edit commands, undo, persistence and the
@@ -27,7 +33,7 @@ let package = Package(
         .target(name: "TandemCore", path: "Sources/TandemCore"),
         // Folder scanning, probing, pairing and the background job system
         // (proxies, transcripts, cutout mattes, voice isolation, loudness).
-        .target(name: "TandemMedia", dependencies: ["TandemCore"], path: "Sources/TandemMedia"),
+        .target(name: "TandemMedia", dependencies: ["TandemCore", .product(name: "FluidAudio", package: "FluidAudio")], path: "Sources/TandemMedia"),
         // Composition building, the Core Image compositor, audio mix,
         // frame grabs and export.
         .target(
@@ -51,6 +57,9 @@ let package = Package(
             path: "Sources/TandemApp",
             resources: [.copy("Resources/Keymaps")]
         ),
+        // Runs Bark on audio files for scoring it against other engines
+        // (tests/bark-check/).
+        .executableTarget(name: "TandemBarkCheck", dependencies: ["TandemCore", "TandemMedia"], path: "Sources/TandemBarkCheck"),
         .executableTarget(name: "TandemCLI", dependencies: ["TandemCore", "TandemMedia", "TandemRender", "TandemAPI", "TandemImport", "TandemAssets"], path: "Sources/TandemCLI"),
         .testTarget(name: "TandemCoreTests", dependencies: ["TandemCore"], path: "tests/TandemCoreTests"),
         .testTarget(name: "TandemMediaTests", dependencies: ["TandemMedia"], path: "tests/TandemMediaTests"),

@@ -324,7 +324,7 @@ edits, so placing a take or pressing 2 for the PiP queues its work. Results are 
 | waveform | peak envelope | drawn on audio clips; transcripts are aligned to it |
 | loudness | integrated LUFS, true peak, LRA | per file; dialogue is levelled per take, not per cut |
 | proxy | 1080p HEVC, a keyframe every 15 frames; HEVC with alpha for video with alpha | used for motion; paused frames decode the original |
-| transcript | words with media times | SpeechAnalyzer first; Whisper medium.en as the careful pass; the engine's times are kept and trimmed to the voice when read |
+| transcript | words with media times | Bark 3.0 Pro (Core ML through FluidAudio, model downloaded on first use), SpeechAnalyzer when Bark can't (another language, no model yet, a failure), saying so; the engine's times are kept and trimmed to the voice when read |
 | matte | greyscale HEVC person matte | Vision person segmentation, blended with the instance mask to keep a handheld mic |
 | isolatedVoice | audio file | AUSoundIsolation, shifted back by its 3,665-sample latency |
 | converted | HEVC copy, alpha kept | only for video macOS can't decode (QuickTime Animation, PNG in a MOV); made with ffmpeg; the picture, thumbnails, proxy and matte come from it |
@@ -333,7 +333,8 @@ edits, so placing a take or pressing 2 for the PiP queues its work. Results are 
 
 Transcript word times are pulled in to the voice when a transcript is read
 (`TranscriptAlignment`, from the file's waveform), because SpeechAnalyzer's
-run end to end and swallow the pauses. Everything that puts words on the
+run end to end and swallow the pauses, and Bark's still run up to 0.1 s
+into them. Everything that puts words on the
 timeline (captions, pauses, tighten, search, `transcript`, `timeline
 --words`, the app's transcript lane and its Tighten pauses) places them
 with one rule, `Transcript.placements(on:)`: among the clips of one track

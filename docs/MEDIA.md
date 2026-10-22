@@ -247,7 +247,7 @@ copies of a file share a job):
 | waveform | `waveform.json`, `peaks.f32` | header plus little-endian Float32 peaks, 100 a second, the loudest sample over all channels, placed by sample time |
 | loudness | `loudness.json` | `Loudness`; silence is `-inf` (written as the string "-inf") |
 | proxy | `proxy.mov` | 1080p box, aspect kept, HEVC with a keyframe every 15 frames and P-frames between (no reordering) at quality 0.78, video only, every frame at its exact source time and duration, source colour tags and rotation. Video with alpha gets HEVC with alpha, straight or premultiplied as the source is |
-| transcript | `transcript.json` | `Transcript`, engine "SpeechAnalyzer", en-US, the engine's own word times in media time (aligned to the waveform when read) |
+| transcript | `transcript.json` | `Transcript`, engine "Bark 3.0 Pro" (language "en") or "SpeechAnalyzer" (en-US), the engine's own word times in media time (aligned to the waveform when read). A SpeechAnalyzer transcript made because Bark couldn't has `fallback.json` beside it |
 | matte | `matte.mov` | 1080p box, HEVC, keyframe every 10 frames; luma of full-range (420f) frames is the alpha (0 background, 255 person), chroma neutral, BT.709 tags, source frame times and rotation |
 | isolatedVoice | `voice.caf` | 48 kHz ALAC, source channels (max 2), same length as the source, lined up to the sample |
 | converted | `video.mov` | Only for `undecodableCodec` files: HEVC, with alpha when the source has it, BT.709 tags, the source's size and frame times, video only |
@@ -297,11 +297,77 @@ Notes on each:
   converted stickers: the export preset's 4K HEVC copy has a keyframe about
   every 28 frames with reordering and decodes at 350 fps, so an exact seek
   can decode 28 frames of 4K instead of at most 15 at 1080p.
-- **Transcript.** Audio streams from the file a second at a time as the
-  analyzer pulls it (the whole 24 minute take peaks at 53 MB). The model
-  works although AssetInventory says only "supported"; if analysis ever
-  fails for that reason the job installs the model and retries once. The
-  cache keeps SpeechAnalyzer's own word times.
+- **Transcript with Bark (the default, `transcriptEngine: .bark`).**
+  Underdog Bark 3.0 Pro (ConwayResearch, a fine-tune of NVIDIA's Parakeet
+  TDT 0.6B v3) through the FluidAudio package, pinned to the revision
+  Underdog tested its Core ML runtime with: the encoder on the Neural
+  Engine, the preprocessor, decoder and joint on the CPU, 0.25 s of silence
+  before each piece, the encoder's `short8` function for a take of 8 s or
+  less and `full15` otherwise. The encoder takes 15 s at most, so the audio
+  streams in at 16 kHz mono and is cut into pieces of at most 14.75 s, each
+  at the quietest 200 ms of the last 10 s before that limit. The pieces
+  don't overlap, so no word is written twice, and only one is held at a
+  time. A word runs from its first token's start to its last token's end
+  (FluidAudio's times, on the encoder's 80 ms grid); punctuation joins the
+  word before without moving its end, and its confidence is the lowest of
+  its tokens'. `BarkTranscription`'s comment has the details.
+
+  Why: on the four 150 s clips of tandem-research spike 10 (Mike to camera,
+  Mike in a screen session, Ian on his mic twice; 1,338 reference words),
+  scored with `tests/bark-check/`:
+
+  | engine | words wrong | majority | fillers | silence covered | end at pause / start after | start / end vs SpeechAnalyzer |
+  | --- | --: | --: | --: | --: | --: | --: |
+  | SpeechAnalyzer en-US | 5.2% | 5.1% | 3 of 16 | 74.8 of 133.7 s | +500 / -765 ms | |
+  | Bark Pro, MLX on 60 s pieces (the spike) | 1.6% | 0.8% | 11 of 16 | 37.2 s | +149 / -81 ms | 135 / 124 ms |
+  | Bark Pro in Tandem (Core ML, CPU) | 2.5% | 1.8% | 13 of 16, 10 more | 33.2 s | +80 / -100 ms | 110 / 110 ms |
+
+  Of Tandem's 34 wrong words, 10 are "um"s and "uh"s the provisional
+  reference leaves out (8 where Bark 3.0 and Plus wrote one too, so likely
+  real) and 5 are acronyms spelled out ("O. c. c." for "OCC"); the other
+  19 compare with MLX's 21. Its words end and start 80 ms earlier than
+  MLX's because FluidAudio moves each token back the frame TDT emits late.
+  `TranscriptAlignment` pulls Bark's words in to the voice when they're
+  read, as it does SpeechAnalyzer's (below); after it, Bark's starts and
+  ends are 80 / 90 ms from SpeechAnalyzer's.
+  Searching only the last 5 s for the cut put one inside a word of Ian's
+  fast speech, and the six words after it went missing (42 wrong); a second
+  of audio either side of each piece as context was worse (48 to 71): a
+  window that opens mid-word can leave the decoder blank for seconds
+  (FluidAudio #909). FluidAudio's own long-audio path (15 s windows, 2 s of
+  overlap, merged by matching tokens) also got 34, but it needs the whole
+  file in memory or converted to a temporary file, and takes no time range.
+  Peak memory is the model's: 1.4 GB on the CPU, with one encoder function
+  loaded at a time (both at once was 2.6 GB).
+
+  The model is CC-BY 4.0 (the README has the attribution) and 1.23 GB, so
+  it's downloaded, never bundled: `BarkModelStore` fetches the `coreml/`
+  folder of ConwayResearch/Underdog-Bark-3.0-Pro at a pinned commit into
+  `~/Library/Application Support/Tandem/Models/bark-3.0-pro/`, checks each
+  file's size and SHA-256, compiles the four packages once into
+  `compiled/` and writes `compiled/ready.json` with each file's size and
+  date. Jobs only compare those. The download runs in the background
+  (`BarkModelPreparer`); a transcript never waits for it. The loaded model
+  is shared by the process's transcripts, one piece at a time, and goes a
+  minute after the last. Tests never download it.
+
+  SpeechAnalyzer makes the transcript instead when the locale isn't
+  English, when the model isn't downloaded yet or fails its check, or when
+  loading or transcribing throws. The job says so: its status keeps "Made
+  with SpeechAnalyzer: Bark 3.0 Pro is downloading (40%)" (or "isn't
+  downloaded", or "failed: why") after it finishes, and `fallback.json`
+  records the state of `ready.json`. Once the model is ready (or ready
+  again) `MediaAnalysis` counts the transcript as missing and makes it
+  again with Bark, serving the fallback meanwhile, and open projects ask
+  for it as soon as the model lands. Bark's transcripts have the engine in
+  their cache key and SpeechAnalyzer's keep the key they had, so switching
+  to Bark remade every transcript once, and switching back finds
+  SpeechAnalyzer's again.
+- **Transcript with SpeechAnalyzer.** Audio streams from the file a second
+  at a time as the analyzer pulls it (the whole 24 minute take peaks at 53
+  MB). The model works although AssetInventory says only "supported"; if
+  analysis ever fails for that reason the job installs the model and
+  retries once. The cache keeps SpeechAnalyzer's own word times.
 
   Those times run end to end, so every pause is swallowed by the word
   before it or the word after (in the spike they covered 8.7 of 11.7 s of
@@ -479,7 +545,8 @@ Real footage, release build (`report.txt` has the latest numbers):
 | Waveform, 24 min camera | 1.0 s quiet, up to 4.3 s under load |
 | Thumbnails, 24 min camera | 724 JPEGs in 3.4 to 4.2 s |
 | Proxy | About 480 fps for 4K camera and VFR screen: 3.7 s a minute of camera, 2.3 of screen recording. Version 3 is 97 MB a minute of camera (13 Mbps), 11 of screen (1.5 Mbps) |
-| Transcript | 65x realtime for a minute, whole take in 11 s (132x) |
+| Transcript, Bark | 12x to 67x realtime on the CPU in a sandbox under load (four 150 s clips); on the Neural Engine not measured here (the spike's MLX run was 138x on the GPU) |
+| Transcript, SpeechAnalyzer | 65x realtime for a minute, whole take in 11 s (132x) |
 | Matte, RVM (the default) | 40 fps on a quiet machine before the edge fix, the same as version 2 (GPU, one frame at a time); 36 to 38 with the edge fix while other work ran |
 | Matte, Vision (fallback) | 41 fps with 4 workers (18 min for a 24 min take, 1.4x real time at 30 fps); the Neural Engine is the limit, the smoother (about 10 ms a frame) hides behind it. Version 1 was 49 to 52 fps |
 | Isolated voice | 38x realtime, within 1 sample of the original |
@@ -489,13 +556,15 @@ Real footage, release build (`report.txt` has the latest numbers):
 
 The speech-service test is opt-in with `TANDEM_SPEECH_TESTS=1`, because
 SpeechAnalyzer can install a language model and needs macOS 26 speech services.
-Default tests do not download models.
+Default tests do not download models. Bark's real-model test is opt-in with
+`TANDEM_BARK_MODEL=<the model's coreml folder>` (and `TANDEM_BARK_UNITS=cpu`
+where there's no Neural Engine).
 
 ```bash
 swift test --package-path .                      # about 9 s of media tests
 TANDEM_REAL_MEDIA=1 swift test -c release -Xswiftc -enable-testing \
   --package-path . --filter RealMediaTests       # about a minute
-TANDEM_REAL_MEDIA_FULL=1 ...                                # adds the whole-take transcript
+TANDEM_REAL_MEDIA_FULL=1 ...                                # adds the whole-take transcripts
 ```
 
 The default tests make their media on the fly (AVAssetWriter frames and
