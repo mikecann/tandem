@@ -83,7 +83,7 @@ final class ReviewSnapshots: XCTestCase {
         try coordinator.apply(EditBatch(label: "Mike's shot", commands: [.placeMedia(mediaIDs: ["med_broll"], at: t(50), duration: t(3))]))
         // The agent hands back with two things to look at first.
         model.session.review.handBack([
-            ReviewNote(author: "claude", revision: coordinator.revision, start: t(17), end: t(22), name: "B-roll over the config: check the cut back to camera", note: "It lands on \"so\" rather than the pause before it. If that reads fine, the other four are the same."),
+            ReviewNote(author: "claude", revision: coordinator.revision, start: t(17), end: t(22), name: "B-roll over the config: the cut back", note: "Lands on \"so\", not the pause before; the other four match"),
             ReviewNote(author: "claude", revision: coordinator.revision, start: t(29.4), end: t(34), name: "The §2 card and its whoosh")
         ], by: "claude")
         settle()

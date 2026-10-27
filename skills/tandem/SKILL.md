@@ -114,9 +114,11 @@ rounds up.
    `tandem handback` with the two to five places he should look at first:
    a stretch of a sweeping change that stands for the rest (one angle pass
    on the Nipunn interview touched 118 clips), the new shot, the thing you
-   weren't sure about, each with one line on what's there and a `note` for
-   the trade-off or what to listen for; `question: true` when you want his
-   answer, which he leaves as a comment there. Tandem walks him through
+   weren't sure about, each with a few words on what's there (40
+   characters at most) and one short line of `note` for the trade-off or
+   what to listen for (80 at most; he reads the card at a glance while the
+   stretch plays, so the command refuses longer); `question: true` when
+   you want his answer, which he leaves as a comment there. Tandem walks him through
    them before the rest of your highlighted changes, so he doesn't read
    times out of the chat. Then tell him in a few lines what you changed
    and why, and that Tandem will walk him through the things to check,

@@ -28,9 +28,11 @@ public struct HandbackNote: Codable, Equatable, Sendable {
     public var at: Time
     /// Where it ends. Default 5 s after `at`.
     public var to: Time?
-    /// One line: what's there to see.
+    /// A few words on what's there, like a commit subject: at most 40
+    /// characters, so the card reads at a glance.
     public var name: String
-    /// A sentence more: the trade-off, what to listen for, or the question.
+    /// One short line more, at most 80 characters: the trade-off, what to
+    /// listen for, or the question.
     public var note: String?
     /// True when Mike's answer is wanted (he'll leave a comment there).
     public var question: Bool?
@@ -151,16 +153,28 @@ extension TandemService {
         return HandbackResult(revision: revision, recorded: recorded, notes: waiting)
     }
 
+    /// The card over the viewer has to read at a glance (Mike: "you have to
+    /// read so much to understand what it wants"), so the limits are tight
+    /// and the command refuses rather than truncating.
+    public static let nameLimit = 40
+    public static let noteLimit = 80
+
     /// Checks one thing to look at and gives it its place in the log.
     static func reviewNote(_ given: HandbackNote, author: String, revision: Int, duration: Time, defaultLength: Time = Time(seconds: 5)) throws -> ReviewNote {
         let name = CommentEdits.oneLine(given.name).trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !name.isEmpty else { throw ServiceError(.badRequest, "Each thing to look at needs a name: one line saying what's there.") }
+        guard !name.isEmpty else { throw ServiceError(.badRequest, "Each thing to look at needs a name: a few words saying what's there.") }
+        guard name.count <= nameLimit else {
+            throw ServiceError(.badRequest, "\"\(name)\" is \(name.count) characters. Mike reads the name off a small card at a glance, so keep it to \(nameLimit) (a few words, like \"Angles: ten zooms became two\") and put the rest in note.")
+        }
         guard given.at >= .zero else { throw ServiceError(.badRequest, "\"\(name)\" starts before the timeline does (at \(given.at)).") }
         guard given.at <= duration else { throw ServiceError(.badRequest, "\"\(name)\" starts at \(given.at), past the end of the timeline (\(duration)).") }
         var end = given.to ?? min(given.at + defaultLength, max(duration, given.at))
         if let to = given.to, to < given.at { throw ServiceError(.badRequest, "\"\(name)\" ends (\(to)) before it starts (\(given.at)).") }
         end = min(end, max(duration, given.at))
         let note = given.note?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let note, note.count > noteLimit {
+            throw ServiceError(.badRequest, "The note on \"\(name)\" is \(note.count) characters. It's one short line under the name (what to listen for, or the trade-off), so keep it to \(noteLimit); the detail belongs in your final message.")
+        }
         return ReviewNote(author: author, revision: revision, start: given.at, end: end, name: name, note: note.flatMap { $0.isEmpty ? nil : $0 }, question: given.question ?? false)
     }
 }

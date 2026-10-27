@@ -126,7 +126,9 @@ export type StatusResult = {
 export type HandbackNote = {
   at: number | string;
   to?: number | string;
+  /** A few words, at most 40 characters: the card shows it at a glance. */
   name: string;
+  /** One short line, at most 80 characters. */
   note?: string;
   question?: boolean;
 };

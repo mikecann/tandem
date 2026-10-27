@@ -162,9 +162,10 @@ public struct ReviewNote: Codable, Equatable, Identifiable, Sendable {
     public var revision: Int
     public var start: Time
     public var end: Time
-    /// One line: what to look at.
+    /// A few words: what to look at (at most 40 characters, so the card
+    /// reads at a glance; the service refuses longer).
     public var name: String
-    /// A sentence more, or the question being asked.
+    /// One short line more (at most 80 characters), or the question being asked.
     public var note: String?
     /// True when the agent wants an answer (a comment) rather than a look.
     public var question: Bool

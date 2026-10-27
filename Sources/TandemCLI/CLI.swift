@@ -710,7 +710,7 @@ struct CLI {
                 guard let contents = try? Data(contentsOf: url) else { throw UsageError(message: "Couldn't read \(url.path).") }
                 data = contents
             }
-            let shape = "Each thing to look at is {\"at\": \"2:45\", \"to\": \"3:10\", \"name\": \"one line on what's there\", \"note\": \"a sentence more, or the question\", \"question\": true}; only at and name are needed."
+            let shape = "Each thing to look at is {\"at\": \"2:45\", \"to\": \"3:10\", \"name\": \"a few words on what's there\", \"note\": \"one short line more, or the question\", \"question\": true}; only at and name are needed."
             if let one = try? ServiceJSON.decoder().decode(HandbackNote.self, from: data) { return HandbackRequest(notes: [one]) }
             do {
                 return HandbackRequest(notes: try ServiceJSON.decodeRequest([HandbackNote].self, from: data))

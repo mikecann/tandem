@@ -411,10 +411,10 @@ about, and say why when you hand back.
 ```bash
 tandem handback '[
   {"at": "2:45", "to": "3:10", "name": "Angles: ten zooms became two here",
-   "note": "105 jump cuts now land on the same framing. This is the busiest stretch, so if it reads OK the rest will."},
+   "note": "The busiest stretch; if it reads OK the rest will"},
   {"at": "1:12", "to": "1:16", "name": "Title 1 of 6: Where do we start?"},
-  {"at": "27:12", "to": "27:18", "name": "Wikipedia's OLTP article over Mike's 1970s aside"},
-  {"at": "38:24", "name": "Keep the twenty dollar plan line? Pro is $25", "question": true}
+  {"at": "27:12", "to": "27:18", "name": "Wikipedia's OLTP page over the 1970s aside"},
+  {"at": "38:24", "name": "Keep the twenty dollar plan line?", "note": "Pro is $25 now", "question": true}
 ]'
 tandem handback                              # next round: what he hasn't watched, with any comment he left beside one
 ```
@@ -424,10 +424,15 @@ interview changed 118), and in the app they're all highlighted the same.
 Mike doesn't want to read times out of the chat and scrub to them. So
 before your final message, hand back the two to five places he should
 look at first: a stretch of a sweeping change that stands for the rest,
-the new shot, the thing you weren't sure about. One line each on what's
-there, a `note` for the trade-off or what to listen for, and `question:
-true` when you want his answer (he leaves a comment there, which
-`tandem handback` and `tandem comments` both show next round).
+the new shot, the thing you weren't sure about. A few words each on
+what's there (the `name`, at most 40 characters), one short line of
+`note` for the trade-off or what to listen for (at most 80), and
+`question: true` when you want his answer (he leaves a comment there,
+which `tandem handback` and `tandem comments` both show next round).
+Mike reads these off a small card while the stretch plays, so the
+command refuses anything longer: the first card he saw was a paragraph,
+and he had to read it all to see what it wanted. The detail belongs in
+your final message.
 
 In the app the review chip reads "3 to look at · 4 agent edits". `]`
 steps him through them first, in timeline order, with your line in a

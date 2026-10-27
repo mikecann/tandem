@@ -74,7 +74,14 @@ final class HandbackTests: XCTestCase {
         refused(HandbackNote(at: t(10), name: "  "), "needs a name")
         refused(HandbackNote(at: t(61), name: "Past the end"), "past the end of the timeline (01:00.000)")
         refused(HandbackNote(at: t(10), to: t(8), name: "Backwards"), "ends (00:08.000) before it starts (00:10.000)")
+        // The card has to read at a glance: a long name or note is refused, not clipped.
+        refused(HandbackNote(at: t(10), name: "Cold open with the trailer bed, its final hit on the cut into your first line"), "is 77 characters. Mike reads the name off a small card at a glance, so keep it to 40")
+        refused(HandbackNote(at: t(10), name: "Cold open music", note: "Placed at revision 169 from the option 2 preview you picked, about 8 LU under the voices, fading over 0.5 s after the cut."), "is 122 characters. It's one short line under the name")
         XCTAssertTrue(h.session.review.log.notes.isEmpty, "none of them was recorded")
+        // 40 and 80 are the limits themselves, not past them.
+        let fits = HandbackNote(at: t(10), name: String(repeating: "n", count: 40), note: String(repeating: "o", count: 80))
+        XCTAssertEqual(try h.service.handback(HandbackRequest(notes: [fits]), context: h.context).recorded, 1)
+        _ = try h.service.handback(HandbackRequest(notes: []), context: h.context)
         // A stretch running past the end is cut to it.
         let clipped = try h.service.handback(HandbackRequest(notes: [HandbackNote(at: t(58), to: t(70), name: "The outro")]), context: h.context)
         XCTAssertEqual(clipped.notes.first?.end, t(60))
