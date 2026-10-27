@@ -37,14 +37,14 @@ struct WalkthroughCard: View {
         }
     }
 
-    /// "Claude · 1 of 3 · question · ] next · [ back · Esc skip · ⇧C comment".
+    /// "Claude · 1 of 3 · wants your answer · ] next · [ back · Esc skip · ⇧C comment".
     static func footer(_ step: WalkthroughStep, keymap: Keymap) -> String {
         var parts = ["\(ActivityLog.displayName(step.note.author)) · \(step.index + 1) of \(step.count)"]
         if step.note.question { parts.append("wants your answer") }
         if let next = Shortcuts.symbol(for: .nextAgentChange, in: keymap) { parts.append("\(next) next") }
         if let back = Shortcuts.symbol(for: .previousAgentChange, in: keymap) { parts.append("\(back) back") }
         parts.append("Esc skip")
-        if let comment = Shortcuts.symbol(for: .addComment, in: keymap) { parts.append("\(comment) comment here") }
+        if let comment = Shortcuts.symbol(for: .addComment, in: keymap) { parts.append("\(comment) comment") }
         return parts.joined(separator: " · ")
     }
 }
