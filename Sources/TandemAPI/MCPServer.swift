@@ -269,7 +269,8 @@ public final class MCPServer: @unchecked Sendable {
     transition, soft zooms) are judgement calls. Mike's saved segments (his intro, outro and \
     calls to action) are in `segments_list` and go in with `segments_insert`. Mike leaves comments on the timeline for the next round \
     ("cut the umm here"): when he asks you to look at them, `comments` lists them; do each, then remove it with removeMarker in the same \
-    batch. A camera's picture lags its mic: `sync` sets how late (never slip clips by hand for it); `sync` with files lines \
+    batch. Before your final message, `handback` the two to five places he should look at first (a stretch each, one line on what's \
+    there): Tandem walks him through them before the rest of your changes, and `handback` alone next round says which he hasn't watched. A camera's picture lags its mic: `sync` sets how late (never slip clips by hand for it); `sync` with files lines \
     another angle or an external mic up with the camera by sound and places it. Transcripts, mattes and proxies are \
     made in the background: `wait` waits for them (never poll in a loop), and `transcribe` makes a transcript of any file with sound. Only change the project through \
     these tools, and never quit \
@@ -764,6 +765,21 @@ enum MCPTools {
             name: "comments", title: "Mike's comments",
             description: "The comments Mike left on the timeline for you, earliest first: each one's ID, time and what he asked, with what's said a few seconds either side and the clips playing there. Do what each asks, label the edit with what you did, and remove the comment in the same apply batch with {\"removeMarker\": {\"markerID\": \"<id>\"}}. Comments move with ripple edits, so read them again after one.",
             operation: .comments, properties: [:], readOnly: true, idempotent: true
+        ),
+        Tool(
+            name: "handback", title: "Hand back: what to look at",
+            description: "Hands a round back: the two to five places Mike should look at first, a stretch each with one line on what's there (and a note for the trade-off, what to listen for, or a question). The review chip in Tandem walks him through them before the rest of your highlighted changes, playing each stretch; one goes once he's watched it, Mark reviewed clears them all. They take the place of what you handed back before. Without notes, lists what he hasn't watched yet, with any comment he left beside one (his answer to a question). Call it after check, before your final message, then tell him in a line that Tandem will walk him through them.",
+            operation: .handback,
+            properties: [
+                "notes": S.array(S.object([
+                    "at": time("Where the stretch starts."),
+                    "to": time("Where it ends. Default 5 s after at."),
+                    "name": S.string("One line: what's there to see."),
+                    "note": S.string("A sentence more: the trade-off, what to listen for, or the question."),
+                    "question": S.boolean("True when you want his answer; he leaves a comment there.")
+                ], required: ["at", "name"]), "The things to look at, in any order. An empty list withdraws yours. Leave it out to list what's waiting.")
+            ],
+            readOnly: false, idempotent: true
         ),
         Tool(
             name: "frame", title: "Look at a frame",

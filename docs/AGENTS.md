@@ -253,6 +253,9 @@ follows.
   with notes on dead air, page changes and low frame rate screen
   recordings; `--cuts` finds clipped words at cuts, and `--listen` hears
   each join and prints what's heard there.
+- `tandem handback` before your final message: the two to five places
+  Mike should look at first, which the app walks him through before the
+  rest of your highlighted changes.
 - `tandem diff --since <revision>` for what Mike changed since your last
   round, and `tandem comments` for the notes he left on the timeline.
 
@@ -301,6 +304,7 @@ One line each; `tandem help <command>` has the options and what they do.
 | `tandem check` | what Mike would catch in review (`--changed`, `--quick`, `--cuts`, `--listen`) |
 | `tandem sync [<seconds> \| <file>...]` | how late each camera's picture is, or set it; or line another angle or mic up with the camera by sound |
 | `tandem comments` | Mike's timeline comments (`resolve <id>`) |
+| `tandem handback` | hand a round back: the two to five places Mike should look at first (alone, what he hasn't watched) |
 | `tandem frame <time>` | one frame as a PNG |
 | `tandem frames <time>...` | a labelled contact sheet |
 | `tandem screenshot` | the app window (app open only) |
@@ -338,7 +342,7 @@ maps every command to its HTTP endpoint and MCP tool.
 | [agents/sound.md](agents/sound.md) | Level the voice; Tame the peaks on a quiet mic; Clean up a roomy mic; Check the sound; Put a swoosh on every push |
 | [agents/shorts.md](agents/shorts.md) | Make a short; Caption a short |
 | [agents/assets.md](agents/assets.md) | the asset library and shared library; Credits for the description; Reuse an intro, an outro or a call to action (segments) |
-| [agents/review-and-history.md](agents/review-and-history.md) | `tandem check` and `--cuts` in full; What changed, and putting it back (diff, history, restore); Do Mike's comments; Export a review clip; Work alongside Mike |
+| [agents/review-and-history.md](agents/review-and-history.md) | `tandem check` and `--cuts` in full; What changed, and putting it back (diff, history, restore); Do Mike's comments; Hand back: what to look at first; Export a review clip; Work alongside Mike |
 | [agents/operations-and-troubleshooting.md](agents/operations-and-troubleshooting.md) | every operation's CLI, HTTP and MCP form; Archive a finished video; Relink missing media; Troubleshooting errors |
 
 Each recipe shows the CLI; the MCP tools take the same arguments.

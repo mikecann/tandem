@@ -406,6 +406,44 @@ like any marker, so list them again after one rather than reusing the
 times you read first. Leave a comment you couldn't do, or weren't sure
 about, and say why when you hand back.
 
+## Hand back: what to look at first
+
+```bash
+tandem handback '[
+  {"at": "2:45", "to": "3:10", "name": "Angles: ten zooms became two here",
+   "note": "105 jump cuts now land on the same framing. This is the busiest stretch, so if it reads OK the rest will."},
+  {"at": "1:12", "to": "1:16", "name": "Title 1 of 6: Where do we start?"},
+  {"at": "27:12", "to": "27:18", "name": "Wikipedia's OLTP article over Mike's 1970s aside"},
+  {"at": "38:24", "name": "Keep the twenty dollar plan line? Pro is $25", "question": true}
+]'
+tandem handback                              # next round: what he hasn't watched, with any comment he left beside one
+```
+
+A round can touch hundreds of clips (one angle pass on the Nipunn
+interview changed 118), and in the app they're all highlighted the same.
+Mike doesn't want to read times out of the chat and scrub to them. So
+before your final message, hand back the two to five places he should
+look at first: a stretch of a sweeping change that stands for the rest,
+the new shot, the thing you weren't sure about. One line each on what's
+there, a `note` for the trade-off or what to listen for, and `question:
+true` when you want his answer (he leaves a comment there, which
+`tandem handback` and `tandem comments` both show next round).
+
+In the app the review chip reads "3 to look at · 4 agent edits". `]`
+steps him through them first, in timeline order, with your line in a
+card over the viewer, playing each stretch and pausing at its end; after
+the last, `]` carries on through the rest of your highlighted changes as
+usual. Escape skips the walkthrough, and Mark reviewed clears everything.
+One goes on its own once he's watched its stretch, so next round
+`tandem handback` alone lists what he didn't get to.
+
+They live in the review log beside your highlights, not in the project:
+they move with the take when he tightens it, they never show in his undo
+menu or an export, and what you hand back takes the place of what you
+handed back before. `--to` defaults to 5 s after `--at`. Then tell him in
+a line that Tandem will walk him through them, and keep the chat for
+what needs a decision.
+
 ## Export a review clip
 
 ```bash

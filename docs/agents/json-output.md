@@ -87,8 +87,25 @@ word count, 0 when there's no speech.
  "tracks", "clips", "media", "markers", "headless", "recoveredEdits", "apiVersion",
  "undo"?, "redo"?, "openIn"?: {"owner", "pid", "started"},
  "jobs": [...], "exports": [...], "warnings": [...],
- "reviewPending": [{"label", "author", "date", "clipIDs", "removals"}]}
+ "reviewPending": [{"label", "author", "date", "clipIDs", "removals"}],
+ "handback": [{"id", "author", "date", "revision", "start", "end", "name", "note"?, "question", "comments": []}]}
 ```
+
+`handback` is what agents asked Mike to look at when they handed back
+and he hasn't watched yet, in timeline order (see `handback` below).
+
+## handback
+
+```
+{"revision": 155, "recorded"?: 3,
+ "notes": [{"id", "author", "date", "revision", "start", "end", "name", "note"?, "question",
+            "comments": [{"id", "time", "text"}]}]}  // timeline order
+```
+
+`recorded` is how many were just handed back; without notes in the
+request it's absent and `notes` is what's still waiting. `comments` are
+Mike's comments in or within 2 s of the stretch: his answer, when it was
+a question.
 
 ## history
 

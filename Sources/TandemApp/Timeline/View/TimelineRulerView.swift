@@ -46,8 +46,11 @@ final class TimelineRulerView: TimelineChildView {
         guard let container else { return }
         let scale = container.drawScale
         let slop = scale.duration(forPixels: ReviewBand.minimumWidth / 2 + 1)
-        let edits = container.drawState.review.edits(at: Time(seconds: scale.seconds(atX: point.x)), slop: slop)
-        let tip = edits.isEmpty ? nil : TimelineReview.tooltip(for: edits)
+        let time = Time(seconds: scale.seconds(atX: point.x))
+        let review = container.drawState.review
+        let edits = review.edits(at: time, slop: slop)
+        let notes = review.notes(at: time, slop: slop)
+        let tip = edits.isEmpty && notes.isEmpty ? nil : TimelineReview.tooltip(for: notes, edits: edits)
         if toolTip != tip { toolTip = tip }
     }
 

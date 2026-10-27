@@ -22,6 +22,8 @@ import type {
   ProjectTransition,
   SearchResult,
   StatusResult,
+  HandbackNote,
+  HandbackResult,
   Track,
   TranscriptResult,
   Word,
@@ -172,6 +174,8 @@ export class Tandem {
   search = (phrase: string) => this.call<SearchResult>("search", { phrase });
   pauses = (min = 0.6) => this.call<PausesResult>("pauses", { min });
   history = async () => (await this.call<{ events: HistoryEvent[] }>("history")).events;
+  /** Hand a round back with the two to five places Mike should look at first (they replace yours from before); without notes, what he hasn't watched yet. */
+  handback = (notes?: HandbackNote[]) => this.call<HandbackResult>("handback", notes ? { notes } : {});
   /** cuts: words clipped at cuts; listen: hear each join too (`listened` in the result). */
   check = (opts: { from?: number | string; to?: number | string; changed?: boolean; quick?: boolean; cuts?: boolean; listen?: boolean } = {}) =>
     this.call<CheckResult>("check", opts);

@@ -72,6 +72,18 @@ public final class ReviewRecorder: @unchecked Sendable {
         }
     }
 
+    /// An agent handed a round back with things for Mike to look at
+    /// (`ReviewLog.handBack`): they take the place of what it handed back
+    /// before.
+    public func handBack(_ notes: [ReviewNote], by author: String) {
+        queue.sync {
+            var log = _log
+            log.handBack(notes, by: author)
+            guard log != _log else { return }
+            commit(log)
+        }
+    }
+
     /// Mike has watched these stretches of `project`'s timeline: what lies
     /// wholly in them is reviewed (`ReviewLog.markWatched`).
     public func markWatched(_ watched: [TimeRange], in project: Project) {

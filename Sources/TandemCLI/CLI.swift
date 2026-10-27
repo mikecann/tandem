@@ -205,6 +205,9 @@ struct CLI {
                 label: args.options["label"], expectedRevision: try args.integer("expect")
             )
             return show(try await client().call(request), json: json)
+        case "handback":
+            try args.expectPositionals(atMost: 1, command: name)
+            return show(try await client().call(try handbackRequest(args)), json: json)
         case "comments":
             guard args.positionals.first == "resolve" else {
                 try args.expectPositionals(atMost: 0, command: name)
@@ -688,6 +691,40 @@ struct CLI {
         let batch = CommentEdits.remove(chosen, label: label ?? (chosen.count == 1 ? "Resolve comment" : "Resolve \(chosen.count) comments"))
         let request = ApplyRequest(label: batch.label, commands: batch.commands, expectedRevision: listed.revision)
         return show(try await client.call(request), json: json)
+    }
+
+    /// `tandem handback`: a JSON list of things to look at (quoted, in a
+    /// file, or - for standard input), one from --at and --name, or nothing
+    /// to list what Mike hasn't watched yet.
+    private func handbackRequest(_ args: Arguments) throws -> HandbackRequest {
+        let flags = ["at", "to", "name", "note"].filter { args.options[$0] != nil } + (args.has("question") ? ["question"] : [])
+        if let source = args.positionals.first {
+            guard flags.isEmpty else { throw UsageError(message: "Give the JSON list or --\(flags[0]), not both.") }
+            let data: Data
+            if source == "-" {
+                data = FileHandle.standardInput.readDataToEndOfFile()
+            } else if let first = source.first(where: { !$0.isWhitespace }), first == "{" || first == "[" {
+                data = Data(source.utf8)
+            } else {
+                let url = URL(fileURLWithPath: absolute(source))
+                guard let contents = try? Data(contentsOf: url) else { throw UsageError(message: "Couldn't read \(url.path).") }
+                data = contents
+            }
+            let shape = "Each thing to look at is {\"at\": \"2:45\", \"to\": \"3:10\", \"name\": \"one line on what's there\", \"note\": \"a sentence more, or the question\", \"question\": true}; only at and name are needed."
+            if let one = try? ServiceJSON.decoder().decode(HandbackNote.self, from: data) { return HandbackRequest(notes: [one]) }
+            do {
+                return HandbackRequest(notes: try ServiceJSON.decodeRequest([HandbackNote].self, from: data))
+            } catch {
+                throw UsageError(message: "Couldn't read the things to look at: \(error.localizedDescription) \(shape)")
+            }
+        }
+        guard !flags.isEmpty else { return HandbackRequest() }
+        guard let at = args.options["at"] else { throw UsageError(message: "--\(flags[0]) goes with --at <time>, where the stretch starts.") }
+        guard let name = args.options["name"], !name.trimmingCharacters(in: .whitespaces).isEmpty else {
+            throw UsageError(message: "--at needs --name: one line saying what's there to see.")
+        }
+        let note = HandbackNote(at: try parseTime(at), to: try time(args, "to"), name: name, note: args.options["note"], question: args.has("question") ? true : nil)
+        return HandbackRequest(notes: [note])
     }
 
     private func show<R: Encodable & ReadableResult>(_ result: R, json: Bool) -> Int32 {

@@ -30,6 +30,11 @@ extension StatusResult: ReadableResult {
             let count = pending.count == 1 ? "1 agent edit" : "\(pending.count) agent edits"
             lines.append("  waiting for Mike's review: \(count) (\(names.joined(separator: "; ")))")
         }
+        if let handback, !handback.isEmpty {
+            var names = handback.prefix(3).map { "\($0.start) \(CommentEdits.oneLine($0.name))" }
+            if handback.count > names.count { names.append("\(handback.count - names.count) more") }
+            lines.append("  things to look at, handed back and not yet watched: \(handback.count) (\(names.joined(separator: "; ")))")
+        }
         let active = jobs.filter { $0.state == .queued || $0.state == .running }
         if active.isEmpty {
             lines.append("  background jobs: none")

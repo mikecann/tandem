@@ -40,7 +40,7 @@ final class EditorActions {
         case .deselectAll: return !model.selection.isEmpty || AssetLibraryHost.shared.previewing != nil
         case .liftInOut, .extractInOut: return model.inOutRange != nil
         case .addSectionCards: return SectionCardBatches.canAddAtMarkers(model.project)
-        case .previousAgentChange, .nextAgentChange: return !model.review.stops.isEmpty
+        case .previousAgentChange, .nextAgentChange: return !model.review.stops.isEmpty || !model.review.notes.isEmpty
         case .markAgentChangesReviewed: return !model.reviewLog.isEmpty
         default: return true
         }
@@ -156,11 +156,12 @@ final class EditorActions {
         // Selection
         case .selectAll: model.selection = Set(project.allTracks.flatMap(\.clips).map(\.id))
         case .deselectAll:
-            // Escape closes the asset preview first.
+            // Escape closes the asset preview first, then the walkthrough.
             if AssetLibraryHost.shared.previewing != nil {
                 AssetLibraryHost.shared.previewing = nil
                 return true
             }
+            if model.skipWalkthrough() { return true }
             model.selection = []
             model.selectedTransitionID = nil
         case .selectForward: model.selection = SelectionRules.forward(from: playhead, in: project)

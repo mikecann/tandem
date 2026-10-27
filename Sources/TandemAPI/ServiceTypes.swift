@@ -93,6 +93,9 @@ public struct StatusResult: Codable, Sendable {
     /// Agent edits waiting for Mike's review, oldest first. Read-only:
     /// only Mark reviewed in the app clears them. Nil from an older app.
     public var reviewPending: [PendingReview]?
+    /// What agents asked Mike to look at when they handed back, still
+    /// waiting, in timeline order (`handback`). Nil from an older app.
+    public var handback: [LookHere]?
 }
 
 // MARK: - media

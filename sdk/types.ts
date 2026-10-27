@@ -116,9 +116,36 @@ export type StatusResult = {
   headless: boolean;
   openIn?: { owner: string; pid: number; port: number };
   reviewPending: { author: string; label?: string; clipIDs: string[] }[];
+  /** What agents asked Mike to look at when they handed back, not yet watched. */
+  handback?: LookHere[];
   jobs: { id: string; kind: string; state: string; progress: number }[];
   [k: string]: unknown;
 };
+
+/** One thing to look at, as an agent hands it back. */
+export type HandbackNote = {
+  at: number | string;
+  to?: number | string;
+  name: string;
+  note?: string;
+  question?: boolean;
+};
+
+/** One thing to look at, as it waits in the review log. */
+export type LookHere = {
+  id: string;
+  author: string;
+  date: string;
+  revision: number;
+  start: number;
+  end: number;
+  name: string;
+  note?: string;
+  question: boolean;
+  comments: { id: string; time: number; text: string }[];
+};
+
+export type HandbackResult = { revision: number; recorded?: number; notes: LookHere[] };
 
 export type ApplyResult = {
   revision: number;

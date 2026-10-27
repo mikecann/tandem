@@ -10,6 +10,7 @@ struct ViewerPanel: View {
     var body: some View {
         VStack(spacing: 0) {
             ViewerRepresentable(model: model, zoom: $viewerZoom)
+                .overlay(alignment: .bottomLeading) { WalkthroughCard(model: model) }
             TransportBar(model: model, actions: actions, zoom: $viewerZoom)
         }
         .background(Theme.viewer.color)

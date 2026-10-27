@@ -588,6 +588,37 @@ final class EditorBehaviourTests: XCTestCase {
         XCTAssertTrue(editor.model.review.isEmpty, "and the violet's gone")
     }
 
+    /// ] after a handback plays the first thing to look at and pauses at
+    /// the end of its stretch, which counts as watched; ] again moves on;
+    /// Escape takes the card away.
+    func testTheWalkthroughPlaysEachThingToLookAtAndPausesAtItsEnd() throws {
+        let playback = editor.model.playback
+        editor.model.session.review.handBack([
+            ReviewNote(author: "claude", revision: editor.model.revision, start: t(4), end: t(5.5), name: "The new shot"),
+            ReviewNote(author: "claude", revision: editor.model.revision, start: t(20), end: t(21), name: "Angles")
+        ], by: "claude")
+        editor.settle()
+        XCTAssertEqual(editor.model.review.chipTitle, "2 to look at")
+
+        editor.press("]", settling: 0)
+        XCTAssertEqual(editor.model.walkthrough?.note.name, "The new shot")
+        XCTAssertTrue(playback.isPlaying, "the stretch plays")
+        editor.wait(for: "the end of the stretch") { !playback.isPlaying }
+        XCTAssertEqual(playback.time.seconds, 5.5, accuracy: 0.35)
+        XCTAssertEqual(editor.model.walkthrough?.held, true)
+        editor.settle()
+        XCTAssertEqual(editor.model.review.notes.map(\.name), ["Angles"], "watched from start to end, so it went")
+        XCTAssertEqual(editor.model.walkthrough?.note.name, "The new shot", "the card stays until the next step")
+
+        editor.press("]", settling: 0)
+        XCTAssertEqual(editor.model.walkthrough?.note.name, "Angles")
+        XCTAssertEqual(editor.model.walkthrough?.index, 1)
+        XCTAssertEqual(playback.time, t(20))
+        editor.press("escape")
+        XCTAssertNil(editor.model.walkthrough)
+        if playback.isPlaying { editor.press("space") }
+    }
+
     func testPausingHalfwayThroughAnAgentChangeStillReviewsIt() throws {
         let playback = editor.model.playback
         func addChange(at start: Double) {

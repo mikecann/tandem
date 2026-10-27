@@ -67,6 +67,18 @@ enum InspectorTab: String, CaseIterable, Identifiable {
 }
 
 /// A short message in the status bar.
+/// Where the walkthrough is: the thing to look at, its place in the
+/// round, and where playing it stops.
+struct WalkthroughStep: Equatable {
+    var note: TimelineReview.Note
+    /// Counted from 0.
+    var index: Int
+    var count: Int
+    /// Playing has reached the end of the stretch and paused there, so
+    /// playing on past it is Mike's own.
+    var held = false
+}
+
 struct StatusMessage: Equatable, Identifiable {
     enum Kind { case info, warning, error }
     let id = UUID()
@@ -171,6 +183,20 @@ final class EditorModel {
     private(set) var reviewLog = ReviewLog()
     /// The same, placed on the timeline as it is now.
     private(set) var review = TimelineReview.empty
+    /// The thing to look at the walkthrough is on, for the card over the
+    /// viewer; nil between steps and when there's no walkthrough.
+    var walkthrough: WalkthroughStep?
+    /// Mike finished or skipped this round's walkthrough, so Next agent
+    /// change steps through every change as it always has.
+    @ObservationIgnored var walkthroughDone = false
+    /// The round's things to look at by ID, in timeline order, fixed when
+    /// the walkthrough starts so one he watches on the way doesn't change
+    /// the count on the card.
+    @ObservationIgnored var walkthroughOrder: [String] = []
+    /// Things to look at the status bar has announced, so a round is
+    /// announced once, when it arrives (or when the project opens with it
+    /// waiting).
+    @ObservationIgnored private var announcedNotes: Set<String> = []
     /// What's near the playhead, for the sidebar while nothing's selected.
     /// The timeline refreshes it as the playhead moves; it only changes
     /// when the playhead passes something.
@@ -449,6 +475,23 @@ final class EditorModel {
         guard log != reviewLog else { return }
         reviewLog = log
         placeReview()
+        announceHandback(log)
+    }
+
+    /// An agent handed back with things to look at: a line in the status
+    /// bar, and the walkthrough starts afresh for the new round. Quiet
+    /// otherwise, so a round with nothing to look at reviews as before.
+    private func announceHandback(_ log: ReviewLog) {
+        let arrived = log.notes.filter { !announcedNotes.contains($0.id) }
+        guard !arrived.isEmpty else { return }
+        announcedNotes.formUnion(arrived.map(\.id))
+        walkthroughDone = false
+        walkthroughOrder = []
+        walkthrough = nil
+        let who = ActivityLog.displayName(arrived[arrived.count - 1].author)
+        let count = log.notes.count
+        let key = Shortcuts.symbol(for: .nextAgentChange) ?? "]"
+        show(.info, "\(who) handed back \(count == 1 ? "1 thing" : "\(count) things") to look at. Press \(key) to be walked through them, or review as usual.")
     }
 
     /// Places the log's changes on the timeline as it is now, so the

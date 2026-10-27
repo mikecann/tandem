@@ -111,9 +111,19 @@ rounds up.
 5. **Hand back.** Open the project in the app for Mike with
    `open "<video folder>/<name>.tandem"` (skip it if `tandem status` says
    the app already has it open), rather than asking him to open it. Then
-   tell him in a few lines what you changed and why. Your edits stay
-   highlighted on his timeline until he plays through them or marks them
-   reviewed; that's his to do.
+   `tandem handback` with the two to five places he should look at first:
+   a stretch of a sweeping change that stands for the rest (one angle pass
+   on the Nipunn interview touched 118 clips), the new shot, the thing you
+   weren't sure about, each with one line on what's there and a `note` for
+   the trade-off or what to listen for; `question: true` when you want his
+   answer, which he leaves as a comment there. Tandem walks him through
+   them before the rest of your highlighted changes, so he doesn't read
+   times out of the chat. Then tell him in a few lines what you changed
+   and why, and that Tandem will walk him through the things to check,
+   keeping the chat for what needs a decision. Your edits stay highlighted
+   on his timeline until he plays through them or marks them reviewed;
+   that's his to do. Next round, `tandem handback` alone says which he
+   didn't get to, with any comment he left beside one.
 
 ## Mike's comments
 

@@ -196,7 +196,8 @@ public final class TandemService: @unchecked Sendable {
             recoveredEdits: session.recoveredEdits,
             apiVersion: TandemAPI.version,
             warnings: fonts,
-            reviewPending: session.review.log.entries.map(PendingReview.init)
+            reviewPending: session.review.log.entries.map(PendingReview.init),
+            handback: session.review.log.notes.map { LookHere($0, comments: []) }
         )
     }
 

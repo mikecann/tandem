@@ -41,6 +41,30 @@ struct TimelineReview: Equatable {
         var time: Time
     }
 
+    /// A thing an agent asked Mike to look at when it handed back: the
+    /// walkthrough's stops, ahead of the changes.
+    struct Note: Equatable, Identifiable {
+        var id: String
+        var author: String
+        var date: Date
+        var start: Time
+        var end: Time
+        var name: String
+        var note: String?
+        var question: Bool
+
+        init(_ note: ReviewNote) {
+            id = note.id
+            author = note.author
+            date = note.date
+            start = note.start
+            end = note.end
+            name = note.name
+            self.note = note.note
+            question = note.question
+        }
+    }
+
     var clipIDs: Set<String> = []
     var transitionIDs: Set<String> = []
     var removals: [Removal] = []
@@ -48,6 +72,8 @@ struct TimelineReview: Equatable {
     var spans: [Span] = []
     var regions: [Region] = []
     var stops: [Stop] = []
+    /// What agents asked Mike to look at first, in timeline order.
+    var notes: [Note] = []
     /// Agent edits waiting for review, for the toolbar's chip.
     var editCount = 0
 
@@ -59,12 +85,13 @@ struct TimelineReview: Equatable {
     /// Stepping from a stop moves on to the next one.
     static let stepSlop = Time(seconds: 0.001)
 
-    var isEmpty: Bool { editCount == 0 }
+    var isEmpty: Bool { editCount == 0 && notes.isEmpty }
 
     static func make(log: ReviewLog, project: Project) -> TimelineReview {
         guard !log.isEmpty else { return .empty }
         var review = TimelineReview()
         review.editCount = log.entries.count
+        review.notes = log.notes.map(Note.init)
         var spans: [Span] = []
         for change in log.changes(in: project) {
             let entry = change.entry
@@ -109,6 +136,12 @@ struct TimelineReview: Equatable {
         stops.last { $0.time < time - Self.stepSlop }
     }
 
+    /// The things to look at whose stretch is at `time`, reaching `slop`
+    /// either side, for hovering the band.
+    func notes(at time: Time, slop: Time = .zero) -> [Note] {
+        notes.filter { $0.start - slop <= time && time <= $0.end + slop }
+    }
+
     /// The edits whose changes are at `time`, reaching `slop` either side,
     /// for hovering the band. Oldest first.
     func edits(at time: Time, slop: Time = .zero) -> [Edit] {
@@ -140,8 +173,22 @@ struct TimelineReview: Equatable {
         return date.formatted(.dateTime.weekday(.abbreviated).hour().minute())
     }
 
-    /// "7 agent edits", for the toolbar's chip.
+    /// "Look here (Claude): Angles: ten zooms became two", a line a note,
+    /// ahead of the edits' lines.
+    static func tooltip(for notes: [Note], edits: [Edit], now: Date = Date()) -> String {
+        let lines = notes.map { note in
+            "\(note.question ? "Question" : "Look here") (\(ActivityLog.displayName(note.author))): \(note.name)"
+        }
+        guard !edits.isEmpty else { return lines.joined(separator: "\n") }
+        return (lines + [tooltip(for: edits, now: now)]).joined(separator: "\n")
+    }
+
+    /// "7 agent edits", or "3 to look at · 7 agent edits" once an agent has
+    /// handed back with things to look at, for the toolbar's chip.
     var chipTitle: String {
-        editCount == 1 ? "1 agent edit" : "\(editCount) agent edits"
+        let edits = editCount == 1 ? "1 agent edit" : "\(editCount) agent edits"
+        guard !notes.isEmpty else { return edits }
+        let look = "\(notes.count) to look at"
+        return editCount == 0 ? look : "\(look) · \(edits)"
     }
 }

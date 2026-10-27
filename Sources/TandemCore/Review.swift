@@ -147,29 +147,100 @@ public struct ReviewEntry: Codable, Equatable, Identifiable, Sendable {
     }
 }
 
+/// A thing an agent asks Mike to look at when it hands a round back: a
+/// stretch of the timeline, a line saying what's there, and perhaps a
+/// sentence more or a question. A round's edits can touch hundreds of
+/// clips, and these are the few places the agent would have him watch
+/// first. They live in the review log, not the project, so watching one
+/// clears it the way it clears a highlight, Mark reviewed clears them all,
+/// and nothing lands in his undo stack or an export.
+public struct ReviewNote: Codable, Equatable, Identifiable, Sendable {
+    public var id: String
+    public var author: String
+    public var date: Date
+    /// The revision the round was handed back at.
+    public var revision: Int
+    public var start: Time
+    public var end: Time
+    /// One line: what to look at.
+    public var name: String
+    /// A sentence more, or the question being asked.
+    public var note: String?
+    /// True when the agent wants an answer (a comment) rather than a look.
+    public var question: Bool
+
+    public init(id: String = IDs.make("look"), author: String, date: Date = Date(), revision: Int, start: Time, end: Time, name: String, note: String? = nil, question: Bool = false) {
+        self.id = id
+        self.author = author
+        // Whole seconds, so the log reads back exactly as it was written.
+        self.date = Date(timeIntervalSince1970: date.timeIntervalSince1970.rounded(.down))
+        self.revision = revision
+        self.start = start
+        self.end = max(start, end)
+        self.name = name
+        self.note = note
+        self.question = question
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(.id, or: IDs.make("look"))
+        author = try c.decode(.author, or: "agent")
+        date = try c.decode(.date, or: Date(timeIntervalSince1970: 0))
+        revision = try c.decode(.revision, or: 0)
+        start = try c.decode(.start, or: .zero)
+        end = max(start, try c.decode(.end, or: start))
+        name = try c.decode(.name, or: "Look here")
+        note = try c.decodeIfPresent(String.self, forKey: .note)
+        question = try c.decode(.question, or: false)
+    }
+
+    public var range: TimeRange { TimeRange(start: start, end: end) }
+}
+
 /// The agent edits Mike hasn't reviewed yet, kept in
 /// `.tandem/<name>.review.json` beside the journal so it survives
 /// restarts. `ReviewRecorder` keeps it as edits commit; Mark reviewed in
-/// the app clears it.
+/// the app clears it. The things agents asked him to look at when they
+/// handed back (`notes`) wait here too.
 public struct ReviewLog: Codable, Equatable, Sendable {
     public static let currentVersion = 1
 
     public var version: Int
     /// Oldest first.
     public var entries: [ReviewEntry]
+    /// In timeline order.
+    public var notes: [ReviewNote]
 
-    public init(entries: [ReviewEntry] = []) {
+    public init(entries: [ReviewEntry] = [], notes: [ReviewNote] = []) {
         version = Self.currentVersion
         self.entries = entries
+        self.notes = notes.sorted(by: Self.noteOrder)
     }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         version = try c.decode(.version, or: Self.currentVersion)
         entries = try c.decode(.entries, or: [])
+        notes = try c.decode(.notes, or: []).sorted(by: Self.noteOrder)
     }
 
-    public var isEmpty: Bool { entries.isEmpty }
+    /// Nothing waits for Mike: no edits to review and nothing to look at.
+    public var isEmpty: Bool { entries.isEmpty && notes.isEmpty }
+
+    static func noteOrder(_ a: ReviewNote, _ b: ReviewNote) -> Bool {
+        (a.start, a.end, a.id) < (b.start, b.end, b.id)
+    }
+
+    /// An agent handed a round back with these things to look at. They
+    /// take the place of what the same agent handed back before, so the
+    /// walkthrough is always about the latest round: anything it still
+    /// wants looked at, it hands back again.
+    public mutating func handBack(_ given: [ReviewNote], by author: String) {
+        notes.removeAll { $0.author == author }
+        notes += given
+        notes.sort(by: Self.noteOrder)
+    }
 
     /// Records a batch if an agent made it and it changed the timeline.
     /// Mike's own edits (and Tandem's) never are. A batch already here (the
@@ -205,6 +276,50 @@ public struct ReviewLog: Codable, Equatable, Sendable {
     /// over it.
     @discardableResult
     public mutating func follow(from before: Project, to after: Project, reverts: Bool = false) -> Bool {
+        let movedNotes = followNotes(from: before, to: after)
+        return followEntries(from: before, to: after, reverts: reverts) || movedNotes
+    }
+
+    /// Carries the things to look at through an edit the way the take
+    /// moves: a stretch after a ripple delete comes up with it, one the
+    /// delete took out closes to the join, and an undo puts it back.
+    private mutating func followNotes(from before: Project, to after: Project) -> Bool {
+        guard !notes.isEmpty, before.allTracks != after.allTracks else { return false }
+        let take = before.allTracks.filter { $0.rippleMode == .cut }
+        // The time map only knows the pieces an edit cut, so an undo that
+        // puts a whole clip back is beyond it: it's the fallback, for a
+        // moment whose media is no longer on the timeline at all.
+        let map = ReviewDiff.Correspondence(before, after).map
+        /// Where the frame of the take that played at `time` plays now.
+        /// An end belongs to the clip before it, a start to the one after.
+        func place(_ time: Time, end: Bool) -> Time {
+            for track in take {
+                guard let was = track.clips.first(where: { end ? $0.start < time && time <= $0.end : $0.start <= time && time < $0.end }),
+                      case .media(let mediaID) = was.content, !was.freezeFrame, was.speed > 0,
+                      let now = after.track(track.id) else { continue }
+                let source = was.sourceStart + (time - was.start).scaled(by: was.speed)
+                let plays = now.clips.first { clip in
+                    guard case .media(let id) = clip.content, id == mediaID, !clip.freezeFrame, clip.speed > 0 else { return false }
+                    return end ? clip.sourceStart < source && source <= clip.sourceEnd : clip.sourceStart <= source && source < clip.sourceEnd
+                }
+                if let plays { return ReviewDiff.timelineTime(ofSource: source, in: plays) }
+            }
+            return end ? map.end(time) : map.start(time)
+        }
+        var changed = false
+        for index in notes.indices {
+            let start = place(notes[index].start, end: false)
+            let end = max(start, place(notes[index].end, end: true))
+            guard start != notes[index].start || end != notes[index].end else { continue }
+            notes[index].start = start
+            notes[index].end = end
+            changed = true
+        }
+        if changed { notes.sort(by: Self.noteOrder) }
+        return changed
+    }
+
+    private mutating func followEntries(from before: Project, to after: Project, reverts: Bool) -> Bool {
         guard !entries.isEmpty else { return false }
         let remaining = Set(after.allTracks.flatMap { $0.clips.map(\.id) })
         let beforeIDs = Set(before.allTracks.flatMap { $0.clips.map(\.id) })
@@ -376,7 +491,7 @@ extension ReviewLog {
     /// across. Entries with nothing left go. Returns whether anything did.
     @discardableResult
     public mutating func markWatched(_ watched: [TimeRange], in project: Project, slack: Time = Time(seconds: 0.5)) -> Bool {
-        guard !entries.isEmpty, !watched.isEmpty else { return false }
+        guard !isEmpty, !watched.isEmpty else { return false }
         let seen = TimeRange.union(watched)
         func covered(_ start: Time, _ end: Time) -> Bool {
             // A stretch shorter than the slack needs its middle watched.
@@ -419,7 +534,10 @@ extension ReviewLog {
         }
         let before = entries.count
         entries.removeAll(where: \.isEmpty)
-        return changed || entries.count != before
+        // A thing to look at is looked at once its stretch has been watched.
+        let notesBefore = notes.count
+        notes.removeAll { covered($0.start, $0.end) }
+        return changed || entries.count != before || notes.count != notesBefore
     }
 
     /// The time a transition plays over: centred on its cut, or at the
@@ -466,7 +584,7 @@ extension ReviewLog {
 
     /// Writes the log atomically, or removes the file once nothing waits.
     public func save(to url: URL) throws {
-        if entries.isEmpty {
+        if isEmpty {
             if FileManager.default.fileExists(atPath: url.path) { try FileManager.default.removeItem(at: url) }
             return
         }

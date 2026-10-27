@@ -81,8 +81,14 @@ final class ReviewSnapshots: XCTestCase {
         try agent("Duck the music", [.updateClip(clipID: music, patch: .object(["audio": .object(["gainDB": .number(-34)])]))])
         // Mike's own edit after them, which isn't highlighted.
         try coordinator.apply(EditBatch(label: "Mike's shot", commands: [.placeMedia(mediaIDs: ["med_broll"], at: t(50), duration: t(3))]))
+        // The agent hands back with two things to look at first.
+        model.session.review.handBack([
+            ReviewNote(author: "claude", revision: coordinator.revision, start: t(17), end: t(22), name: "B-roll over the config: check the cut back to camera", note: "It lands on \"so\" rather than the pause before it. If that reads fine, the other four are the same."),
+            ReviewNote(author: "claude", revision: coordinator.revision, start: t(29.4), end: t(34), name: "The §2 card and its whoosh")
+        ], by: "claude")
         settle()
         XCTAssertEqual(model.review.editCount, 5)
+        XCTAssertEqual(model.review.chipTitle, "2 to look at · 5 agent edits")
 
         model.timeline.fitPending = false
         model.timeline.scale = TimelineScale(pixelsPerSecond: 21, scrollSeconds: 0)
@@ -102,10 +108,24 @@ final class ReviewSnapshots: XCTestCase {
         XCTAssertEqual(image.width, Int(size.width * window.backingScaleFactor))
         try write(image, "timeline-review")
 
-        // Stepped to the first change.
+        // Stepped to the first thing to look at: the walkthrough's card
+        // sits over the viewer.
         XCTAssertTrue(model.goToAgentChange(forward: true))
+        model.playback.pause()
         settle()
         try write(try XCTUnwrap(WindowSnapshot.image(of: window)), "timeline-review-stepped")
+        XCTAssertEqual(model.walkthrough?.index, 0)
+        let viewerSize = CGSize(width: 960, height: 600)
+        let viewerWindow = NSWindow(contentRect: CGRect(origin: CGPoint(x: -30_000, y: -29_000), size: viewerSize), styleMask: [.borderless], backing: .buffered, defer: false)
+        viewerWindow.isReleasedWhenClosed = false
+        viewerWindow.appearance = NSAppearance(named: .darkAqua)
+        let viewer = NSHostingView(rootView: ViewerPanel(model: model, actions: EditorActions(model: model)))
+        viewer.frame = CGRect(origin: .zero, size: viewerSize)
+        viewerWindow.contentView = viewer
+        viewerWindow.orderBack(nil)
+        settle()
+        try write(try XCTUnwrap(WindowSnapshot.image(of: viewerWindow)), "viewer-walkthrough")
+        viewerWindow.orderOut(nil)
 
         // Marked reviewed: the chip, the band and the marks go.
         XCTAssertTrue(model.markAgentChangesReviewed())

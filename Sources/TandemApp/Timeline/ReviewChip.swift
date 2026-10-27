@@ -55,12 +55,24 @@ struct ReviewChip: View {
         }
     }
 
-    /// The latest edits waiting, for hovering the count.
+    /// The latest edits waiting, and the things to look at, for hovering
+    /// the count.
     private var summary: String {
         let entries = model.reviewLog.entries
-        var lines = ["Click for the next change to review; after the last, it goes back to the first.", "", "Agent edits since you last marked them reviewed:"]
-        lines += entries.suffix(8).map { "\(ActivityLog.displayName($0.author)) · \($0.label) · \(TimelineReview.when($0.date))" }
-        if entries.count > 8 { lines.append("and \(entries.count - 8) earlier") }
+        let notes = model.review.notes
+        var lines: [String]
+        if notes.isEmpty {
+            lines = ["Click for the next change to review; after the last, it goes back to the first."]
+        } else {
+            lines = ["Click to be walked through what the agent asked you to look at, one stretch at a time, then the other changes. Escape skips it.", "", "To look at first:"]
+            lines += notes.prefix(8).map { "\(Timecode.string($0.start, rate: model.frameRate)) · \($0.name)" }
+            if notes.count > 8 { lines.append("and \(notes.count - 8) more") }
+        }
+        if !entries.isEmpty {
+            lines += ["", "Agent edits since you last marked them reviewed:"]
+            lines += entries.suffix(8).map { "\(ActivityLog.displayName($0.author)) · \($0.label) · \(TimelineReview.when($0.date))" }
+            if entries.count > 8 { lines.append("and \(entries.count - 8) earlier") }
+        }
         return lines.joined(separator: "\n")
     }
 }

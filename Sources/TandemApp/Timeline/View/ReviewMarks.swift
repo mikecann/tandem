@@ -15,6 +15,10 @@ enum ReviewBand {
     static let minimumWidth: CGFloat = 6
     static let wedgeWidth: CGFloat = 8
     static let wedgeHeight: CGFloat = 5
+    /// A thing to look at: a solid bar along its stretch with a dot at its
+    /// start, so the walkthrough's stops stand out from the changes' strips.
+    static let noteBarHeight: CGFloat = 5
+    static let noteDot: CGFloat = 7
 
     /// Where a stretch of time's band is, in the ruler's x.
     static func span(from start: Time, to end: Time, scale: TimelineScale) -> ClosedRange<CGFloat> {
@@ -51,6 +55,25 @@ enum ReviewBand {
             context.addPath(wedge)
         }
         context.fillPath()
+        drawNotes(review.notes, scale: scale, in: bounds, context: context)
+    }
+
+    private static func drawNotes(_ notes: [TimelineReview.Note], scale: TimelineScale, in bounds: CGRect, context: CGContext) {
+        guard !notes.isEmpty else { return }
+        context.setFillColor(Theme.agent.opacity(0.85).cg)
+        for note in notes {
+            let span = span(from: note.start, to: note.end, scale: scale)
+            guard span.upperBound >= -noteDot, span.lowerBound <= bounds.width + noteDot else { continue }
+            let bar = CGRect(x: span.lowerBound, y: 0, width: span.upperBound - span.lowerBound, height: noteBarHeight)
+            context.addPath(CGPath(roundedRect: bar, cornerWidth: 1.5, cornerHeight: 1.5, transform: nil))
+        }
+        context.fillPath()
+        context.setFillColor(Theme.agent.cg)
+        for note in notes {
+            let x = scale.x(note.start)
+            guard x >= -noteDot, x <= bounds.width + noteDot else { continue }
+            context.fillEllipse(in: CGRect(x: x - noteDot / 2, y: 1, width: noteDot, height: noteDot))
+        }
     }
 }
 
