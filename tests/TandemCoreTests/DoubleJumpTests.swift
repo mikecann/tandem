@@ -141,6 +141,63 @@ final class DoubleJumpTests: XCTestCase {
         XCTAssertTrue(jumps(held).isEmpty, "\(jumps(held).map(\.message))")
     }
 
+    func testAPunchInOrALayoutChangeAtAThroughEditIsACut() throws {
+        // The file carries on at 30, but the second piece is framed closer:
+        // a zoomToRegion punch-in (the W to M angles on the Ian video). The
+        // viewer sees the camera jump in, then the shot 2 frames later.
+        var punch = project(broll: [broll("clip_w01", 30.066, 35)])
+        punch.videoTracks[0].clips[3].video = VideoProperties(transform: Transform(position: Point(x: 0.45, y: 0.4), scale: 1.4))
+        let found = jumps(punch)
+        XCTAssertEqual(found.map(\.start), [t(30)], "\(found.map(\.message))")
+        XCTAssertTrue(found.first?.message.hasPrefix("Double jump: w01-youtube-2025.mp4 starts 2 frames after a camera cut,") == true, found.first?.message ?? "")
+        XCTAssertTrue(jumps(try fixed(punch, found)).isEmpty)
+
+        // Full frame to Mike in the corner over the screen recording
+        // (applyLayout pipRight) is a cut too, as is flipping him.
+        var layout = punch
+        layout.videoTracks[0].clips[3].video = VideoProperties(transform: Transform(position: Point(x: 0.87, y: 0.77), scale: 0.5), layoutPreset: "pipRight")
+        XCTAssertEqual(jumps(layout).map(\.start), [t(30)], "\(jumps(layout).map(\.message))")
+        var flipped = punch
+        flipped.videoTracks[0].clips[3].video = VideoProperties(transform: Transform(flipped: true))
+        XCTAssertEqual(jumps(flipped).map(\.start), [t(30)])
+        var cropped = punch
+        cropped.videoTracks[0].clips[3].video = VideoProperties(crop: Crop(top: 0.1))
+        XCTAssertEqual(jumps(cropped).map(\.start), [t(30)])
+        var graded = punch
+        graded.videoTracks[0].clips[3].video = VideoProperties(effects: [Effect(type: "blackAndWhite")])
+        XCTAssertEqual(jumps(graded).map(\.start), [t(30)])
+
+        // A zoom keyframed across the split plays on: the picture at the
+        // end of the first piece is the picture at the start of the second.
+        var zooming = punch
+        zooming.videoTracks[0].clips[3].video = VideoProperties(transform: Transform(scale: 1.4))
+        zooming.videoTracks[0].clips[2].keyframes["video.transform.scale"] = [Keyframe(time: .zero, value: .number(1)), Keyframe(time: t(10), value: .number(1.4))]
+        XCTAssertTrue(jumps(zooming).isEmpty, "\(jumps(zooming).map(\.message))")
+        // The same effect with its own ID either side is the same picture.
+        var sameGrade = graded
+        sameGrade.videoTracks[0].clips[2].video = VideoProperties(effects: [Effect(type: "blackAndWhite")])
+        XCTAssertTrue(jumps(sameGrade).isEmpty, "\(jumps(sameGrade).map(\.message))")
+    }
+
+    func testASpeedChangeOnAFileThatCarriesOnIsntACut() throws {
+        // 30 on, the file plays on from where it was, half as fast again.
+        var faster = project(broll: [broll("clip_w01", 30.066, 35)])
+        faster.videoTracks[0].clips[3].speed = 1.5
+        XCTAssertTrue(jumps(faster).isEmpty, "\(jumps(faster).map(\.message))")
+
+        // A frame held over a flicker on a sped-up screen recording: the
+        // piece after the hold is twice as far on in the file, but it's
+        // the same shot carrying on.
+        var sped = project(broll: [broll("clip_w01", 25.5, 28)])
+        sped.videoTracks[0].clips[2].speed = 2
+        sped.videoTracks[0].clips[2].sourceStart = t(5)
+        let coordinator = ProjectCoordinator(project: sped)
+        let frame = FrameRate.fps30.frameDuration
+        try coordinator.apply(EditBatch(label: QualityCheck.holdLabel, commands: [.holdFrame(clipID: "clip_cam3", range: TimeRange(start: t(25), duration: Time(flicks: frame.flicks * 3)))]))
+        XCTAssertEqual(coordinator.project.videoTracks[0].clips.filter(\.freezeFrame).count, 1)
+        XCTAssertTrue(jumps(coordinator.project).isEmpty, "\(jumps(coordinator.project).map(\.message))")
+    }
+
     func testAnEdgeUnderASectionCardIsLeftAlone() {
         // The card's wipes are made to sit across cuts.
         let card = Clip(id: "clip_card", content: SectionCard.content(SectionCard.Props(title: "Batching")), start: t(7), duration: t(3.2))
@@ -216,6 +273,133 @@ final class DoubleJumpTests: XCTestCase {
     func testACutUnderAFadeToBlackDoesntCount() {
         let fade = Transition(id: "tr_fade", type: .fadeFromBlack, duration: t(1), fromClipID: nil, toClipID: "clip_cam2")
         XCTAssertTrue(jumps(project(broll: [broll("clip_w01", 10.066, 15)], cameraTransitions: [fade])).isEmpty)
+    }
+
+    // MARK: - Transitions on the take
+
+    /// The take with a 0.5 s push between the camera's first two pieces,
+    /// at 10: it plays from 9.75 to 10.25.
+    private func pushed(broll clips: [Clip]) -> Project {
+        let push = Transition(id: "tr_push", type: .push, duration: t(0.5), fromClipID: "clip_cam1", toClipID: "clip_cam2")
+        return project(broll: clips, cameraTransitions: [push])
+    }
+
+    func testAShotCuttingInHalfwayThroughAPushIsADoubleJump() throws {
+        // On the cut, but the push has been moving for a quarter second:
+        // both pages half on screen, then the shot.
+        let p = pushed(broll: [broll("clip_w01", 10, 15)])
+        let found = jumps(p)
+        XCTAssertEqual(found.map(\.kind), [.doubleJump])
+        let problem = try XCTUnwrap(found.first)
+        XCTAssertEqual(problem.start, t(9.75), "from where the push starts")
+        XCTAssertEqual(problem.end, t(10))
+        XCTAssertEqual(problem.message, "Double jump: w01-youtube-2025.mp4 starts 7 frames after a push on the camera starts, so the camera shows for 0.25 s before it. Extend it back to the start of the push.")
+        let after = try fixed(p, found)
+        XCTAssertEqual(after.clip("clip_w01")?.start, t(9.75), "over the whole push, never its middle")
+        XCTAssertTrue(jumps(after).isEmpty, "\(jumps(after).map(\.message))")
+    }
+
+    func testAShotJustAfterAPushRunsBackOverAllOfIt() throws {
+        // Starting as the push lands used to run back to 10, mid-push.
+        let p = pushed(broll: [broll("clip_w01", 10.25, 15)])
+        let after = try fixed(p, jumps(p))
+        XCTAssertEqual(after.clip("clip_w01")?.start, t(9.75))
+        XCTAssertTrue(jumps(after).isEmpty)
+        // Within reach of the push's end, measured from where it lands.
+        XCTAssertEqual(jumps(pushed(broll: [broll("clip_w01", 10.95, 15)])).map(\.start), [t(9.75)])
+        XCTAssertTrue(jumps(pushed(broll: [broll("clip_w01", 11.05, 15)])).isEmpty, "0.8 s after the push lands")
+        XCTAssertTrue(jumps(pushed(broll: [broll("clip_w01", 9.75, 15)])).isEmpty, "over the whole push")
+    }
+
+    func testAShotEndingInOrJustBeforeAPushRunsOnOverAllOfIt() throws {
+        let p = pushed(broll: [broll("clip_w01", 5, 10.1)])
+        let found = jumps(p)
+        XCTAssertEqual(found.map(\.message), ["Double jump: w01-youtube-2025.mp4 ends 5 frames before a push on the camera ends, so the camera shows for 0.15 s after it. Run it on to the end of the push."])
+        let after = try fixed(p, found)
+        XCTAssertEqual(after.clip("clip_w01")?.end, t(10.25))
+        XCTAssertTrue(jumps(after).isEmpty)
+        XCTAssertEqual(jumps(pushed(broll: [broll("clip_w01", 5, 9.5)])).map(\.end), [t(10.25)], "a quarter second before the push starts")
+        XCTAssertTrue(jumps(pushed(broll: [broll("clip_w01", 5, 10.25)])).isEmpty, "over the whole push")
+    }
+
+    // MARK: - Black isn't the camera
+
+    func testAShotBesideAGapInTheTakeIsntADoubleJump() {
+        // Black from 10 to 10.5: the gap check's, not a camera shot
+        // flashing.
+        var gap = project(broll: [broll("clip_w01", 10.066, 15)])
+        gap.videoTracks[0].clips[1].start = t(10.5)
+        gap.videoTracks[0].clips[1].duration = t(9.5)
+        XCTAssertTrue(jumps(gap).isEmpty, "\(jumps(gap).map(\.message))")
+        // A cold open: the shot ends just before the camera's first frame.
+        var cold = project(broll: [broll("clip_w01", 0, 4.8)])
+        cold.videoTracks[0].clips[0].start = t(5)
+        cold.videoTracks[0].clips[0].duration = t(5)
+        XCTAssertTrue(jumps(cold).isEmpty, "\(jumps(cold).map(\.message))")
+    }
+
+    func testTwoShotsEitherSideOfAGapInTheTakeArentBothRunIntoIt() throws {
+        // The take stops at 9.9 and comes back at 10.1. Running each shot to
+        // the cut beyond the gap put both in it, overlapping, and the whole
+        // batch failed.
+        var p = project(broll: [broll("clip_a", 5, 9.6), broll("clip_b", 10.4, 15, media: "med_other")])
+        p.videoTracks[0].clips[0].duration = t(9.9)
+        p.videoTracks[0].clips[1].start = t(10.1)
+        p.videoTracks[0].clips[1].duration = t(9.9)
+        let found = jumps(p)
+        XCTAssertEqual(found.count, 2, "\(found.map(\.message))")
+        let after = try fixed(p, found)
+        XCTAssertEqual(after.clip("clip_a")?.end, t(9.9), "on to where the take stops")
+        XCTAssertEqual(after.clip("clip_b")?.start, t(10.1), "back to where it comes back")
+        XCTAssertTrue(jumps(after).isEmpty, "\(jumps(after).map(\.message))")
+    }
+
+    // MARK: - Fixes that leave a fix to do
+
+    func testRunningAShotToTheCutWouldLeaveACameraFlashSoItsJoinedInstead() throws {
+        // 1.7 s of camera between the shots, the cut at 10: extending the
+        // second back to it would leave 1.3 s, a flash.
+        let p = project(broll: [broll("clip_a", 5, 8.7, file: 0), broll("clip_b", 10.4, 15, file: 0, media: "med_other")])
+        let found = jumps(p)
+        XCTAssertEqual(found.map(\.message), ["Camera flash: extending s03c-cursors-smooth.mp4 back to the cut would leave 1.3 s of camera between w01-youtube-2025.mp4 and s03c-cursors-smooth.mp4. Run the first on to the second."])
+        XCTAssertEqual(found.first?.clipIDs, ["clip_a", "clip_b"])
+        let after = try fixed(p, found)
+        XCTAssertEqual(after.clip("clip_a")?.end, t(10.4), "on to where the second started")
+        XCTAssertEqual(after.clip("clip_b")?.start, t(10.4), "the second stays")
+        XCTAssertTrue(jumps(after).isEmpty, "\(jumps(after).map(\.message))")
+
+        // Running the first on to the cut would leave 1.2 s before the next.
+        let q = project(broll: [broll("clip_a", 5, 9.4, file: 0), broll("clip_b", 11.2, 15, file: 0, media: "med_other")])
+        let ending = jumps(q)
+        XCTAssertEqual(ending.map(\.message), ["Camera flash: running w01-youtube-2025.mp4 on to the cut would leave 1.2 s of camera between w01-youtube-2025.mp4 and s03c-cursors-smooth.mp4. Run the first on to the second."])
+        let ran = try fixed(q, ending)
+        XCTAssertEqual(ran.clip("clip_a")?.end, t(11.2))
+        XCTAssertTrue(jumps(ran).isEmpty, "\(jumps(ran).map(\.message))")
+    }
+
+    func testAShotRunsBackPastShortPiecesOfTheTakeInOneFix() throws {
+        // A one-word bite from 9.4 to 10: running the shot back to 10 would
+        // leave it 18 frames after the cut at 9.4.
+        var p = project(broll: [broll("clip_w01", 10.3, 15)])
+        p.videoTracks[0].clips[0].duration = t(9.4)
+        p.videoTracks[0].clips.insert(Clip(id: "clip_bite", content: .media(mediaID: "med_camera"), start: t(9.4), duration: t(0.6), sourceStart: t(100)), at: 1)
+        let found = jumps(p)
+        XCTAssertEqual(found.map(\.start), [t(9.4)], "\(found.map(\.message))")
+        let after = try fixed(p, found)
+        XCTAssertEqual(after.clip("clip_w01")?.start, t(9.4))
+        XCTAssertTrue(jumps(after).isEmpty, "\(jumps(after).map(\.message))")
+    }
+
+    func testAFixOnlyMovesTheEdgesItReports() throws {
+        // Both edges are off a cut, but only the start is in the stretch
+        // checked: its fix leaves the end where Mike may already have seen it.
+        let p = project(broll: [broll("clip_w01", 10.066, 19.95, file: 0)])
+        XCTAssertEqual(jumps(p).count, 2)
+        let found = jumps(p, in: [TimeRange(start: .zero, end: t(15))])
+        XCTAssertEqual(found.map(\.start), [t(10)])
+        let after = try fixed(p, found)
+        XCTAssertEqual(after.clip("clip_w01")?.start, t(10))
+        XCTAssertEqual(after.clip("clip_w01")?.end, t(19.95), "not reported, so not moved")
     }
 
     func testTheStartAndEndOfTheTimelineArentCuts() {

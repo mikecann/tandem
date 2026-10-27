@@ -271,9 +271,11 @@ public enum QualityCheck {
     /// recordings' own frame times by media ID.
     public static func problems(in project: Project, ranges: [TimeRange], frames: [FrameStats]?, screenFrames: [FrameStats]? = nil, speech: Speech? = nil, frameTimes: [String: [Time]] = [:]) -> [CheckProblem] {
         let gapProblems = gaps(in: project, ranges: ranges)
-        var found = gapProblems + softPictures(in: project, ranges: ranges) + slivers(in: project, ranges: ranges) + doubleJumps(in: project, ranges: ranges)
+        let jumps = doubleJumps(in: project, ranges: ranges)
+        var found = gapProblems + softPictures(in: project, ranges: ranges) + slivers(in: project, ranges: ranges) + jumps
         if let frames {
-            found += holdFixes(frameProblems(frames, in: project, skipping: gapProblems.map { TimeRange(start: $0.start, end: $0.end) }), in: project, screenFrames: screenFrames)
+            let rendered = holdFixes(frameProblems(frames, in: project, skipping: gapProblems.map { TimeRange(start: $0.start, end: $0.end) }), in: project, screenFrames: screenFrames)
+            found += withoutFlickersUnderFixedJumps(rendered, jumps: jumps, frame: project.settings.frameRate.frameDuration)
             if let speech {
                 found += deadAir(in: project, ranges: ranges, frames: frames, speech: speech)
             }

@@ -41,9 +41,14 @@ extension QualityCheck {
     ///
     /// The take is the cut tracks (`RippleMode.cut`: Camera, Screen). A cut
     /// is where one of their clips doesn't carry straight on from the one
-    /// before (not a through-edit, nor a frame held over a flicker), unless
-    /// the camera full frame hides it, a fade to or from black plays over
-    /// it, or it's the start or end of the video. A picture covers the
+    /// before (not a through-edit, a speed change in a file that plays on,
+    /// nor a frame held over a flicker) or is framed differently from it (a
+    /// punch-in, a switch to picture-in-picture), unless the camera full
+    /// frame hides it, a fade to or from black plays over it, or it's the
+    /// start or end of the video. A push, dissolve, slide, wipe or zoom over
+    /// a cut makes it last the whole transition, and an edge runs out to
+    /// the far side of it. Black isn't the camera: a shot beside a gap in
+    /// the take is the gap check's. A picture covers the
     /// frame when it's an enabled media clip with no alpha, or a solid, on
     /// a shown track that isn't a cut track, opaque and filling the canvas
     /// at that moment (scale, position, crop and keyframes). Phone
@@ -75,30 +80,27 @@ extension QualityCheck {
 
         for cover in picture.covers {
             for edge in [ClipEdge.start, .end] where !flashEdges.contains("\(cover.clip.id)|\(edge.rawValue)") && picture.exposedEdge(cover, edge) {
-                let at = edge == .start ? cover.clip.start : cover.clip.end
-                func stretch(to cut: Time) -> TimeRange { edge == .start ? TimeRange(start: cut, end: at) : TimeRange(start: at, end: cut) }
-                // The farthest cut in reach with nothing over the take
-                // between it and the edge: running the shot out to a nearer
-                // one would leave the shot before that cut flashing instead.
-                let window = edge == .start ? TimeRange(start: at - doubleJumpReach, end: at) : TimeRange(start: at, end: at + doubleJumpReach)
-                let inReach = picture.cuts(around: window).filter { cut in
-                    let off = edge == .start ? at - cut.time : cut.time - at
-                    return cut.track < cover.track && off > snapSlack && off <= doubleJumpReach
-                }
-                let farthestFirst = inReach.sorted { edge == .start ? $0.time < $1.time : $0.time > $1.time }
-                guard let cut = farthestFirst.first(where: { picture.exposed(stretch(to: $0.time)) }) else { continue }
-                // A camera cut where the screen recording cuts with it.
-                let screen = inReach.filter { $0.time == cut.time }.allSatisfy(\.screen)
-                let sliver = stretch(to: cut.time)
-                found.append(DoubleJumpFinding(clip: cover.clip, edge: edge, to: cut.time, stretch: sliver, frames: picture.frames(in: sliver), screen: screen))
+                guard let reached = picture.reach(from: edge == .start ? cover.clip.start : cover.clip.end, edge: edge, over: cover.track) else { continue }
+                found.append(DoubleJumpFinding(clip: cover.clip, edge: edge, to: reached.to, stretch: reached.stretch, frames: picture.frames(in: reached.stretch), screen: reached.screen, transition: reached.transition))
             }
         }
+
+        found = picture.joiningFlashesTheFixesWouldLeave(found, flashEdges: flashEdges)
+
+        // Only what's reported moves: a fix that also ran out an edge
+        // outside the stretch checked would change what Mike may already
+        // have reviewed, and the problem wouldn't say so.
+        found = found.filter { finding in ranges.contains(where: { $0.start <= finding.stretch.end && finding.stretch.start <= $0.end }) }
 
         // One patch a clip, setting every edge the check moves, so both
         // edges of one shot are one edit and the fixes don't undo each other.
         var moves: [String: (clip: Clip, start: Time?, end: Time?)] = [:]
         var blocked: [Int: String] = [:]
         var copies: [Int: [Clip]] = [:]
+        // Where each moved clip will be, so a move is checked against the
+        // others as well as the timeline as it is: two that each fit can
+        // still overlap each other, and one overlap fails the whole batch.
+        var planned: [String: TimeRange] = [:]
         for (index, finding) in found.enumerated() {
             let moving = [finding.clip] + picture.copies(of: finding.clip, at: finding.edge)
             copies[index] = Array(moving.dropFirst())
@@ -106,10 +108,19 @@ extension QualityCheck {
                 blocked[index] = why
                 continue
             }
+            func moved(_ clip: Clip) -> TimeRange {
+                let range = planned[clip.id] ?? clip.range
+                return finding.edge == .start ? TimeRange(start: finding.to, end: range.end) : TimeRange(start: range.start, end: finding.to)
+            }
+            if let why = moving.lazy.compactMap({ picture.clash(of: $0, at: moved($0), with: planned) }).first {
+                blocked[index] = why
+                continue
+            }
             for clip in moving {
                 var move = moves[clip.id] ?? (clip, nil, nil)
                 if finding.edge == .start { move.start = finding.to } else { move.end = finding.to }
                 moves[clip.id] = move
+                planned[clip.id] = moved(clip)
             }
         }
         var fixes: [String: TakePicture.Fix] = [:]
@@ -117,8 +128,7 @@ extension QualityCheck {
             if let fix = picture.fix(move.clip, start: move.start, end: move.end) { fixes[id] = fix }
         }
 
-        let problems: [CheckProblem] = found.enumerated().compactMap { index, finding in
-            guard ranges.contains(where: { $0.start <= finding.stretch.end && finding.stretch.start <= $0.end }) else { return nil }
+        let problems: [CheckProblem] = found.enumerated().map { index, finding in
             let fix = blocked[index] == nil ? fixes[finding.clip.id] : nil
             let others = (copies[index] ?? []).compactMap { fixes[$0.id]?.command }
             var problem = CheckProblem(
@@ -150,6 +160,21 @@ extension QualityCheck {
         return commands
     }
 
+    /// The flickers in `flickers` that a double jump's fix in `jumps` hides,
+    /// left out. A frame of the take flickering in the camera flash between
+    /// two shots of one file is the flash, seen in the frames: the shot run
+    /// over it hides it, and its `holdFrame` would only freeze the take
+    /// under the shot, a stutter waiting for the shot to move.
+    static func withoutFlickersUnderFixedJumps(_ flickers: [CheckProblem], jumps: [CheckProblem], frame: Time) -> [CheckProblem] {
+        let fixed = jumps.filter { $0.kind == .doubleJump && $0.fix != nil }.map { TimeRange(start: $0.start, end: $0.end) }
+        guard !fixed.isEmpty else { return flickers }
+        return flickers.filter { flicker in
+            // Its frames all show inside the stretch: the first at or after
+            // its start, the last (a frame before its end) before its end.
+            flicker.kind != .flicker || !fixed.contains { flicker.start >= $0.start && flicker.end - frame < $0.end }
+        }
+    }
+
     /// What a batch of `commands(fixing:)` is called in the history.
     public static func fixLabel(for problems: [CheckProblem]) -> String {
         let fixed = problems.filter { !$0.kind.isNote && $0.fix != nil }
@@ -178,6 +203,16 @@ private struct DoubleJumpFinding {
     var screen: Bool
     /// For a camera flash, the shot after it.
     var next: Clip?
+    /// The transition over the cut, when the take moves into the next shot
+    /// rather than cutting to it.
+    var transition: TransitionType?
+    /// For a camera flash the edges' own fixes would have left, how much
+    /// of the take they'd leave (under zero when they'd cross), and which
+    /// of the two shots they moved.
+    var left: Time?
+    var leftFrames = 0
+    var movedFirst = false
+    var movedSecond = false
 }
 
 /// What the viewer sees of the take and over it, for `doubleJumps`.
@@ -190,11 +225,14 @@ private struct TakePicture {
     }
 
     /// A cut in the take, on cut track `track`, in a screen recording or
-    /// the camera (or another angle of it).
+    /// the camera (or another angle of it). It plays over `span`: the
+    /// moment of the cut, or the whole of the transition over it, where
+    /// the picture is on its way from one shot to the next.
     struct Cut {
-        var time: Time
+        var span: TimeRange
         var track: Int
         var screen: Bool
+        var transition: TransitionType?
     }
 
     /// A clip's patch, and whether it holds a frame at each end that it
@@ -216,12 +254,24 @@ private struct TakePicture {
     var covers: [Cover] = []
     /// Where section cards play: an edge or cut under one isn't checked.
     var cards: [TimeRange] = []
+    /// By the start of their spans.
     var cuts: [Cut] = []
+    /// The longest span of a cut, so a cut whose transition starts before a
+    /// stretch is still found in it.
+    var longestCut: Time = .zero
+    /// Where some of the take plays, joined up, by time.
+    var take: [TimeRange] = []
 
     /// A frame held over a flicker (`holdFrame`) covers up to three frames
     /// and holds the one before them, so the file is at most four frames
-    /// off either side of it; half a frame more for rounding.
-    var heldFrameSlack: Time { Time(flicks: frame.flicks * 9 / 2) }
+    /// of the shot off either side of it; half a frame more for rounding.
+    /// On a sped-up clip those frames run through more of the file: a
+    /// three-frame hold on a screen recording at 2x leaves the piece after
+    /// it eight frames on, and it's still the same shot carrying on. The
+    /// held piece itself plays at 1x, so the faster side sets it.
+    func heldFrameSlack(_ left: Clip, _ right: Clip) -> Time {
+        Time(flicks: Int64((Double(frame.flicks) * 4.5 * max(left.speed, right.speed, 1)).rounded()))
+    }
 
     init(_ project: Project) {
         self.project = project
@@ -240,7 +290,34 @@ private struct TakePicture {
             }
         }
         covers.sort { $0.clip.start < $1.clip.start }
+        take = Self.joined(project.videoTracks.filter { !$0.hidden && $0.rippleMode == .cut }.flatMap { $0.clips.filter(\.enabled).map(\.range) })
         cuts = findCuts()
+        longestCut = cuts.map(\.span.duration).max() ?? .zero
+    }
+
+    /// The ranges joined where they overlap or touch, by time.
+    private static func joined(_ ranges: [TimeRange]) -> [TimeRange] {
+        var joined: [TimeRange] = []
+        for range in ranges.sorted(by: { $0.start < $1.start }) {
+            if let last = joined.last, range.start <= last.end + QualityCheck.snapSlack {
+                joined[joined.count - 1] = TimeRange(start: last.start, end: max(last.end, range.end))
+            } else {
+                joined.append(range)
+            }
+        }
+        return joined
+    }
+
+    /// Whether some of the take plays at every moment of `range`: a
+    /// stretch with black in it isn't the camera flashing, it's a gap.
+    func takeShows(across range: TimeRange) -> Bool {
+        var low = 0, high = take.count
+        while low < high {
+            let middle = (low + high) / 2
+            if take[middle].start <= range.start + QualityCheck.snapSlack { low = middle + 1 } else { high = middle }
+        }
+        guard low > 0 else { return false }
+        return take[low - 1].end >= range.end - QualityCheck.snapSlack
     }
 
     /// The index of the first cover that starts after `time` (`covers` is
@@ -256,47 +333,129 @@ private struct TakePicture {
 
     // MARK: Cuts
 
-    /// The cuts from the start of `range` to its end, both included.
-    func cuts(around range: TimeRange) -> ArraySlice<Cut> {
+    /// The cuts that play at some moment from the start of `range` to its
+    /// end, both included.
+    func cuts(around range: TimeRange) -> [Cut] {
+        let from = range.start - longestCut
         var low = 0, high = cuts.count
         while low < high {
             let middle = (low + high) / 2
-            if cuts[middle].time < range.start { low = middle + 1 } else { high = middle }
+            if cuts[middle].span.start < from { low = middle + 1 } else { high = middle }
         }
-        var end = low
-        while end < cuts.count && cuts[end].time <= range.end { end += 1 }
-        return cuts[low..<end]
+        var found: [Cut] = []
+        var index = low
+        while index < cuts.count && cuts[index].span.start <= range.end {
+            if cuts[index].span.end >= range.start { found.append(cuts[index]) }
+            index += 1
+        }
+        return found
     }
 
-    /// The cuts in the take the viewer would see, by time.
+    /// The cuts in the take the viewer would see, by the start of their
+    /// spans.
     private func findCuts() -> [Cut] {
         let tiny = QualityCheck.snapSlack
         let fades = QualityCheck.fadeWindows(in: project)
         var found: [Cut] = []
         for (index, track) in project.videoTracks.enumerated() where !track.hidden && track.rippleMode == .cut {
             let clips = track.clips.filter(\.enabled)
+            // A fade to or from black is the fade windows'; every other
+            // transition carries the picture from one shot to the next.
+            let moving = track.transitions.filter { $0.type != .fadeToBlack && $0.type != .fadeFromBlack }
             var here: [(time: Time, clip: Clip)] = []
             for (i, clip) in clips.enumerated() {
-                if i == 0 || !carriesOn(clips[i - 1], into: clip) { here.append((clip.start, clip)) }
+                // A push or a wipe between two pieces of a file that carries
+                // on still moves the picture; a dissolve between them shows
+                // nothing.
+                let pushed = i > 0 && moving.contains { $0.type != .dissolve && $0.fromClipID == clips[i - 1].id && $0.toClipID == clip.id }
+                if i == 0 || pushed || !carriesOn(clips[i - 1], into: clip) { here.append((clip.start, clip)) }
                 // An end the next clip starts at is that clip's start.
                 if i + 1 == clips.count || clips[i + 1].start > clip.end + tiny { here.append((clip.end, clip)) }
             }
             for (time, clip) in here where time > tiny && time < end - tiny {
                 guard !fades.contains(where: { $0.start <= time && time <= $0.end }), !hiddenByTake(time, above: index) else { continue }
-                found.append(Cut(time: time, track: index, screen: isScreen(clip)))
+                // Tandem centres a transition on its cut (`window(on:)`), so
+                // a 0.5 s push at 10 plays from 9.75 to 10.25. Treated as
+                // the cut at 10, a shot starting there cut in mid-push, and
+                // one starting as it landed was "fixed" back to its middle.
+                let over = moving.lazy.compactMap { transition -> (TransitionType, TimeRange)? in
+                    let names = time == clip.start ? transition.toClipID == clip.id : transition.fromClipID == clip.id
+                    guard names, let window = transition.window(on: track), window.start <= time, time <= window.end else { return nil }
+                    return (transition.type, window)
+                }.first
+                found.append(Cut(span: over?.1 ?? TimeRange(start: time, duration: .zero), track: index, screen: isScreen(clip), transition: over?.0))
             }
         }
-        return found.sorted { $0.time < $1.time }
+        return found.sorted { $0.span.start < $1.span.start }
     }
 
     /// Whether `right` plays on from `left` with nothing changing on
-    /// screen: a through-edit, or either side a frame held from the file
-    /// about where the other is in it.
+    /// screen: framed the same (`samePicture`), and the file carrying on
+    /// where `left` leaves it (a through-edit, or a change of speed, which
+    /// shows as the shot speeding up, not a cut), or either side a frame
+    /// held from the file about where the other is in it.
     private func carriesOn(_ left: Clip, into right: Clip) -> Bool {
-        if ThroughEdits.discontinuity(left, right, tolerance: Time(flicks: frame.flicks / 2)) == nil { return true }
-        guard left.mediaID != nil, left.mediaID == right.mediaID, left.end == right.start, left.freezeFrame || right.freezeFrame else { return false }
+        guard left.mediaID != nil, left.mediaID == right.mediaID, left.end == right.start, samePicture(left, right) else { return false }
+        guard left.freezeFrame || right.freezeFrame else {
+            return abs((right.sourceStart - left.sourceEnd).flicks) <= frame.flicks / 2
+        }
         let leaving = left.freezeFrame ? left.sourceStart : left.sourceEnd
-        return abs((right.sourceStart - leaving).flicks) <= heldFrameSlack.flicks
+        return abs((right.sourceStart - leaving).flicks) <= heldFrameSlack(left, right).flicks
+    }
+
+    /// Whether the picture at the end of `left` is the one at the start of
+    /// `right`, as they're placed: the same position, scale, rotation and
+    /// flip, crop, opacity, cutout and effects, keyframes included. A piece
+    /// of the take that carries straight on in its file but is framed
+    /// closer (a zoomToRegion punch-in, the W to M angles) or moved to the
+    /// corner (applyLayout pipRight) jumps on screen like any cut: the Ian
+    /// video has 59 punch-ins on its wide camera. The layout's name isn't
+    /// compared: it's only the preset the clip was last set to (a zoom
+    /// clears it), and what the preset did is in the rest.
+    private func samePicture(_ left: Clip, _ right: Clip) -> Bool {
+        let a = left.resolvedVideo(at: left.duration), b = right.resolvedVideo(at: .zero)
+        // Keyframes read at either side of a split land a hair apart.
+        func near(_ x: Double, _ y: Double) -> Bool { abs(x - y) < 0.0001 }
+        let (x, y) = (a.transform, b.transform)
+        guard near(x.position.x, y.position.x), near(x.position.y, y.position.y), near(x.scale, y.scale),
+              near(x.rotation, y.rotation), x.flipped == y.flipped,
+              near(a.crop.left, b.crop.left), near(a.crop.top, b.crop.top), near(a.crop.right, b.crop.right), near(a.crop.bottom, b.crop.bottom),
+              near(a.opacity, b.opacity), (a.cutout?.enabled == true) == (b.cutout?.enabled == true) else { return false }
+        return ThroughEdits.effectIDs(of: b.effects, as: a.effects) != nil
+    }
+
+    /// Where the `edge` of a shot on track `track`, at `at`, should run out
+    /// to, and the stretch of take that shows between them: the far side
+    /// of the farthest cut in reach with the take showing, uncovered, all
+    /// the way from it to the edge (running out to a nearer one would leave
+    /// the shot before that cut flashing instead). From there it keeps
+    /// going while another cut is in reach, so a shot past a one-word bite
+    /// of the take lands clear of both in one fix rather than one a check.
+    /// A cut is in reach when the edge is inside its span or less than
+    /// `doubleJumpReach` past its near side. Nil when none is.
+    func reach(from at: Time, edge: ClipEdge, over track: Int) -> (to: Time, stretch: TimeRange, screen: Bool, transition: TransitionType?)? {
+        let reach = QualityCheck.doubleJumpReach, slack = QualityCheck.snapSlack
+        let starts = edge == .start
+        func stretch(to target: Time) -> TimeRange { starts ? TimeRange(start: target, end: at) : TimeRange(start: at, end: target) }
+        func farthest(from edgeAt: Time) -> (cut: Cut, to: Time)? {
+            let window = starts ? TimeRange(start: edgeAt - reach, end: edgeAt) : TimeRange(start: edgeAt, end: edgeAt + reach)
+            let inReach = cuts(around: window).compactMap { cut -> (cut: Cut, to: Time)? in
+                // A start runs back to where the cut starts and an end on
+                // to where it ends, so the shot hides the whole of it.
+                let target = starts ? cut.span.start : cut.span.end
+                let off = starts ? edgeAt - target : target - edgeAt
+                let past = starts ? edgeAt - cut.span.end : cut.span.start - edgeAt
+                guard cut.track < track, off > slack, past <= reach else { return nil }
+                return (cut, target)
+            }
+            return inReach.sorted { starts ? $0.to < $1.to : $0.to > $1.to }.first { exposed(stretch(to: $0.to)) && takeShows(across: stretch(to: $0.to)) }
+        }
+        var reached: (cut: Cut, to: Time)?
+        while let next = farthest(from: reached?.to ?? at) { reached = next }
+        guard let (cut, to) = reached else { return nil }
+        // A camera cut where the screen recording cuts with it.
+        let together = cuts(around: TimeRange(start: to, duration: .zero)).filter { $0.track < track && (starts ? $0.span.start : $0.span.end) == to }
+        return (to, stretch(to: to), together.allSatisfy(\.screen), cut.transition)
     }
 
     /// Whether a cut track above `track` shows one unbroken full-frame shot
@@ -426,10 +585,59 @@ private struct TakePicture {
         }
     }
 
+    /// `found` with each pair of edge fixes that would leave less than
+    /// `cameraFlashLongest` of the take between a shot and the next (a
+    /// flash the next check would report, against its own fix) made one
+    /// camera flash instead: the first shot runs on to where the second
+    /// starts, and the second stays. The same when the two fixes would
+    /// cross, with cuts too near both shots to run each to its own.
+    func joiningFlashesTheFixesWouldLeave(_ found: [DoubleJumpFinding], flashEdges: Set<String>) -> [DoubleJumpFinding] {
+        var planned: [String: Time] = [:]
+        for finding in found where finding.next == nil { planned["\(finding.clip.id)|\(finding.edge.rawValue)"] = finding.to }
+        guard !planned.isEmpty else { return found }
+        var replaced = Set<String>()
+        var flashes: [DoubleJumpFinding] = []
+        for cover in covers where !flashEdges.contains("\(cover.clip.id)|end") && exposedEdge(cover, .end) {
+            let end = cover.clip.end
+            guard let next = covers[firstCover(startingAfter: end + QualityCheck.snapSlack)...].first(where: { exposedEdge($0, .start) }) else { continue }
+            let (first, second) = ("\(cover.clip.id)|end", "\(next.clip.id)|start")
+            guard !flashEdges.contains(second), !replaced.contains(first), !replaced.contains(second) else { continue }
+            let ends = planned[first], starts = planned[second]
+            guard ends != nil || starts != nil else { continue }
+            let left = (starts ?? next.clip.start) - (ends ?? end)
+            // Run out to the same cut, they meet.
+            guard abs(left.flicks) > QualityCheck.snapSlack.flicks, left < QualityCheck.cameraFlashLongest else { continue }
+            let gap = TimeRange(start: end, end: next.clip.start)
+            guard exposed(gap), let take = takeClip(in: left > .zero ? TimeRange(start: ends ?? end, duration: left) : gap) else { continue }
+            replaced.formUnion([first, second])
+            flashes.append(DoubleJumpFinding(
+                clip: cover.clip, edge: .end, to: next.clip.start, stretch: gap, frames: frames(in: gap), screen: isScreen(take),
+                next: next.clip, left: left, leftFrames: left > .zero ? frames(in: TimeRange(start: ends ?? end, duration: left)) : 0,
+                movedFirst: ends != nil, movedSecond: starts != nil
+            ))
+        }
+        return found.filter { $0.next != nil || !replaced.contains("\($0.clip.id)|\($0.edge.rawValue)") } + flashes
+    }
+
+    /// The track the clip is on.
+    func track(of clip: Clip) -> Track? {
+        project.videoTracks.first { $0.clips.contains { $0.id == clip.id } }
+    }
+
+    /// Why the clip can't move to `range` given where the other moves put
+    /// their clips (`planned`), or nil when it can: one on its track would
+    /// end up overlapping it. Two shots either side of one stretch can
+    /// each be run into it, and `inTheWay` only sees them where they are.
+    func clash(of clip: Clip, at range: TimeRange, with planned: [String: TimeRange]) -> String? {
+        guard let track = track(of: clip),
+              let other = track.clips.first(where: { $0.id != clip.id && planned[$0.id]?.clashes(with: range) == true }) else { return nil }
+        return "The fix for \(name(other)) on \"\(track.name)\" is in the way."
+    }
+
     /// Why the clip's edge can't move `to` there, or nil when it can: its
     /// track is locked, or another clip on it is in the way.
     func inTheWay(of clip: Clip, movingEdge edge: ClipEdge, to: Time) -> String? {
-        guard let track = project.videoTracks.first(where: { $0.clips.contains { $0.id == clip.id } }) else { return nil }
+        guard let track = track(of: clip) else { return nil }
         if track.locked { return "\"\(track.name)\" is locked." }
         let range = edge == .start ? TimeRange(start: to, end: clip.start) : TimeRange(start: clip.end, end: to)
         guard let blocker = track.clips.first(where: { $0.id != clip.id && $0.range.clashes(with: range) }) else { return nil }
@@ -489,22 +697,49 @@ private struct TakePicture {
         let seconds = finding.stretch.duration.seconds
         var words: String
         if let next = finding.next {
-            let amount = finding.frames == 0 ? String(format: "%.3f s", seconds)
-                : finding.frames < 10 ? "\(finding.frames) frame\(finding.frames == 1 ? "" : "s")" : String(format: "%.1f s", seconds)
+            func amount(_ duration: Time, frames: Int) -> String {
+                frames == 0 ? String(format: "%.3f s", duration.seconds)
+                    : frames < 10 ? "\(frames) frame\(frames == 1 ? "" : "s")" : String(format: "%.1f s", duration.seconds)
+            }
             let (kind, take) = finding.screen ? ("Screen flash", "the screen recording") : ("Camera flash", "camera")
-            words = "\(kind): \(amount) of \(take) between \(name(finding.clip)) and \(name(next)). Run the first\(withCopies) on to the second\(holding)."
+            let between = "of \(take) between \(name(finding.clip)) and \(name(next))"
+            let what: String
+            if let left = finding.left, left > .zero {
+                // Honest about where it came from: there's more than a
+                // flash of camera now, but the edges' own fixes would leave
+                // one.
+                let running = finding.movedFirst && finding.movedSecond ? "running both out to the cuts"
+                    : finding.movedFirst ? "running \(name(finding.clip)) on to the cut" : "extending \(name(next)) back to the cut"
+                what = "\(running) would leave \(amount(left, frames: finding.leftFrames)) \(between)"
+            } else if finding.left != nil {
+                what = "\(amount(finding.stretch.duration, frames: finding.frames)) \(between), with cuts too near both to run each out to its own"
+            } else {
+                what = "\(amount(finding.stretch.duration, frames: finding.frames)) \(between)"
+            }
+            words = "\(kind): \(what). Run the first\(withCopies) on to the second\(holding)."
         } else {
             let age = finding.edge == .start ? "new" : "old"
-            let (cut, shot) = finding.screen ? ("a cut in the screen recording", "its \(age) shot") : ("a camera cut", "the \(age) camera shot")
+            let source = finding.screen ? "the screen recording" : "the camera"
+            let (cut, shot): (String, String)
+            if let transition = finding.transition {
+                // The shot is measured from the far side of the transition,
+                // where the fix runs it out to.
+                let kind = transition == .cutSlide ? "cut slide" : transition.rawValue
+                (cut, shot) = ("a \(kind) on \(source) \(finding.edge == .start ? "starts" : "ends")", source)
+            } else {
+                (cut, shot) = finding.screen ? ("a cut in the screen recording", "its \(age) shot") : ("a camera cut", "the \(age) camera shot")
+            }
             let side = finding.edge == .start ? "after" : "before"
             let off: String
             if finding.frames == 0 {
                 off = "\(String(format: "%.3f s", seconds)) \(side) \(cut), under a frame at \(fps) fps, but it's free to close"
             } else {
                 let count = "\(finding.frames) frame\(finding.frames == 1 ? "" : "s")"
-                off = "\(count) \(side) \(cut), so \(shot) flashes for \(QualityCheck.seconds(finding.stretch.duration)) \(finding.edge == .start ? "before" : "after") it"
+                let shows = finding.transition == nil ? "flashes" : "shows"
+                off = "\(count) \(side) \(cut), so \(shot) \(shows) for \(QualityCheck.seconds(finding.stretch.duration)) \(finding.edge == .start ? "before" : "after") it"
             }
-            let action = finding.edge == .start ? "Extend it\(withCopies) back to the cut\(holding)." : "Run it\(withCopies) on to the cut\(holding)."
+            let target = finding.transition.map { "\(finding.edge == .start ? "the start" : "the end") of the \($0 == .cutSlide ? "cut slide" : $0.rawValue)" } ?? "the cut"
+            let action = finding.edge == .start ? "Extend it\(withCopies) back to \(target)\(holding)." : "Run it\(withCopies) on to \(target)\(holding)."
             words = "Double jump: \(name(finding.clip)) \(finding.edge == .start ? "starts" : "ends") \(off). \(action)"
         }
         if let blocked { words += " \(blocked)" }

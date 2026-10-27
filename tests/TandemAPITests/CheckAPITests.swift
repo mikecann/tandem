@@ -71,27 +71,55 @@ final class CheckAPITests: XCTestCase {
     func testBrollJustAfterACameraCutIsADoubleJumpWithItsFixOnTheApplyLine() async throws {
         let h = try ServiceHarness()
         defer { h.close() }
-        // The take cuts at 30; the shot lands two frames after it.
+        // The take cuts at 30, the camera in the corner dissolving from
+        // 29.75 to 30.25; the shot lands two frames after the cut, halfway
+        // through the dissolve.
         try h.apply(.moveClips(clipIDs: ["clip_brl1"], delta: t(10.066), includeLinked: false))
         let result = try await CheckRequest(quick: true).run(on: h.service, context: h.context)
         XCTAssertFalse(result.ok, "a double jump fails the check, even a quick one")
         XCTAssertEqual(result.problems.map(\.kind), [.doubleJump])
         let problem = try XCTUnwrap(result.problems.first)
-        XCTAssertEqual(problem.start, t(30))
+        XCTAssertEqual(problem.start, t(29.75), "from where the dissolve starts")
         let fix = try XCTUnwrap(problem.fix)
         XCTAssertEqual(result.commands, [fix])
         XCTAssertEqual(result.revision, h.service.coordinator.revision)
         let text = result.readableText
-        XCTAssertTrue(text.contains("00:30.000-00:30.066  Double jump: servers.mp4 starts 2 frames after a camera cut, so the new camera shot flashes for 0.07 s before it. Extend it back to the cut.  On: clip_brl1 servers"), text)
+        XCTAssertTrue(text.contains("00:29.750-00:30.066  Double jump: servers.mp4 starts 9 frames after a dissolve on the camera starts, so the camera shows for 0.32 s before it. Extend it back to the start of the dissolve.  On: clip_brl1 servers"), text)
         XCTAssertTrue(text.contains(#"Fix: tandem apply --expect \#(h.service.coordinator.revision) --label "\#(QualityCheck.doubleJumpLabel)" '[{"updateClip":{"clipID":"clip_brl1","patch":{"#), text)
         let json = String(decoding: try ServiceJSON.encoder().encode(result), as: UTF8.self)
         XCTAssertTrue(json.contains(#""kind":"doubleJump""#), json)
         XCTAssertTrue(json.contains(#""commands":[{"updateClip""#), json)
 
         _ = try h.service.apply(ApplyRequest(label: QualityCheck.doubleJumpLabel, commands: result.commands, expectedRevision: result.revision), context: h.context)
-        XCTAssertEqual(h.service.coordinator.project.clip("clip_brl1")?.start, t(30))
+        XCTAssertEqual(h.service.coordinator.project.clip("clip_brl1")?.start, t(29.75), "over the whole dissolve and the screen's cut")
         let again = try await CheckRequest(quick: true).run(on: h.service, context: h.context)
         XCTAssertTrue(again.ok, "\(again.problems.map(\.message))")
+    }
+
+    func testAFlickerUnderADoubleJumpsFixIsLeftToTheFix() async throws {
+        // The shot lands 2 frames after the cut at 30, and the screen
+        // recording flickers in the camera that shows before it. Running the
+        // shot back over the cut hides the flicker, so a hold there would
+        // only freeze the take under the shot: one problem, one fix.
+        var renderer = FakeRenderer()
+        renderer.scanned = flicker(from: 28, to: 32, at: 30.0333)
+        renderer.screenScanned = flicker(from: 28, to: 32, at: 30.0333)
+        let h = try ServiceHarness(renderer: renderer)
+        defer { h.close() }
+        try h.apply(.moveClips(clipIDs: ["clip_brl1"], delta: t(10.066), includeLinked: false))
+        let result = try await CheckRequest(from: t(28), to: t(32)).run(on: h.service, context: h.context)
+        XCTAssertEqual(result.problems.map(\.kind), [.doubleJump], "\(result.problems.map(\.message))")
+        XCTAssertFalse(result.commands.contains { if case .holdFrame = $0 { return true } else { return false } }, "\(result.commands)")
+
+        // Away from the shot the flicker keeps its hold.
+        var away = FakeRenderer()
+        away.scanned = flicker(from: 28, to: 32, at: 29)
+        away.screenScanned = flicker(from: 28, to: 32, at: 29)
+        let g = try ServiceHarness(renderer: away)
+        defer { g.close() }
+        try g.apply(.moveClips(clipIDs: ["clip_brl1"], delta: t(10.066), includeLinked: false))
+        let other = try await CheckRequest(from: t(28), to: t(32)).run(on: g.service, context: g.context)
+        XCTAssertEqual(Set(other.problems.map(\.kind)), [.doubleJump, .flicker])
     }
 
     func testTheNextCheckOnlyRendersThePiecesThatChanged() async throws {

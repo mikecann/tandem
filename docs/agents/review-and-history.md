@@ -28,19 +28,31 @@ their own beside it, and reports, with the clips on screen there:
   b-roll which makes it quite distracting". Under 1.5 s of camera between
   two such shots is one too, a camera flash. It's read from the timeline,
   so it's in a quick check. A cut is where a clip on a cut track (Camera,
-  Screen) doesn't carry straight on in its file: through-edits, frames
-  held over a flicker, cuts the camera full frame hides and cuts under a
-  fade to or from black aren't cuts. Phone mock-ups, stickers,
+  Screen) doesn't carry straight on in its file, or is framed differently
+  from the one before (a punch-in, a switch to picture-in-picture, a
+  flip, crop or effect): through-edits, speed changes in a file that
+  plays on, frames held over a flicker, cuts the camera full frame hides
+  and cuts under a fade to or from black aren't cuts. A push, dissolve,
+  slide, wipe or zoom over a cut makes it last the whole transition: an
+  edge inside it, or within 0.75 s of its near side, is reported, and the
+  fix runs the shot to its far side so the shot covers all of it. Black
+  isn't the camera: a shot beside a gap in the take is the gap check's.
+  Phone mock-ups, stickers,
   picture-in-picture, files with alpha, titles and section cards don't
   cover the frame, and an edge or cut under a section card is left alone
   (its wipes are made to sit across cuts). Anything over a millisecond
   off a cut is reported, in frames. Each comes with the `updateClip` that
-  runs the shot out to the cut (or the first shot on to the second),
+  runs the shot out to the cut (on past more cuts in reach, so one apply
+  is enough), or the first shot on to the second where running each out
+  to its cut would leave a camera flash between them,
   keeping its file and keyframes where they were and setting `holdEdges`
   where the file runs out; a copy of the shot on another track (a sharp
   copy over a blurred one) moves with it. They go first in the last
-  line's `tandem apply`, before any holds. When another clip on the
-  shot's track is in the way, it says so and has no fix;
+  line's `tandem apply`, before any holds, and a flicker in the stretch a
+  fix covers is left to it rather than held. A fix only moves the edges
+  reported in the stretch checked. When another clip on the shot's track
+  is in the way, or another fix would put a clip there, it says so and
+  has no fix;
 - as notes that don't fail it:
   - pictures zoomed past three times their own pixels (1080p past 150%
     on a 4K frame), which look soft;
