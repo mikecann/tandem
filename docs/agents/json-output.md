@@ -189,7 +189,13 @@ kind `heardWhole` (with its `cut`, and no command); and one with a
 listening finding at its join stays, its message saying both. `engine` reads `Bark 3.0 Pro, then
 SpeechAnalyzer` when Bark kept failing and SpeechAnalyzer took over.
 A plain `tandem check --json` has `commands` and `revision` too when it
-can fix a flicker, and that problem's `fix` is the `holdFrame`.
+can fix a flicker or a double jump: a flicker's `fix` is the `holdFrame`,
+and a `doubleJump`'s the `updateClip` that runs the shot out to the cut
+(`start`, `duration`, `sourceStart`, `keyframes` and `holdEdges` as
+needed), with `moreFixes` for copies of the shot that move with it. A
+`doubleJump` problem's `clipIDs` are the shot, or for a camera flash both
+shots, and `frames` how many frames of the take show. `commands` has the
+double jumps' patches first, then the holds latest first.
 
 ## cut
 

@@ -20,6 +20,27 @@ their own beside it, and reports, with the clips on screen there:
   usually a frame of the wrong shot: trim it instead;
 - green screen that didn't key, and flat white blocks that come and go
   (a key or matte that failed);
+- double jumps: full-frame B-roll (or a solid) over the take that starts
+  within 0.75 s after a cut in the take or ends within 0.75 s before one,
+  so the viewer sees the camera change and a few frames later the shot,
+  or the reverse. Mike caught the first of 11 on the Batching Component
+  video 5 s in: "it cuts and then like a few frames later it shows the
+  b-roll which makes it quite distracting". Under 1.5 s of camera between
+  two such shots is one too, a camera flash. It's read from the timeline,
+  so it's in a quick check. A cut is where a clip on a cut track (Camera,
+  Screen) doesn't carry straight on in its file: through-edits, frames
+  held over a flicker, cuts the camera full frame hides and cuts under a
+  fade to or from black aren't cuts. Phone mock-ups, stickers,
+  picture-in-picture, files with alpha, titles and section cards don't
+  cover the frame, and an edge or cut under a section card is left alone
+  (its wipes are made to sit across cuts). Anything over a millisecond
+  off a cut is reported, in frames. Each comes with the `updateClip` that
+  runs the shot out to the cut (or the first shot on to the second),
+  keeping its file and keyframes where they were and setting `holdEdges`
+  where the file runs out; a copy of the shot on another track (a sharp
+  copy over a blurred one) moves with it. They go first in the last
+  line's `tandem apply`, before any holds. When another clip on the
+  shot's track is in the way, it says so and has no fix;
 - as notes that don't fail it:
   - pictures zoomed past three times their own pixels (1080p past 150%
     on a 4K frame), which look soft;
@@ -65,8 +86,9 @@ their own beside it, and reports, with the clips on screen there:
 Run `tandem check --changed` before handing an edit back: it checks only
 what agents changed that's waiting for Mike's review, half a second either
 side. It exits 1 when it finds a problem; notes never fail it. `--quick`
-skips rendering, so it only finds gaps, soft pictures, slivers and nothing
-that needs the screen recordings scanned (page changes, low frame rates).
+skips rendering, so it only finds gaps, soft pictures, slivers and double
+jumps, and nothing that needs the screen recordings scanned (page changes,
+low frame rates).
 
 It renders the timeline in 10 s pieces, several at once, and keeps what it
 measured in each in `.tandem/cache/check`. A piece is rendered again only

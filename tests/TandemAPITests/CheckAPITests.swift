@@ -68,6 +68,32 @@ final class CheckAPITests: XCTestCase {
         XCTAssertEqual(h.service.coordinator.project.track(named: "Voice")?.clips.first?.range, TimeRange(start: t(0), end: t(30)), "the sound plays on uncut")
     }
 
+    func testBrollJustAfterACameraCutIsADoubleJumpWithItsFixOnTheApplyLine() async throws {
+        let h = try ServiceHarness()
+        defer { h.close() }
+        // The take cuts at 30; the shot lands two frames after it.
+        try h.apply(.moveClips(clipIDs: ["clip_brl1"], delta: t(10.066), includeLinked: false))
+        let result = try await CheckRequest(quick: true).run(on: h.service, context: h.context)
+        XCTAssertFalse(result.ok, "a double jump fails the check, even a quick one")
+        XCTAssertEqual(result.problems.map(\.kind), [.doubleJump])
+        let problem = try XCTUnwrap(result.problems.first)
+        XCTAssertEqual(problem.start, t(30))
+        let fix = try XCTUnwrap(problem.fix)
+        XCTAssertEqual(result.commands, [fix])
+        XCTAssertEqual(result.revision, h.service.coordinator.revision)
+        let text = result.readableText
+        XCTAssertTrue(text.contains("00:30.000-00:30.066  Double jump: servers.mp4 starts 2 frames after a camera cut, so the new camera shot flashes for 0.07 s before it. Extend it back to the cut.  On: clip_brl1 servers"), text)
+        XCTAssertTrue(text.contains(#"Fix: tandem apply --expect \#(h.service.coordinator.revision) --label "\#(QualityCheck.doubleJumpLabel)" '[{"updateClip":{"clipID":"clip_brl1","patch":{"#), text)
+        let json = String(decoding: try ServiceJSON.encoder().encode(result), as: UTF8.self)
+        XCTAssertTrue(json.contains(#""kind":"doubleJump""#), json)
+        XCTAssertTrue(json.contains(#""commands":[{"updateClip""#), json)
+
+        _ = try h.service.apply(ApplyRequest(label: QualityCheck.doubleJumpLabel, commands: result.commands, expectedRevision: result.revision), context: h.context)
+        XCTAssertEqual(h.service.coordinator.project.clip("clip_brl1")?.start, t(30))
+        let again = try await CheckRequest(quick: true).run(on: h.service, context: h.context)
+        XCTAssertTrue(again.ok, "\(again.problems.map(\.message))")
+    }
+
     func testTheNextCheckOnlyRendersThePiecesThatChanged() async throws {
         let renderer = FakeRenderer()
         let h = try ServiceHarness(renderer: renderer)
@@ -196,8 +222,12 @@ final class CheckAPITests: XCTestCase {
     func testClipsAndGapsShorterThanAFrameAreSliverNotes() async throws {
         let h = try ServiceHarness()
         defer { h.close() }
+        // Small, so the take shows around them: full-frame solids with
+        // camera between them would be double jumps (camera flashes) too.
         func solid(_ id: String, _ start: Double, _ duration: Double) -> EditCommand {
-            .insertClip(trackID: "trk_broll", clip: Clip(id: id, content: .solid(color: .black), start: t(start), duration: t(duration)))
+            .insertClip(trackID: "trk_broll", clip: Clip(
+                id: id, content: .solid(color: .black), start: t(start), duration: t(duration), video: VideoProperties(transform: Transform(scale: 0.25))
+            ))
         }
         try h.apply(solid("clip_a", 26, 1), solid("clip_b", 27.01, 1), solid("clip_tiny", 29, 0.02))
         let result = try await CheckRequest(quick: true).run(on: h.service, context: h.context)

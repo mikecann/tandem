@@ -90,8 +90,10 @@ rounds up.
    lands late.
 4. **Check.** `tandem check --changed` before you hand back. It renders
    what you changed and finds black frames, flickers, green screen that
-   didn't key and white blocks. A flicker it can fix (a frame jumping in
-   a screen recording) comes with a `holdFrame`, in the `tandem apply` on
+   didn't key, white blocks and double jumps (B-roll a few frames off a
+   camera cut). A flicker it can fix (a frame jumping in a screen
+   recording) comes with a `holdFrame`, and a double jump with the
+   `updateClip` that runs the shot out to the cut, in the `tandem apply` on
    its last line. Fix every problem it reports. If you cut the take, also
    run `tandem check --changed --cuts` and the listen check for words
    clipped at the cuts, and judge its cut findings by ear rather than
@@ -359,14 +361,22 @@ From his review comments on the Daytona and Build Your Own Convex videos
   only against word pauses: placing by pauses alone left 11 shots 1 to 17
   frames off a cut on the batching video, and Mike caught the first 5 s in,
   "it cuts and then like a few frames later it shows the b-roll... quite
-  distracting" (2026-10-27).
-  `convex-videos/batching-component/.work/edit/snap_broll_to_cuts.py`
-  finds and fixes them from `tandem timeline --json`.
+  distracting" (2026-10-27). `tandem check` (`--quick` too) now flags both
+  as problems, double jumps and camera flashes, each with the `updateClip`
+  that runs the shot out to the cut, in the `tandem apply` on its last line.
 - **Show what he says.** When he names a thing (a dashboard table, a docs
   page, a claim someone made, a price), put the real thing on screen while
   he says it. A highlight (the $200 free credit) appears when he says it,
   not before. When he mentions a person (Jamie Turner, Convex's CEO), put
-  their photo above their name's lower third.
+  their photo above their name's lower third. A colleague who already has a
+  cartoon from an earlier video can pop in as it instead: on the component
+  tree Short he asked for Nicolas from the ESLint video "in the corner...
+  pop in from the side or something, And make him say hello like he did in
+  the other one" (2026-10-26). Reuse the archived green-screen clips and
+  voice, keyed to HEVC with alpha (`avconvert --preset
+  PresetHEVCHighestQualityWithAlpha`; Tandem couldn't read ffmpeg's
+  hevc_videotoolbox file), and land the hello in a pause in his speech. The
+  build is in `component-tree-switcher/notes.md`.
 - **Show what he says in a live demo too.** In his last review of the
   Tandem video, 9 comments were B-roll asks for things he named, live or on
   camera: Filmora when he first names it, then Filmora itself in use (the
@@ -673,6 +683,21 @@ and the upload batch.
   terminal or docs page can't be read. Where the take has a gap (a voice dub),
   fill the camera behind it with a blurred, darkened copy of the shot so the
   top of the frame isn't black.
+- **An old Short shown inside a new one goes in the window, small** (Convex
+  1.48, 2026-10-26). Full frame, its burned-in captions sat right under the
+  new ones: "you have the transcription on the screen showing both of them
+  at the same time, which is confusing". Put it in the top window as a card
+  (scale 0.42 at y 0.21875 over a blurred copy cropped to the window), with
+  the camera in the bottom half, so it reads as the old video playing.
+- **A question he asks the viewer types out on screen as he says it**, in
+  his exact words with the typing sound, below his face, sliding off as he
+  moves on (1.48: "pop up the question on the screen here as I say it").
+  In the Short, turn the captions off under it so the words aren't shown
+  twice.
+- **Check the music is audible before exporting.** Beds added with
+  `tandem assets use` and then `normalizeTo: -45` came back with `gain -31 dB`
+  as well (1.48), so the first export had no music. `tandem loudness --tracks
+  Music` over a stretch should read about -45 LUFS.
 - **Pick moments that stand on their own:** a strong claim with its number,
   a rant, a "this broke" moment. Start about 0.1 s before the first word and
   end in the pause after a finished thought, checked with `tandem pauses`.

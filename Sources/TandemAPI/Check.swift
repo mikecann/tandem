@@ -11,7 +11,8 @@ public struct CheckRequest: ServiceCall {
     public var to: Time?
     /// Only the stretches agents changed that wait for Mike's review.
     public var changed: Bool?
-    /// Only the checks that need no rendering: gaps, soft pictures and slivers.
+    /// Only the checks that need no rendering: gaps, soft pictures, slivers
+    /// and double jumps.
     public var quick: Bool?
     /// Only the cuts on the speech tracks: does the voice run right up to
     /// one (a clipped word)? Reads the files' sound, renders nothing.
@@ -60,7 +61,8 @@ public struct CheckResult: Codable, Sendable {
     /// Frames rendered and measured: none for a quick check.
     public var frames: Int
     public var seconds: Double
-    /// What's wrong: black frames, gaps, flickers, keys that didn't happen.
+    /// What's wrong: black frames, gaps, flickers, keys that didn't happen,
+    /// double jumps.
     public var problems: [CheckProblem]
     /// Worth knowing but not wrong: pictures zoomed past their own pixels,
     /// clips and gaps shorter than a frame, dead air, page changes with no
@@ -73,10 +75,11 @@ public struct CheckResult: Codable, Sendable {
     public var warnings: [String]
     /// With `cuts`: how many cut edges on the speech tracks were checked.
     public var cuts: Int?
-    /// The edits that fix what the check can fix, latest first: with
-    /// `cuts`, the trims that move each clipped edge into its pause;
-    /// otherwise a `holdFrame` for each flicker it can tell the picture of.
-    /// Pass them to `apply` with `revision`.
+    /// The edits that fix what the check can fix: with `cuts`, the trims
+    /// that move each clipped edge into its pause, latest first; otherwise
+    /// the `updateClip` that runs each double jump's shot out to its cut,
+    /// then a `holdFrame` for each flicker it can tell the picture of,
+    /// latest first. Pass them to `apply` with `revision`.
     public var commands: [EditCommand]
     /// The revision the check read, for `commands`.
     public var revision: Int?
@@ -183,7 +186,7 @@ extension CheckResult: ReadableResult {
             encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
             let batch = (try? encoder.encode(commands)).map { String(decoding: $0, as: UTF8.self) } ?? "[]"
             let expect = revision.map { " --expect \($0)" } ?? ""
-            let label = cuts == nil ? QualityCheck.holdLabel : CutCheck.label
+            let label = cuts == nil ? QualityCheck.fixLabel(for: problems) : CutCheck.label
             lines.append("Fix: tandem apply\(expect) --label \"\(label)\" '\(batch)'")
         }
         return lines.joined(separator: "\n")
@@ -351,9 +354,10 @@ extension TandemService {
                 guard let clip = project.clip(id) else { continue }
                 names[id] = Self.checkName(clip, in: project)
             }
-            // Latest first, so a hold that cuts a clip never takes the ID
-            // off the piece an earlier hold names.
-            let fixes = found.filter { !$0.kind.isNote }.sorted { $0.start > $1.start }.compactMap(\.fix)
+            // The double jumps' patches first, then holds latest first, so
+            // a hold that cuts a clip never takes the ID off the piece an
+            // earlier hold names (`QualityCheck.commands(fixing:)`).
+            let fixes = QualityCheck.commands(fixing: found)
             return CheckResult(
                 ranges: toCheck, frames: frames?.count ?? 0, seconds: Date().timeIntervalSince(started),
                 problems: found.filter { !$0.kind.isNote }, notes: found.filter(\.kind.isNote), clipNames: names, note: why,

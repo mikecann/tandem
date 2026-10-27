@@ -47,6 +47,11 @@ public struct CheckProblem: Codable, Equatable, Sendable {
         /// A screen recording playing at a low frame rate while its picture
         /// moves, so it looks choppy.
         case lowFrameRate
+        /// Full-frame B-roll a few frames off a cut in the take, so the
+        /// camera changes and then the shot comes in (or goes) a moment
+        /// later, or a flash of the take under 1.5 s between two shots
+        /// (`doubleJumps`). The fix runs the shot out to the cut.
+        case doubleJump
 
         /// Worth knowing rather than wrong: Mike signed off softer zooms on
         /// cartoon B-roll than on screen recordings, a pause can let a point
@@ -69,10 +74,18 @@ public struct CheckProblem: Codable, Equatable, Sendable {
     /// For a clipped word, the clip edge and where to move it.
     public var cut: CutEdge?
     /// The edit that fixes it, when the check can tell: for a flicker, the
-    /// `holdFrame` that holds the frame before it over it.
+    /// `holdFrame` that holds the frame before it over it; for a double
+    /// jump, the `updateClip` that runs the shot out to the cut.
     public var fix: EditCommand?
+    /// Edits that go with `fix`, for clips that move with it: a double
+    /// jump's shot shown as a sharp copy over a blurred full-frame copy of
+    /// itself moves both. Nil (and left out of JSON) when there are none.
+    public var moreFixes: [EditCommand]?
 
-    public init(kind: Kind, start: Time, end: Time, frames: Int? = nil, message: String, clipIDs: [String] = [], cut: CutEdge? = nil, fix: EditCommand? = nil) {
+    public init(
+        kind: Kind, start: Time, end: Time, frames: Int? = nil, message: String, clipIDs: [String] = [], cut: CutEdge? = nil, fix: EditCommand? = nil,
+        moreFixes: [EditCommand]? = nil
+    ) {
         self.kind = kind
         self.start = start
         self.end = end
@@ -81,6 +94,7 @@ public struct CheckProblem: Codable, Equatable, Sendable {
         self.clipIDs = clipIDs
         self.cut = cut
         self.fix = fix
+        self.moreFixes = moreFixes
     }
 
     /// The edge of a speech clip a word is clipped at, or a marginal join.
@@ -231,8 +245,8 @@ public struct FrameStats: Equatable, Sendable {
 }
 
 /// The checks behind `tandem check`. The model checks (gaps, slivers, soft
-/// pictures) read the project; the frame checks read `FrameStats` for each
-/// rendered frame.
+/// pictures, double jumps) read the project; the frame checks read
+/// `FrameStats` for each rendered frame.
 public enum QualityCheck {
     /// A picture shown at more than this many frame pixels for each of its
     /// own looks soft: 1080p is shown at 2x on a 4K frame, and zooming it
@@ -257,7 +271,7 @@ public enum QualityCheck {
     /// recordings' own frame times by media ID.
     public static func problems(in project: Project, ranges: [TimeRange], frames: [FrameStats]?, screenFrames: [FrameStats]? = nil, speech: Speech? = nil, frameTimes: [String: [Time]] = [:]) -> [CheckProblem] {
         let gapProblems = gaps(in: project, ranges: ranges)
-        var found = gapProblems + softPictures(in: project, ranges: ranges) + slivers(in: project, ranges: ranges)
+        var found = gapProblems + softPictures(in: project, ranges: ranges) + slivers(in: project, ranges: ranges) + doubleJumps(in: project, ranges: ranges)
         if let frames {
             found += holdFixes(frameProblems(frames, in: project, skipping: gapProblems.map { TimeRange(start: $0.start, end: $0.end) }), in: project, screenFrames: screenFrames)
             if let speech {
