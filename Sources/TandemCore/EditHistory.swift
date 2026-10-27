@@ -297,6 +297,7 @@ public enum ClipChanges {
         }
         if a.transform.scale != b.transform.scale { details.append("scale \(number(a.transform.scale)) -> \(number(b.transform.scale))") }
         if a.transform.rotation != b.transform.rotation { details.append("rotation \(number(a.transform.rotation)) -> \(number(b.transform.rotation))") }
+        if a.transform.flipped != b.transform.flipped { details.append(b.transform.flipped ? "flipped" : "unflipped") }
         if a.crop != b.crop { details.append("crop") }
         if a.opacity != b.opacity { details.append("opacity \(number(a.opacity)) -> \(number(b.opacity))") }
         if a.cutout != b.cutout { details.append(a.cutout == nil ? "cutout on" : b.cutout == nil ? "cutout off" : "cutout settings") }

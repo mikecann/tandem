@@ -15,9 +15,12 @@ way Mike does:
 
 `full` puts it back to full frame for a talking-head section, `pipLeft`
 moves it to the other corner when the screen has something important
-bottom right, and `split` puts camera and screen side by side. To fine-tune
+bottom right (and flips the camera, so Mike faces into the frame rather
+than off its edge), and `split` puts camera and screen side by side. To fine-tune
 the corner, patch the transform:
 `{"updateClip": {"clipID": "clip_cam1", "patch": {"video": {"transform": {"position": {"x": 0.86, "y": 0.76}}}}}}`.
+`"flipped": true` in the transform mirrors any clip left to right about its
+centre; the layout presets set it and clear it for the camera.
 
 ## Zoom into the screen recording
 

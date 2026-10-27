@@ -53,6 +53,17 @@ final class CompositorTests: XCTestCase {
         assertColor(frame[220, 90], red)
     }
 
+    func testAFlipMirrorsThePicture() {
+        // Blue on the left half of the camera, green on the right: flipped,
+        // green shows on the left.
+        var h = screenAndCamera(VideoProperties(transform: Transform(flipped: true)))
+        h.pictures["med_blue"] = solid(0, 0, 1).cropped(to: CGRect(x: 0, y: 0, width: 160, height: 180))
+            .composited(over: solid(0, 1, 0))
+        let frame = h.render(at: t(1))
+        assertColor(frame[40, 90], green)
+        assertColor(frame[280, 90], blue)
+    }
+
     func testCropHidesEdgesWithoutMovingTheLayer() {
         let frame = screenAndCamera(VideoProperties(crop: Crop(left: 0.5))).render(at: t(1))
         assertColor(frame[80, 90], red)

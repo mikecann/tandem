@@ -46,6 +46,21 @@ final class LayerMathTests: XCTestCase {
         assertPoint(CGPoint(x: 100, y: 0).applying(t), 100, 100)
     }
 
+    func testAFlipMirrorsTheLayerInPlace() {
+        // Flipped, the top-left corner lands where the top-right was, and
+        // the PiP's box stays where it was.
+        let pip = Transform(position: Point(x: 0.13, y: 0.77), scale: 0.5)
+        var flipped = pip
+        flipped.flipped = true
+        let plain = LayerMath.placement(source: uhd, canvas: uhd, transform: pip)
+        let mirrored = LayerMath.placement(source: uhd, canvas: uhd, transform: flipped)
+        assertPoint(CGPoint.zero.applying(mirrored), CGPoint(x: 3840, y: 0).applying(plain).x, CGPoint(x: 3840, y: 0).applying(plain).y)
+        assertPoint(CGPoint(x: 1920, y: 1080).applying(mirrored), 499.2, 1663.2)
+        let box = CGRect(origin: .zero, size: uhd)
+        XCTAssertEqual(box.applying(mirrored).minX, box.applying(plain).minX, accuracy: 0.001)
+        XCTAssertEqual(box.applying(mirrored).width, box.applying(plain).width, accuracy: 0.001)
+    }
+
     func testTextLayersAreNotFitted() {
         let t = LayerMath.placement(source: CGSize(width: 400, height: 100), canvas: uhd, transform: Transform(), fitToCanvas: false)
         assertPoint(CGPoint.zero.applying(t), 1920 - 200, 1080 - 50)

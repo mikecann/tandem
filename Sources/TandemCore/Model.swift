@@ -500,11 +500,28 @@ public struct Transform: Codable, Equatable, Sendable {
     public var scale: Double
     /// Degrees clockwise.
     public var rotation: Double
+    /// Mirrored left to right about the layer's centre. Mike in the
+    /// bottom-left corner is flipped so he faces the screen he's talking
+    /// about, not off the edge of the frame (`pipLeft` sets it).
+    public var flipped: Bool
 
-    public init(position: Point = Point(x: 0.5, y: 0.5), scale: Double = 1, rotation: Double = 0) {
+    public init(position: Point = Point(x: 0.5, y: 0.5), scale: Double = 1, rotation: Double = 0, flipped: Bool = false) {
         self.position = position
         self.scale = scale
         self.rotation = rotation
+        self.flipped = flipped
+    }
+
+    private enum CodingKeys: String, CodingKey { case position, scale, rotation, flipped }
+
+    // Written only when set, so projects with nothing flipped save
+    // exactly as they did before flipping existed.
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(position, forKey: .position)
+        try c.encode(scale, forKey: .scale)
+        try c.encode(rotation, forKey: .rotation)
+        if flipped { try c.encode(flipped, forKey: .flipped) }
     }
 }
 
@@ -1185,6 +1202,7 @@ extension Transform {
         position = try c.decode(.position, or: Point(x: 0.5, y: 0.5))
         scale = try c.decode(.scale, or: 1)
         rotation = try c.decode(.rotation, or: 0)
+        flipped = try c.decode(.flipped, or: false)
     }
 }
 

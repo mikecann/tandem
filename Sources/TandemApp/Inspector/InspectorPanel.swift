@@ -372,6 +372,18 @@ struct VideoInspector: View {
                       onCommit: { value in
                           commit("video.transform.rotation", .number(value), label: "Rotation", plain: commitTransform { transform in transform.rotation = value })
                       })
+            HStack(spacing: 10) {
+                Text("Flip")
+                    .font(.ui(12))
+                    .foregroundStyle(Theme.textMuted.color)
+                    .frame(width: 86, alignment: .leading)
+                    .help("Mirrors the picture left to right. PiP left flips the camera so Mike faces into the frame.")
+                let flipped = video.transform.flipped
+                Spacer()
+                GraphiteSwitch(isOn: flipped) {
+                    model.apply(InspectorEdits.video(clip.id, ["transform": .object(["flipped": .bool(!flipped)])], label: flipped ? "Unflip" : "Flip"))
+                }
+            }
             SliderRow(label: "Opacity", value: video.opacity * 100, range: 0...100, format: { "\(Int($0.rounded()))%" },
                       defaultValue: 100, help: "How solid the clip is. 0% lets everything underneath show through.",
                       onPreview: preview { properties, value in properties.opacity = (value ?? 0) / 100 },

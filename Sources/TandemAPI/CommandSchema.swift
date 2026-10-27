@@ -267,7 +267,8 @@ extension CommandSchema {
     static let transform = S.object([
         "position": S.ref("Point"),
         "scale": S.number("1 fits the canvas; Mike's PiP is 0.5."),
-        "rotation": S.number("Degrees clockwise.")
+        "rotation": S.number("Degrees clockwise."),
+        "flipped": S.boolean("Mirrored left to right about its centre. pipLeft sets it on the camera so Mike faces into the frame.")
     ])
 
     static let crop = S.object([

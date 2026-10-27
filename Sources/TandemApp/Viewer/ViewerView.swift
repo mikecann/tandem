@@ -154,6 +154,7 @@ final class ViewerView: NSView, CaptureAware {
         // Rotate about the centre of the uncropped source.
         context.translateBy(x: full.midX, y: full.midY)
         context.rotate(by: CGFloat(video.transform.rotation) * .pi / 180)
+        if video.transform.flipped { context.scaleBy(x: -1, y: 1) }
         context.translateBy(x: -full.midX, y: -full.midY)
         let item = clip.mediaID.flatMap { project.media($0) }
         let scaleFactor = canvas.height / 1080

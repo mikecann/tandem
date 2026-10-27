@@ -27,6 +27,51 @@ final class LayoutTests: XCTestCase {
         XCTAssertTrue(video.effects.isEmpty)
     }
 
+    /// "When you move me over to the left hand side, can you flip me
+    /// horizontally so that it looks like I'm facing the actual app?"
+    /// (Batching Component, 2026-10-27.)
+    func testPipLeftFlipsTheCameraSoMikeFacesIntoTheFrame() throws {
+        let (f, c) = try Fixture.edited()
+        let camera = f.clips("Camera")[0].id
+        try c.run("PiP left", .applyLayout(clipIDs: [camera], preset: .pipLeft))
+        XCTAssertEqual(c.project.clip(camera)?.video?.transform.flipped, true)
+        XCTAssertEqual(c.project.clip(camera)?.video?.transform.position, LayoutPreset.pipLeftPosition)
+        try c.run("PiP right", .applyLayout(clipIDs: [camera], preset: .pipRight))
+        XCTAssertEqual(c.project.clip(camera)?.video?.transform.flipped, false, "back on the right he faces in already")
+        try c.run("PiP left", .applyLayout(clipIDs: [camera], preset: .pipLeft))
+        try c.run("Full", .applyLayout(clipIDs: [camera], preset: .full))
+        XCTAssertEqual(c.project.clip(camera)?.video?.transform.flipped, false, "full frame is the take as filmed")
+    }
+
+    func testPipLeftOnlyFlipsTheCamera() throws {
+        let (f, c) = try Fixture.edited()
+        let screen = f.clips("Screen")[0].id
+        try c.run("PiP left", .applyLayout(clipIDs: [screen], preset: .pipLeft))
+        XCTAssertEqual(c.project.clip(screen)?.video?.transform.flipped, false, "mirrored text would read backwards")
+    }
+
+    func testAZoomOnAFlippedClipShowsTheRegionAsked() throws {
+        let (f, c) = try Fixture.edited()
+        let screen = f.clips("Screen")[0].id
+        try c.run("Flip", .updateClip(clipID: screen, patch: .object(["video": .object(["transform": .object(["flipped": .bool(true)])])])))
+        // The right half of the file shows on the left of a flipped clip,
+        // so zooming into it moves the picture right.
+        try c.run("Zoom", .zoomToRegion(clipID: screen, rect: Rect(x: 0.5, y: 0.25, width: 0.5, height: 0.5), at: nil, duration: nil))
+        let transform = try XCTUnwrap(c.project.clip(screen)?.video?.transform)
+        XCTAssertTrue(transform.flipped, "a zoom keeps the flip")
+        XCTAssertEqual(transform.scale, 2, accuracy: 1e-6)
+        XCTAssertEqual(transform.position.x, 1, accuracy: 1e-6)
+    }
+
+    func testAFlipIsOnlySavedWhenItsOn() throws {
+        let plain = try JSONEncoder().encode(Transform())
+        XCTAssertFalse(String(decoding: plain, as: UTF8.self).contains("flipped"), "projects with nothing flipped save as before")
+        let old = try JSONDecoder().decode(Transform.self, from: Data(#"{"position":{"x":0.13,"y":0.77},"scale":0.5,"rotation":0}"#.utf8))
+        XCTAssertFalse(old.flipped)
+        let flipped = Transform(position: LayoutPreset.pipLeftPosition, scale: 0.5, flipped: true)
+        XCTAssertEqual(try JSONDecoder().decode(Transform.self, from: JSONEncoder().encode(flipped)), flipped)
+    }
+
     func testLayoutSkipsAudioClips() throws {
         let (f, c) = try Fixture.edited()
         XCTAssertThrowsError(try c.run("Voice", .applyLayout(clipIDs: [f.clips("Voice")[0].id], preset: .pipRight)))

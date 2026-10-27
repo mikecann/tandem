@@ -482,7 +482,11 @@ From his review comments on the Daytona and Build Your Own Convex videos
   in picture video"). Give long runs of B-roll a 2 s+ cut-back to him on a
   reaction or bridging line, and tell the B-roll builder which layout it's
   for before it renders, since a corner-safe layout looks off-centre full
-  screen. Cut back for an aside he acts out, too: "Bruce being one of the
+  screen. In the left corner (`pipLeft`) he's flipped so he faces the app,
+  not off the edge: "when you move me over to the left hand side, can you
+  flip me horizontally" (Batching Component, 2026-10-27). `pipLeft` does it;
+  if you place him on the left by hand, set `"flipped": true` too.
+  Cut back for an aside he acts out, too: "Bruce being one of the
   Mac minis in my house here" wanted his face ("it's the important things
   to focus on my face when I'm saying something like that").
 - **Break up long talking-head stretches.** A 10 s opening line in the cold
@@ -833,8 +837,7 @@ What he changed, in the order he asked:
   picture for the entire thing". When the screen is the subject from the
   first line, he's in the corner throughout.
 - **Bottom-right, but out of the way of the UI he clicks.** He tried
-  bottom-left (mirrored, since Tandem has no flip: a `hflip` copy with
-  `-copyts`, then `tandem sync 0 --media` on it) and went back to the right:
+  bottom-left (mirrored; `pipLeft` now flips the camera itself) and went back to the right:
   "when I click stuff on the right hand sidebar can you just hide me for a
   second or move me out of the way". Find the clicks from the recording
   (frame differences in the sidebar's region), not the transcript; skip

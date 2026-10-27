@@ -52,6 +52,7 @@ enum InspectorEdits {
             "transform": .object([
                 "scale": .number(transform.scale),
                 "rotation": .number(transform.rotation),
+                "flipped": .bool(transform.flipped),
                 "position": .object(["x": .number(transform.position.x), "y": .number(transform.position.y)])
             ]),
             "layoutPreset": .null

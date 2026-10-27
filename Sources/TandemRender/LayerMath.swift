@@ -41,14 +41,16 @@ public enum LayerMath {
 
     /// Display-to-canvas transform for a layer: aspect fit (unless the
     /// source is already in canvas pixels, like rendered text), then
-    /// `transform.scale`, rotation clockwise about the centre, and the
-    /// uncropped centre placed at `transform.position`.
+    /// `transform.scale` (mirrored left to right when `transform.flipped`),
+    /// rotation clockwise about the centre, and the uncropped centre placed
+    /// at `transform.position`. A flip is about the centre, so the layer's
+    /// box doesn't move.
     public static func placement(source: CGSize, canvas: CGSize, transform: Transform, fitToCanvas: Bool = true) -> CGAffineTransform {
         let fit = fitToCanvas ? fitScale(source: source, canvas: canvas) : 1
         let scale = fit * CGFloat(transform.scale)
         let angle = CGFloat(transform.rotation) * .pi / 180
         return CGAffineTransform(translationX: -source.width / 2, y: -source.height / 2)
-            .concatenating(CGAffineTransform(scaleX: scale, y: scale))
+            .concatenating(CGAffineTransform(scaleX: transform.flipped ? -scale : scale, y: scale))
             // Positive angles turn +x towards +y, which is clockwise when y
             // points down.
             .concatenating(CGAffineTransform(rotationAngle: angle))

@@ -9,7 +9,10 @@ public enum LayoutPreset: String, Codable, CaseIterable, Sendable {
     case full
     /// 50% with the cutout, bottom right.
     case pipRight
-    /// 50% with the cutout, bottom left.
+    /// 50% with the cutout, bottom left, and the camera flipped so Mike
+    /// faces into the frame: "when you move me over to the left hand side,
+    /// can you flip me horizontally so that it looks like I'm facing the
+    /// actual app" (Batching Component, 2026-10-27).
     case pipLeft
     /// Camera on the right half, everything else on the left half.
     case split
@@ -62,6 +65,9 @@ public enum LayoutPreset: String, Codable, CaseIterable, Sendable {
         case .pipRight, .pipLeft:
             v.transform.scale = Self.pipScale
             v.transform.position = self == .pipRight ? Self.pipRightPosition : Self.pipLeftPosition
+            // He's filmed facing a little to his left, at the screen, so in
+            // the left corner he'd face off the edge of the frame.
+            v.transform.flipped = self == .pipLeft && role == .camera
             v.crop = Crop()
             var cutout = v.cutout ?? Cutout()
             cutout.enabled = true

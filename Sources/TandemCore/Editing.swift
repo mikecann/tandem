@@ -1324,8 +1324,11 @@ public enum Editing {
         guard let mediaID = clip.mediaID, let item = p.media(mediaID), let width = item.width, let height = item.height else {
             throw EditError.invalid("clip \(clipID) needs probed media (width and height) to zoom")
         }
+        // The rectangle is in the file; a flipped clip shows it mirrored.
+        let flipped = clip.video?.transform.flipped == true
+        let shown = flipped ? Rect(x: 1 - rect.x - rect.width, y: rect.y, width: rect.width, height: rect.height) : rect
         let target = Transform.showing(
-            rect, sourceWidth: Double(width), sourceHeight: Double(height),
+            shown, sourceWidth: Double(width), sourceHeight: Double(height),
             canvasWidth: Double(p.settings.width), canvasHeight: Double(p.settings.height)
         )
         var video = clip.video ?? VideoProperties()
