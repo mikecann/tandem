@@ -65,6 +65,11 @@ Tandem doesn't read `.env` files or need API keys to edit local media.
 Optional asset providers use macOS Keychain. `tandem assets providers` tells
 you what's missing, and [the asset guide](docs/ASSETS.md) covers setup.
 
+The release app in `~/Applications` (or `/Applications`) and the `tandem`
+command inside it send anonymous crash reports to Sentry: stack traces and
+the Mac's model and macOS version, nothing from your projects or media.
+Debug builds, tests, CI and copies anywhere else send nothing.
+
 ## Using it
 
 `tandem app [project.tandem]` opens the editor. Every other command goes to
@@ -135,6 +140,7 @@ test, which may install a language model and needs macOS 26.
 | `Sources/TandemImport` | Filmora and EDL importers |
 | `Sources/TandemApp` | The app |
 | `Sources/TandemCLI` | The `tandem` command |
+| `Sources/TandemCrashReports` | Crash reports from the installed release app |
 | `tests/` | XCTest targets, one per library |
 
 ## More tools

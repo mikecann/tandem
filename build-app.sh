@@ -46,6 +46,9 @@ mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources"
 cp "$BIN_DIR/tandem-app" "$APP_BIN"
 cp "$BIN_DIR/tandem" "$CLI_BIN"
 cp "$SCRIPT_DIR/Resources/Info.plist" "$APP_DIR/Contents/Info.plist"
+# The commit goes in the crash reports' release name (TandemCrashReports).
+COMMIT="$(git -C "$SCRIPT_DIR" rev-parse --short HEAD 2>/dev/null || echo unknown)"
+/usr/libexec/PlistBuddy -c "Add :TandemCommit string $COMMIT" "$APP_DIR/Contents/Info.plist"
 # SwiftPM resource bundles (keymaps, packs) sit next to the binaries.
 for bundle in "$BIN_DIR"/*.bundle; do
   [[ -e "$bundle" ]] || continue

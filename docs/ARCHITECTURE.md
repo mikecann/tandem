@@ -36,6 +36,7 @@ change the code and the tests with it.
 | `TandemApp` | The macOS app (SwiftUI shell, AppKit timeline and viewer) | everything |
 | `TandemCLI` | The `tandem` command, including `tandem mcp` and `tandem export` | Core, Media, Render, API |
 | `TandemAssets` | Asset library: catalogue, providers, normalising on import, copying into projects, credits, the shared library folder (see ASSETS.md) | Core, Media, AVFoundation, ImageIO, Core Text, Lottie |
+| `TandemCrashReports` | Sends crashes of the installed release app and CLI to Sentry (nothing from debug builds, tests, CI or copies outside ~/Applications) | Foundation, Sentry |
 
 Only `TandemApp` imports AppKit or SwiftUI. One exception: the asset
 library's SVG rasteriser uses `NSImage`, the only SVG renderer macOS has,

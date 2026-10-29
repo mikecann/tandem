@@ -25,7 +25,11 @@ let package = Package(
         // (TandemMedia only). Pinned to the revision Underdog tested Bark
         // Pro's Core ML runtime with. No traits: Tandem doesn't need its
         // text normalisation, a prebuilt Rust library.
-        .package(url: "https://github.com/FluidInference/FluidAudio.git", revision: "a00964e1aa8eff99c4bce80bc9c8ff2d4dd1568d", traits: [])
+        .package(url: "https://github.com/FluidInference/FluidAudio.git", revision: "a00964e1aa8eff99c4bce80bc9c8ff2d4dd1568d", traits: []),
+        // Crash reports from the installed release app and CLI
+        // (TandemCrashReports only). The static build, so nothing extra has
+        // to be copied into the app bundle.
+        .package(url: "https://github.com/getsentry/sentry-cocoa.git", from: "9.31.0")
     ],
     targets: [
         // Timeline model, time maths, edit commands, undo, persistence and the
@@ -53,15 +57,19 @@ let package = Package(
         // The macOS app. Its keymap and other defaults ship as resources.
         .executableTarget(
             name: "TandemApp",
-            dependencies: ["TandemCore", "TandemMedia", "TandemRender", "TandemAPI", "TandemAssets"],
+            dependencies: ["TandemCore", "TandemMedia", "TandemRender", "TandemAPI", "TandemAssets", "TandemCrashReports"],
             path: "Sources/TandemApp",
             resources: [.copy("Resources/Keymaps")]
         ),
+        // Sends the installed release app's and CLI's crashes to Sentry. Off
+        // in debug builds, tests and any copy outside ~/Applications.
+        .target(name: "TandemCrashReports", dependencies: [.product(name: "Sentry", package: "sentry-cocoa")], path: "Sources/TandemCrashReports"),
         // Runs Bark on audio files for scoring it against other engines
         // (tests/bark-check/).
         .executableTarget(name: "TandemBarkCheck", dependencies: ["TandemCore", "TandemMedia"], path: "Sources/TandemBarkCheck"),
-        .executableTarget(name: "TandemCLI", dependencies: ["TandemCore", "TandemMedia", "TandemRender", "TandemAPI", "TandemImport", "TandemAssets"], path: "Sources/TandemCLI"),
+        .executableTarget(name: "TandemCLI", dependencies: ["TandemCore", "TandemMedia", "TandemRender", "TandemAPI", "TandemImport", "TandemAssets", "TandemCrashReports"], path: "Sources/TandemCLI"),
         .testTarget(name: "TandemCoreTests", dependencies: ["TandemCore"], path: "tests/TandemCoreTests"),
+        .testTarget(name: "TandemCrashReportsTests", dependencies: ["TandemCrashReports"], path: "tests/TandemCrashReportsTests"),
         .testTarget(name: "TandemMediaTests", dependencies: ["TandemMedia"], path: "tests/TandemMediaTests"),
         .testTarget(name: "TandemRenderTests", dependencies: ["TandemRender"], path: "tests/TandemRenderTests"),
         // Depends on the CLI so `swift test` builds the `tandem` binary that the

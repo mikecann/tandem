@@ -1,5 +1,5 @@
 {
-  "originHash" : "03051568d53e92d88ab0e010b6d94f17208fcfc83256198f1a83e88c8f029576",
+  "originHash" : "59a7140db5469f960043e946b20bc1b2732015c5811df5435a729cd15f963368",
   "pins" : [
     {
       "identity" : "fluidaudio",
@@ -16,6 +16,15 @@
       "state" : {
         "revision" : "f4db77d7feacba0c2360b84a40c38a6ce8ff399d",
         "version" : "4.6.1"
+      }
+    },
+    {
+      "identity" : "sentry-cocoa",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/getsentry/sentry-cocoa.git",
+      "state" : {
+        "revision" : "2f64c77f77514acd01780d1aac86ae75b7fccd04",
+        "version" : "9.31.0"
       }
     }
   ],
