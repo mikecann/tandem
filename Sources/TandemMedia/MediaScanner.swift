@@ -382,6 +382,18 @@ public enum MediaScanner {
 
     // MARK: - Probing
 
+    /// `item` pointed at another file: the file's length, streams, size and
+    /// fingerprint, keeping the item's ID, role, take and look, as a scan
+    /// does for a known file that changed.
+    public static func probe(_ url: URL, replacing item: MediaItem, folder: ProjectFolder) async throws -> MediaItem {
+        let probe = try await MediaProbe.probe(url)
+        var replaced = item
+        replaced.path = folder.path(for: url)
+        probe.apply(to: &replaced)
+        replaced.fingerprint = try Fingerprint.compute(for: url).description
+        return replaced
+    }
+
     /// Probes one file: duration, frame rate, size, streams, alpha, VFR, and
     /// its role, including whether a video is a camera take.
     public static func probe(_ url: URL, folder: ProjectFolder, id: String? = nil, settings: TandemSettings = .load()) async throws -> MediaItem {

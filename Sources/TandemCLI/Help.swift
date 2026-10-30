@@ -33,8 +33,11 @@ enum Help {
                     """),
         CommandHelp(name: "status", usage: "tandem status [--revision] [--json]", summary: "Revision, length, unsaved changes, who has it open, undo, background jobs and agent edits waiting for Mike's review.", options: ["revision"],
                     details: "--revision prints just the revision number, to pass to --expect. Read it when you read the timeline you're about to edit, not right before applying, or --expect protects nothing. Tandem finding new files in the folder doesn't make it stale."),
-        CommandHelp(name: "media", usage: "tandem media [--refresh]", summary: "Media files, how many clips use each, and analysis status.", options: ["refresh"],
-                    details: "--refresh scans the project folder for new files first."),
+        CommandHelp(name: "media", usage: "tandem media [--refresh] | tandem media replace <media id> <file> [--label <text>]", summary: "Media files, how many clips use each, and analysis status. replace points a media item at another file of the same length.", options: ["refresh", "label"],
+                    details: """
+                    --refresh scans the project folder for new files first.
+                    replace swaps in a processed copy of a file (a cleaned-up voice, a regraded camera file) without moving a clip: the new file must be within a frame of the old one's length and have the sound and picture it had. Tandem probes and fingerprints it, then makes the transcript, loudness, waveform and the rest again from it, so levelled speech follows the new file. A copy the folder scan already added as media of its own is removed in the same step.
+                    """),
         CommandHelp(name: "timeline", usage: "tandem timeline [--from <time>] [--to <time>] [--words] [--summary] [--json]", summary: "The edit as readable text (or the project JSON).", options: ["from", "to", "words", "summary"],
                     details: "Tracks top to bottom as the app shows them, one line per clip. --summary gives one line per track, for finding your way round a long edit; --words adds what's said in each voice clip; --json prints the project JSON."),
         CommandHelp(name: "apply", usage: "tandem apply <file.json | - | '<json>'> [--dry-run] [--expect <revision>] [--label <text>] [--key <id>]", summary: "Apply a batch of edit commands as one undo step.", options: ["dry-run", "expect", "label", "key"],

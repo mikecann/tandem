@@ -38,7 +38,7 @@ removes a field. A range is always an object under its own key (`"range":
 | | `moveTrack` | a track's position among its kind |
 | | `updateTrack` | name, mute, solo, lock, hidden, targeted, ripple mode |
 | Media | `addMedia` | a file into the project, not the timeline (`tandem media --refresh` usually does it) |
-| | `updateMedia` | a file's role, colour look, picture delay... |
+| | `updateMedia` | a file's role, colour look, picture delay, or another file in its place ([below](#updatemedia)) |
 | | `removeMedia` | a file nothing uses |
 | Placing | `placeMedia` | files on their role's tracks, the way a drag in does ([below](#placemedia)) |
 | | `insertClip` | one clip: a title, solid, graphic, adjustment layer or part of a file ([below](#insertclip)) |
@@ -92,6 +92,18 @@ level of their own keep it. Every export preset masters to
 `loudnessTarget` with true peaks under `truePeakCeiling`.
 `alternateFormats` is where extra outputs like the 9:16 short (`portrait`)
 live; `tandem short` adds it.
+
+## updateMedia
+
+A new `path` is another file in the item's place: every clip stays where
+it is and plays the new file. Without a `fingerprint` in the same patch,
+Tandem drops the old one, so loudness, transcript, waveform, isolated voice
+and separated stems are made again from the new file, and the next folder
+scan re-probes it. It also adds the old path to `replaces`, which keeps
+scans from adding that file back as new media. Media a scan already added
+for the new path goes in the same step, unless a clip plays it.
+`tandem media replace <id> <file>` does this with a length check; use it
+for a processed copy ([recipe](sound.md#swap-in-a-processed-copy-of-a-file)).
 
 ## placeMedia
 

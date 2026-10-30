@@ -30,7 +30,7 @@ public enum Editing {
         case .addMedia(let item):
             try addMedia(&project, item)
         case .updateMedia(let mediaID, let patch):
-            try updateMedia(&project, mediaID, patch)
+            try updateMedia(&project, mediaID, patch, &context)
         case .removeMedia(let mediaID):
             try removeMedia(&project, mediaID)
         case .placeMedia(let mediaIDs, let at, let sourceStart, let duration, let mode, let videoTrackID, let audioTrackID, let includeAudio, let anchor, let pop, let speed):
@@ -405,10 +405,37 @@ public enum Editing {
         p.media.append(item)
     }
 
-    static func updateMedia(_ p: inout Project, _ mediaID: String, _ patch: JSONValue) throws {
+    static func updateMedia(_ p: inout Project, _ mediaID: String, _ patch: JSONValue, _ context: inout EditContext) throws {
         guard let index = p.media.firstIndex(where: { $0.id == mediaID }) else { throw EditError.notFound("media \(mediaID)") }
         try requireObject(patch, forbidden: ["id"], what: "media")
-        p.media[index] = try JSONValue.applyMergePatch(patch, to: p.media[index])
+        let old = p.media[index]
+        var item: MediaItem = try JSONValue.applyMergePatch(patch, to: old)
+        // A new path with no fingerprint is another file in this one's place
+        // (a processed copy of a voice). Every analysis (loudness,
+        // transcript, waveform, isolated voice, separated stems) is cached
+        // under the file's fingerprint, so keeping the old one read the old
+        // file's results as the new one's: the James interview's swapped
+        // voice kept its old loudness, 3 dB out (30 Oct 2026). Without one,
+        // analysis fingerprints the new file and starts again, and the next
+        // folder scan re-probes it. A file moved rather than swapped
+        // (relink, archive, a rename the scan followed) comes with a
+        // fingerprint key, even a null one, and none of this applies.
+        if item.path != old.path, case .object(let fields) = patch, fields["fingerprint"] == nil {
+            item.fingerprint = nil
+            // The old file stays in the folder; scans leave it out instead
+            // of adding it back as a new take.
+            if fields["replaces"] == nil { item.replaces = MediaItem.replaces(old, with: item.path) }
+            // The folder scan may have seen the new file land first and
+            // added it as media of its own (as a camera take, even). It's
+            // this item's file now, so that copy goes, unless a clip plays it.
+            let used = Set(p.allTracks.flatMap(\.clips).compactMap(\.mediaID))
+            for copy in p.media where copy.id != mediaID && copy.path == item.path && !used.contains(copy.id) {
+                context.warnings.append("Removed media \(copy.id), another item for \(item.path) that no clip plays (a folder scan most likely added it before \(mediaID) was pointed at it).")
+            }
+            p.media.removeAll { $0.id != mediaID && $0.path == item.path && !used.contains($0.id) }
+        }
+        guard let index = p.media.firstIndex(where: { $0.id == mediaID }) else { throw EditError.notFound("media \(mediaID)") }
+        p.media[index] = item
     }
 
     static func removeMedia(_ p: inout Project, _ mediaID: String) throws {

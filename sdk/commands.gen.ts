@@ -168,6 +168,8 @@ export type MediaItem = {
   look?: Array<Effect>;
   /** Relative to the project folder, or absolute. */
   path: string;
+  /** Files this item played before a new path swapped in another file. Folder scans don't add them back as new media. A path patch without a fingerprint adds the old path here. */
+  replaces?: Array<string>;
   role?: "camera" | "screen" | "broll" | "graphic" | "sticker" | "music" | "sfx" | "image" | "other";
   takeID?: string;
   /** Seconds. */

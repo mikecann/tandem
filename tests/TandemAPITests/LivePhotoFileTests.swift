@@ -94,9 +94,11 @@ final class LivePhotoFileTests: XCTestCase {
         ]
         let map = [f.outside("photos/IMG_0130.HEIC").path: Self.still, f.outside("photos/IMG_0130.mov").path: Self.movie]
         let (commands, count) = ProjectArchiver.rewriteCommands(project, map: map, added: ["med_still_copy", "med_movie_copy"])
+        // The copy is the same file, so it keeps its fingerprint.
+        let fingerprint = project.media("med_live")?.fingerprint.map(JSONValue.string) ?? .null
         XCTAssertEqual(count, 2)
         XCTAssertEqual(commands, [
-            .updateMedia(mediaID: "med_live", patch: .object(["path": .string(Self.still), "livePhotoVideo": .string(Self.movie)])),
+            .updateMedia(mediaID: "med_live", patch: .object(["path": .string(Self.still), "livePhotoVideo": .string(Self.movie), "fingerprint": fingerprint])),
             .removeMedia(mediaID: "med_still_copy"),
             .removeMedia(mediaID: "med_movie_copy")
         ])

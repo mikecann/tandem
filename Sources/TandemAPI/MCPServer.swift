@@ -524,8 +524,13 @@ enum MCPTools {
         ),
         Tool(
             name: "media", title: "List media",
-            description: "Media files in the project with their role, length, how many clips use them and analysis status (transcript, loudness, proxy, cutout matte). refresh: true scans the project folder for new files first.",
-            operation: .media, properties: ["refresh": S.boolean("Scan the folder for new files first.")], readOnly: false
+            description: "Media files in the project with their role, length, how many clips use them and analysis status (transcript, loudness, proxy, cutout matte). refresh: true scans the project folder for new files first. replace with file points a media item at another file within a frame of its length (a processed copy of a voice), keeping every clip where it is and analysing the new file afresh.",
+            operation: .media, properties: [
+                "refresh": S.boolean("Scan the folder for new files first."),
+                "replace": S.string("A media ID to point at file instead, as one undo step."),
+                "file": S.string("With replace: the new file, absolute or relative to the project folder."),
+                "label": S.string("Undo label for replace."), "author": S.string("Who made the edit.")
+            ], readOnly: false
         ),
         Tool(
             name: "transcript", title: "Read a transcript",
