@@ -120,3 +120,20 @@ final class ReplaceMediaTests: XCTestCase {
         XCTAssertEqual(patch["fingerprint"], .string("1-2-x"))
     }
 }
+
+extension ReplaceMediaTests {
+    /// A byte-identical copy with the same date has the same fingerprint;
+    /// the scan's copy of it must still go just once.
+    func testAnIdenticalCopyAScanAddedIsReplacedCleanly() async throws {
+        let (h, original) = try await harness()
+        defer { h.close() }
+        let copy = h.folder.url.appendingPathComponent("audio/take1-copy.wav")
+        try FileManager.default.copyItem(at: original, to: copy)
+        let date = try FileManager.default.attributesOfItem(atPath: original.path)[.modificationDate]
+        try FileManager.default.setAttributes([.modificationDate: date as Any], ofItemAtPath: copy.path)
+        let added = try await h.session.refreshMedia()
+        XCTAssertEqual(added.count, 1)
+        _ = try await MediaRequest(replace: "med_voice", file: "audio/take1-copy.wav").run(on: h.service, context: h.context)
+        XCTAssertEqual(h.session.coordinator.project.media.filter { $0.path == "audio/take1-copy.wav" }.map(\.id), ["med_voice"])
+    }
+}

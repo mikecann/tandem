@@ -30,13 +30,20 @@ final class ProjectRenamerTests: XCTestCase {
 
     func testTheFileTheNameAndEverythingBesideItMove() throws {
         let support = folder.appendingPathComponent(".tandem", isDirectory: true)
+        // A backup from an hour ago: a fixed date ages past the 30 days
+        // backups are kept and gets pruned by the rename's save (it did on
+        // 30 Oct 2026).
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd HH.mm.ss"
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        let stamp = formatter.string(from: Date().addingTimeInterval(-3600))
         try write("review", to: ProjectFile.reviewURL(for: project))
         try write("undo", to: ProjectFile.undoHistoryURL(for: project))
         try write("journal", to: ProjectFile.journalURL(for: project))
         try write("icon", to: support.appendingPathComponent("ESLint.icon.png"))
-        try write("old save", to: support.appendingPathComponent("backups/ESLint 2026-09-30 10.00.00.tandem"))
+        try write("old save", to: support.appendingPathComponent("backups/ESLint \(stamp).tandem"))
         try write("stale lock", to: support.appendingPathComponent("ESLint.lock"))
-        try write("theirs", to: support.appendingPathComponent("backups/ESLint v2 2026-09-30 10.00.00.tandem"))
+        try write("theirs", to: support.appendingPathComponent("backups/ESLint v2 \(stamp).tandem"))
 
         let renamed = try ProjectRenamer.rename(project, to: "  Experimental video ")
         XCTAssertEqual(renamed.lastPathComponent, "Experimental video.tandem")
@@ -50,8 +57,8 @@ final class ProjectRenamerTests: XCTestCase {
         XCTAssertEqual(read(ProjectFile.undoHistoryURL(for: renamed)), "undo")
         XCTAssertEqual(read(ProjectFile.journalURL(for: renamed)), "journal")
         XCTAssertEqual(read(support.appendingPathComponent("Experimental video.icon.png")), "icon")
-        XCTAssertEqual(read(support.appendingPathComponent("backups/Experimental video 2026-09-30 10.00.00.tandem")), "old save")
-        XCTAssertEqual(read(support.appendingPathComponent("backups/ESLint v2 2026-09-30 10.00.00.tandem")), "theirs", "another project's backups stay")
+        XCTAssertEqual(read(support.appendingPathComponent("backups/Experimental video \(stamp).tandem")), "old save")
+        XCTAssertEqual(read(support.appendingPathComponent("backups/ESLint v2 \(stamp).tandem")), "theirs", "another project's backups stay")
         XCTAssertFalse(FileManager.default.fileExists(atPath: support.appendingPathComponent("ESLint.lock").path))
     }
 

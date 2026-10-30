@@ -281,7 +281,12 @@ public final class TandemService: @unchecked Sendable {
         }
         let before = try JSONValue.from(item)
         let after = try JSONValue.from(replaced)
-        guard let patch = JSONValue.mergePatch(from: before, to: after) else { throw ServiceError(.invalid, "\(mediaID) already plays \(item.path).") }
+        guard case .object(var fields) = JSONValue.mergePatch(from: before, to: after) else { throw ServiceError(.invalid, "\(mediaID) already plays \(item.path).") }
+        // Always the fingerprint, even one that didn't change (a copy that
+        // kept the original's date), so updateMedia leaves the scan's copy
+        // to the removeMedia below rather than taking it too.
+        fields["fingerprint"] = replaced.fingerprint.map(JSONValue.string) ?? .null
+        let patch = JSONValue.object(fields)
         // Media a folder scan added for the new file before the swap goes in
         // the same step, unless a clip plays it.
         let used = Set(project.allTracks.flatMap(\.clips).compactMap(\.mediaID))
