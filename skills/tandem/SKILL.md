@@ -781,7 +781,10 @@ and the upload batch.
   from later in the long video (Short 1 v3 cut the setup by 6 s, added
   Mike's "what is the better algorithm to do this then?" and Nipunn's
   dance, and stayed at 62 s). An anecdote, a joke or a war story can end
-  where it ends.
+  where it ends. Mike on v3: "what you did with short one is perfect. It
+  sets up the problem and then explains how we solve it all within the same
+  short", and "each short is designed to be self-contained" (30 Oct 2026).
+  Plan every Short that way from the first cut.
 - **Centre his face, not the frame.** He sits left of centre in the 16:9
   shot (nose about 39.5% across in the studio camera, 41% in Record It
   takes), and the 9:16 full-frame crop shows only a third of the width, so
