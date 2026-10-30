@@ -52,6 +52,10 @@ public struct CheckProblem: Codable, Equatable, Sendable {
         /// later, or a flash of the take under 1.5 s between two shots
         /// (`doubleJumps`). The fix runs the shot out to the cut.
         case doubleJump
+        /// The same camera at the same moment shown twice at once, usually a
+        /// crop in a Short's top window over the same shot below
+        /// (`sameShotTwice`): one person on screen twice.
+        case sameShotTwice
 
         /// Worth knowing rather than wrong: Mike signed off softer zooms on
         /// cartoon B-roll than on screen recordings, a pause can let a point
@@ -272,7 +276,7 @@ public enum QualityCheck {
     public static func problems(in project: Project, ranges: [TimeRange], frames: [FrameStats]?, screenFrames: [FrameStats]? = nil, speech: Speech? = nil, frameTimes: [String: [Time]] = [:]) -> [CheckProblem] {
         let gapProblems = gaps(in: project, ranges: ranges)
         let jumps = doubleJumps(in: project, ranges: ranges)
-        var found = gapProblems + softPictures(in: project, ranges: ranges) + slivers(in: project, ranges: ranges) + jumps
+        var found = gapProblems + softPictures(in: project, ranges: ranges) + slivers(in: project, ranges: ranges) + jumps + sameShotTwice(in: project, ranges: ranges)
         if let frames {
             let rendered = holdFixes(frameProblems(frames, in: project, skipping: gapProblems.map { TimeRange(start: $0.start, end: $0.end) }), in: project, screenFrames: screenFrames)
             found += withoutFlickersUnderFixedJumps(rendered, jumps: jumps, frame: project.settings.frameRate.frameDuration)

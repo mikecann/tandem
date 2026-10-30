@@ -38,6 +38,21 @@ final class FingerprintTests: TempFolderTestCase {
         XCTAssertFalse(print.matchesStat(of: url))
         XCTAssertEqual(try Fingerprint.compute(for: url).contentID, print.contentID)
     }
+
+    func testStatMatchSurvivesACopyThatDroppedTheMilliseconds() throws {
+        // Archiving the Nipunn video to Bruce and copying it back (30 Oct 2026) kept the files' seconds but not their
+        // milliseconds, so every stored fingerprint missed: the isolated voice failed as "file changed" and renders
+        // fell back to the raw mic.
+        let url = file("b.wav")
+        try Data("hello".utf8).write(to: url)
+        let stored = Fingerprint(size: 5, modified: 1_792_717_149_320, hash: try Fingerprint.compute(for: url).hash)
+        try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: 1_792_717_149)], ofItemAtPath: url.path)
+        XCTAssertTrue(stored.matchesStat(of: url), "the same second with its milliseconds dropped is the same file")
+        try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: 1_792_717_149.5)], ofItemAtPath: url.path)
+        XCTAssertFalse(stored.matchesStat(of: url), "a different time within that second is a change")
+        try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: 1_792_717_150)], ofItemAtPath: url.path)
+        XCTAssertFalse(stored.matchesStat(of: url), "the next second is a change")
+    }
 }
 
 final class RoleTests: XCTestCase {

@@ -749,6 +749,28 @@ and the upload batch.
   2.4, y 0.80, blade the camera at each B-roll edge). Captions at y 0.47,
   between the window and his cap; hook titles and on-screen tips at y 0.62,
   never in the bottom quarter, where the title, channel and buttons sit.
+- **Never the same person twice in the stacked layout.** A crop of the
+  board from the same camera up top, over that camera's shot of the person
+  below, shows them twice: on the Nipunn Shorts it was Nipunn's arm drawing
+  up top over his face below, and Mike pointing at the board up top over
+  Mike talking below. Mike: "there's awkward moments where you can see both
+  my arm and my face talking at the same time. It seems a bit odd" (30 Oct
+  2026). Put a graphic up top while the person is below, or go full frame on
+  one shot. `tandem check` flags it as "Same shot twice" (one file on two
+  tracks at the same moment), so run it after laying a Short out.
+- **Give a Short the context the long video gave.** A viewer arriving at a
+  Short hasn't seen the setup: on the Nipunn Shorts nobody had explained
+  pages, the cursor, the documents log, snapshots or the tombstone. Mike:
+  "Given that when a short, you have much less context from the previous
+  parts of the video, I think it's important to help with that lack of
+  context by using motion graphics or whatever" (30 Oct 2026). Read the
+  Short's words as a stranger and build a graphic for each thing that leans
+  on earlier context, in the long video's style and its drawn pieces, timed
+  to the Short's own words and rendered for the 2160x1680 top window. The
+  worked example is `nipunn-whiteboard-sept-2026/motion-graphics/src/shorts/`
+  (seven graphics, `useShort` cues in Short seconds). A long video's own
+  16:9 graphics can go in the window too, letterboxed at scale 1, where they
+  already explain the moment.
 - **Centre his face, not the frame.** He sits left of centre in the 16:9
   shot (nose about 39.5% across in the studio camera, 41% in Record It
   takes), and the 9:16 full-frame crop shows only a third of the width, so
@@ -769,6 +791,14 @@ and the upload batch.
 - **A hook title over the first 2 to 4 s,** in his words ("S tier or Haiku
   tier?"), scaled to about 0.72 so it fits across, sitting over his chest or
   under the window, never over his face.
+- **Bringing a project back from Bruce:** the archive there kept each
+  file's second but not its milliseconds, so every stored fingerprint
+  missed, analyses failed as "file changed" and renders quietly used the raw
+  mic ("No isolated voice ... yet"). Tandem from 30 Oct 2026 treats a time
+  that only lost its milliseconds as the same file; with an older build, set
+  each source file's mtime back to the millisecond in its stored
+  fingerprint (`tandem timeline --json`, `media[].fingerprint`, the middle
+  number), then `tandem wait jobs`.
 - **Export to `exports/`.** `tandem media --refresh` registers every file in
   the folder as media, and Tandem won't overwrite a file that's project
   media.

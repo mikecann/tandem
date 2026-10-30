@@ -53,6 +53,15 @@ their own beside it, and reports, with the clips on screen there:
   reported in the stretch checked. When another clip on the shot's track
   is in the way, or another fix would put a clip there, it says so and
   has no fix;
+- the same shot twice: one camera file on two shown tracks at the same
+  moment (source times within 0.5 s), so whoever is in it is on screen
+  twice. In a Short's stacked layout that was the whiteboard cropped from
+  Nipunn's close-up up top while the same close-up showed his face below,
+  and Mike pointing at the board up top over Mike talking below. Mike:
+  "there's awkward moments where you can see both my arm and my face
+  talking at the same time. It seems a bit odd" (30 Oct 2026). A copy
+  under a blur (the fill behind a shot that doesn't cover the frame) is
+  left out. Read from the timeline, so it's in a quick check;
 - as notes that don't fail it:
   - pictures zoomed past three times their own pixels (1080p past 150%
     on a 4K frame), which look soft;

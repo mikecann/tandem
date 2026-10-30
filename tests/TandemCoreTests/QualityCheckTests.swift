@@ -43,6 +43,31 @@ final class QualityCheckTests: XCTestCase {
 
     // MARK: - Model checks
 
+    func testTheSameShotTwiceAtOnceIsOnePersonOnScreenTwice() {
+        // Short 1 of the Nipunn video: the whiteboard cropped from the close-up in the top window, over the same
+        // close-up of his face below. Mike: "you can see both my arm and my face talking at the same time".
+        let closeUp = MediaItem(id: "med_cu", path: "source/close-up.mov", kind: .video, role: .broll, duration: t(120), width: 3840, height: 2160, hasVideo: true)
+        let face = Clip(id: "clip_face", content: .media(mediaID: "med_cu"), start: t(10), duration: t(20), sourceStart: t(300))
+        var board = Clip(id: "clip_board", content: .media(mediaID: "med_cu"), start: t(15), duration: t(5), sourceStart: t(305))
+        var p = project([face], media: [closeUp])
+        p.videoTracks.append(Track(id: "trk_broll", kind: .video, name: "B-roll", clips: [board]))
+        let all = [TimeRange(start: .zero, end: t(60))]
+        let found = QualityCheck.sameShotTwice(in: p, ranges: all)
+        XCTAssertEqual(found.map { $0.kind }, [CheckProblem.Kind.sameShotTwice])
+        XCTAssertEqual(found.first?.start, t(15))
+        XCTAssertEqual(found.first?.end, t(20))
+        XCTAssertFalse(CheckProblem.Kind.sameShotTwice.isNote, "it fails the check")
+
+        board.sourceStart = t(200)
+        p.videoTracks[2].clips = [board]
+        XCTAssertTrue(QualityCheck.sameShotTwice(in: p, ranges: all).isEmpty, "another moment of the same camera is a different shot")
+
+        board.sourceStart = t(305)
+        board.video = VideoProperties(effects: [Effect(type: "blur", params: ["radius": .number(60)])])
+        p.videoTracks[2].clips = [board]
+        XCTAssertTrue(QualityCheck.sameShotTwice(in: p, ranges: all).isEmpty, "a blurred fill behind the shot is the same picture on purpose")
+    }
+
     func testGapsAreWhereNothingIsOnAVideoTrack() {
         let title = Clip(id: "clip_title", content: .text(TextContent(text: "Hi")), start: t(10), duration: t(2))
         let p = project([solid("clip_a", 0, 10), solid("clip_b", 12, 20)], text: [title])

@@ -42,10 +42,15 @@ public struct Fingerprint: Hashable, Sendable, CustomStringConvertible {
     }
 
     /// True when the file's size and modification time still match, so the
-    /// hash doesn't need recomputing.
+    /// hash doesn't need recomputing. A copy that kept the second but dropped
+    /// the milliseconds (one side exactly on the second) still matches: an
+    /// archive on Bruce and back did that to every file of the Nipunn video
+    /// (30 Oct 2026), and each analysis then failed as "file changed".
     public func matchesStat(of url: URL) -> Bool {
-        guard let stat = try? FileStat(url) else { return false }
-        return stat.size == size && stat.modified == modified
+        guard let stat = try? FileStat(url), stat.size == size else { return false }
+        if stat.modified == modified { return true }
+        let sameSecond = stat.modified.floorDiv(1000) == modified.floorDiv(1000)
+        return sameSecond && (stat.modified % 1000 == 0 || modified % 1000 == 0)
     }
 
     static func contentHash(of url: URL, size: Int64) throws -> String {
@@ -84,4 +89,9 @@ struct FileStat: Equatable, Sendable {
         size = Int64(info.st_size)
         modified = Int64(info.st_mtimespec.tv_sec) * 1000 + Int64(info.st_mtimespec.tv_nsec) / 1_000_000
     }
+}
+
+private extension Int64 {
+    /// Division rounding towards minus infinity, so times before 1970 land in their own second.
+    func floorDiv(_ d: Int64) -> Int64 { self >= 0 ? self / d : -((-self + d - 1) / d) }
 }

@@ -250,7 +250,8 @@ follows.
   to look and listen; `tandem loudness --from T --to T` to measure the mix.
 - `tandem check --changed` before handing back: black frames, flickers
   (with a `holdFrame` fix where it can), failed keys, gaps, slivers and
-  double jumps (B-roll a few frames off a camera cut, with the fix),
+  double jumps (B-roll a few frames off a camera cut, with the fix), the
+  same shot on two tracks at once (one person on screen twice),
   with notes on dead air, page changes and low frame rate screen
   recordings; `--cuts` finds clipped words at cuts, and `--listen` hears
   each join and prints what's heard there.
