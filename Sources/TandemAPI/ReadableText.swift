@@ -59,6 +59,16 @@ extension MediaResult: ReadableResult {
             return "No media in the project yet. Put files in the project folder and run `tandem media --refresh`."
         }
         var lines: [String] = []
+        if let replaced {
+            var line = "\(replaced.mediaID) plays \(replaced.to) now instead of \(replaced.from), as revision \(replaced.applied.revision)"
+            if let old = replaced.oldDuration, let new = replaced.newDuration {
+                let apart = abs((new - old).seconds)
+                line += apart < 0.0005 ? ": the same length" : ": \(String(format: "%.3f", apart))s apart in length, within a frame"
+            }
+            line += ", and its \(replaced.clips == 1 ? "1 clip stays" : "\(replaced.clips) clips stay") where \(replaced.clips == 1 ? "it was" : "they were"). Its transcript, loudness and waveform are made again from the new file."
+            lines.append(line)
+            lines += replaced.applied.warnings
+        }
         if !added.isEmpty { lines.append("Added \(added.count) new file\(added.count == 1 ? "" : "s").") }
         let idWidth = items.map(\.id.count).max() ?? 0
         for item in items {

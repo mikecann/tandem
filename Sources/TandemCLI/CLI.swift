@@ -131,8 +131,17 @@ struct CLI {
             }
             return show(status, json: json)
         case "media":
-            try args.expectPositionals(atMost: 0, command: name)
-            return show(try await client().call(MediaRequest(refresh: args.has("refresh"))), json: json)
+            try args.expectPositionals(atMost: 3, command: name)
+            var request = MediaRequest(refresh: args.has("refresh"))
+            if let action = args.positionals.first {
+                guard action == "replace", args.positionals.count == 3 else {
+                    throw UsageError(message: "Usage: tandem media [--refresh] | tandem media replace <media id> <file>")
+                }
+                request.replace = args.positionals[1]
+                request.file = absolute(args.positionals[2])
+                request.label = args.options["label"]
+            }
+            return show(try await client().call(request), json: json)
         case "timeline":
             try args.expectPositionals(atMost: 0, command: name)
             let request = TimelineRequest(

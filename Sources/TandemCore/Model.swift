@@ -208,6 +208,19 @@ public struct MediaItem: Codable, Equatable, Identifiable, Sendable {
     /// it's made whatever the file's role or track: a generated clip checked
     /// for made-up speech, say. Nil until asked.
     public var transcribe: Bool?
+    /// Files this item played before it was pointed at another one (a
+    /// processed copy of a voice swapped in with `tandem media replace`).
+    /// Folder scans leave them out rather than adding them back as new
+    /// media. Nil when it never was.
+    public var replaces: [String]?
+
+    /// `item.replaces` once it's swapped to the file at `path`: its old
+    /// path added, and `path` taken out (swapping back).
+    public static func replaces(_ item: MediaItem, with path: String) -> [String] {
+        var replaces = (item.replaces ?? []).filter { $0 != path }
+        if !replaces.contains(item.path) { replaces.append(item.path) }
+        return replaces
+    }
 
     public init(
         id: String = IDs.make("med"),
@@ -1104,6 +1117,7 @@ extension MediaItem {
         pictureDelay = try c.decodeIfPresent(Time.self, forKey: .pictureDelay)
         pictureDelayCorrected = try c.decodeIfPresent(Time.self, forKey: .pictureDelayCorrected)
         transcribe = try c.decodeIfPresent(Bool.self, forKey: .transcribe)
+        replaces = try c.decodeIfPresent([String].self, forKey: .replaces)
     }
 }
 

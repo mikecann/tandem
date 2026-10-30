@@ -16,12 +16,15 @@ public enum MediaRelinker {
         public var to: String
         /// For a Live Photo: its movie, found beside the still.
         public var livePhotoVideo: String?
+        /// The fingerprint to keep, when the file matched the item's content.
+        public var fingerprint: String?
 
-        public init(mediaID: String, from: String, to: String, livePhotoVideo: String? = nil) {
+        public init(mediaID: String, from: String, to: String, livePhotoVideo: String? = nil, fingerprint: String? = nil) {
             self.mediaID = mediaID
             self.from = from
             self.to = to
             self.livePhotoVideo = livePhotoVideo
+            self.fingerprint = fingerprint
         }
     }
 
@@ -65,7 +68,9 @@ public enum MediaRelinker {
                     let beside = chosen.deletingLastPathComponent().appendingPathComponent((clip as NSString).lastPathComponent)
                     if FileCopier.fileInfo(beside) != nil { movie = storedPath(for: beside, in: folder) }
                 }
-                found.append(Match(mediaID: item.id, from: item.path, to: storedPath(for: chosen, in: folder), livePhotoVideo: movie))
+                let byContent = item.fingerprint.flatMap(Fingerprint.init) != nil
+                found.append(Match(mediaID: item.id, from: item.path, to: storedPath(for: chosen, in: folder), livePhotoVideo: movie,
+                                   fingerprint: byContent ? item.fingerprint : nil))
             }
         }
         return (found, ambiguous)
@@ -121,6 +126,10 @@ public enum MediaRelinker {
     public static func commands(for matches: [Match]) -> [EditCommand] {
         matches.map { match in
             var patch: [String: JSONValue] = ["path": .string(match.to)]
+            // The same file found somewhere else, not another one: a
+            // fingerprint key (null when it was found by name alone) tells
+            // updateMedia so. One matched by content keeps its analyses.
+            patch["fingerprint"] = match.fingerprint.map(JSONValue.string) ?? .null
             if let movie = match.livePhotoVideo { patch["livePhotoVideo"] = .string(movie) }
             return .updateMedia(mediaID: match.mediaID, patch: .object(patch))
         }

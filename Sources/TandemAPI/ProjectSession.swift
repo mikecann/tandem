@@ -268,7 +268,14 @@ public final class ProjectSession: @unchecked Sendable {
         analysis.requestNeeded(for: coordinator.project)
         // Placing a take or turning on a cutout queues its analysis. A burst
         // of edits (dragging, tightening) settles first.
-        let token = coordinator.observe { [weak self] _ in self?.scheduleAnalysisCheck() }
+        let token = coordinator.observe { [weak self] event in
+            self?.scheduleAnalysisCheck()
+            // Media pointed at another file is probed again (length,
+            // streams, fingerprint) by a scan, as a new file would be.
+            if let before = event.before, let after = event.after, Self.repointed(from: before, to: after) {
+                Task { [weak self] in _ = try? await self?.refreshMedia() }
+            }
+        }
         // Transcripts SpeechAnalyzer made while Bark's model downloaded are
         // made again once it's ready.
         let model = NotificationCenter.default.addObserver(forName: BarkModelStore.readyNotification, object: nil, queue: nil) { [weak self] _ in
@@ -279,6 +286,14 @@ public final class ProjectSession: @unchecked Sendable {
             modelObserver = model
         }
         Task { [weak self] in _ = try? await self?.refreshMedia() }
+    }
+
+    /// True when an edit pointed media at another file without saying
+    /// what's in it (no fingerprint), so the file wants probing.
+    static func repointed(from before: Project, to after: Project) -> Bool {
+        after.media.contains { item in
+            item.fingerprint == nil && before.media(item.id).map { $0.path != item.path } == true
+        }
     }
 
     private func scheduleAnalysisCheck() {
@@ -366,6 +381,8 @@ public final class ProjectSession: @unchecked Sendable {
     static func refreshCommands(_ scanned: [MediaItem], scannedFrom project: Project, into current: Project, folder: ProjectFolder) -> (commands: [EditCommand], added: [String]) {
         let known = Set(project.media.map(\.id))
         let paths = Set(current.media.map { folder.path(for: folder.url(for: $0)) })
+        // Files media was swapped away from stay out (`MediaItem.replaces`).
+        let replaced = Set(current.media.flatMap { $0.replaces ?? [] }.map { folder.path(for: folder.url(forPath: $0)) })
         var commands: [EditCommand] = []
         var added: [String] = []
         for item in scanned {
@@ -375,10 +392,16 @@ public final class ProjectSession: @unchecked Sendable {
                 // updateMedia refuses. Media removed meanwhile stays removed.
                 if current.media(item.id) != nil, let old = project.media(item.id), old != item,
                    let before = try? JSONValue.from(old), let after = try? JSONValue.from(item),
-                   let patch = JSONValue.mergePatch(from: before, to: after) {
+                   var patch = JSONValue.mergePatch(from: before, to: after) {
+                    // A file the scan followed to a new name is the same
+                    // file: a fingerprint key tells updateMedia so.
+                    if case .object(var fields) = patch, fields["path"] != nil, fields["fingerprint"] == nil {
+                        fields["fingerprint"] = item.fingerprint.map(JSONValue.string) ?? .null
+                        patch = .object(fields)
+                    }
                     commands.append(.updateMedia(mediaID: item.id, patch: patch))
                 }
-            } else if !paths.contains(folder.path(for: folder.url(for: item))) {
+            } else if case let path = folder.path(for: folder.url(for: item)), !paths.contains(path), !replaced.contains(path) {
                 commands.append(.addMedia(item: item))
                 added.append(item.id)
             }

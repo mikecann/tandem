@@ -399,7 +399,8 @@ extension CommandSchema {
         "fingerprint": S.string(),
         "look": S.array(S.ref("Effect"), "Colour grade for every clip of the file."),
         "livePhotoVideo": S.string("Set by scanning on a Live Photo's still: its motion clip (the short .mov beside it), which isn't media of its own."),
-        "transcribe": S.boolean("Make this file's transcript whatever its role or track. Set by `tandem transcribe`.")
+        "transcribe": S.boolean("Make this file's transcript whatever its role or track. Set by `tandem transcribe`."),
+        "replaces": S.array(S.string(), "Files this item played before a new path swapped in another file. Folder scans don't add them back as new media. A path patch without a fingerprint adds the old path here.")
     ], required: ["path"])
 
     static let transitionFields: [String: JSONValue] = [

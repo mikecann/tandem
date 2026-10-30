@@ -1043,6 +1043,13 @@ quicker model to copy.
   `audio.separation` on the clips with levels chosen for the video. For a
   street interview keep some room under the voice (residual 0.15 to 0.5);
   the voice alone sounds unnatural there. docs/agents/sound.md has it.
+- To use a voice cleaned up outside Tandem (a de-reverb, DeepFilterNet),
+  swap the file under the clips with `tandem media replace <media id>
+  <file>`, not by placing it again. It checks the length matches within
+  a frame and makes the loudness and transcript again from the new file;
+  the James interview's swap through a bare `updateMedia` path kept the
+  old file's loudness, 3 dB out, before Tandem dropped the fingerprint
+  itself (30 Oct 2026). Don't `tandem media --refresh` in between.
 - Rename a project with `tandem rename [<project>] <new name>`, never `mv`:
   it takes the undo history, journal, review, backups and list icon in
   `.tandem/` with it and keeps its place on the app's project list (Mike

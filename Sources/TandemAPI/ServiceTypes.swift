@@ -104,14 +104,44 @@ public struct MediaRequest: ServiceCall {
     public static let operation = ServiceOperation.media
     /// Scan the folder for new files first.
     public var refresh: Bool?
+    /// With `file`: the media item to point at another file of the same
+    /// length (a processed copy of a voice), keeping every clip where it is.
+    public var replace: String?
+    /// The file it plays from now: absolute, or relative to the project folder.
+    public var file: String?
+    public var label: String?
+    public var author: String?
 
-    public init(refresh: Bool? = nil) {
+    public init(refresh: Bool? = nil, replace: String? = nil, file: String? = nil, label: String? = nil, author: String? = nil) {
         self.refresh = refresh
+        self.replace = replace
+        self.file = file
+        self.label = label
+        self.author = author
     }
 
     public func run(on service: TandemService, context: CallContext) async throws -> MediaResult {
-        try await service.media(refresh: refresh ?? false)
+        var replaced: ReplacedMedia?
+        if replace != nil || file != nil {
+            guard let replace, let file else { throw ServiceError(.badRequest, "replace needs both the media ID and the new file.") }
+            replaced = try await service.replaceMedia(replace, with: file, label: label, author: author, context: context)
+        }
+        var result = try await service.media(refresh: refresh ?? false)
+        result.replaced = replaced
+        return result
     }
+}
+
+/// A media item pointed at another file by `tandem media replace`.
+public struct ReplacedMedia: Codable, Equatable, Sendable {
+    public var mediaID: String
+    public var from: String
+    public var to: String
+    public var oldDuration: Time?
+    public var newDuration: Time?
+    /// Clips that play it, all left where they were.
+    public var clips: Int
+    public var applied: ApplyResult
 }
 
 public struct AnalysisState: Codable, Equatable, Sendable {
@@ -165,6 +195,8 @@ public struct MediaResult: Codable, Sendable {
     /// IDs of media a refresh added.
     public var added: [String]
     public var items: [MediaInfo]
+    /// What `replace` changed.
+    public var replaced: ReplacedMedia?
 }
 
 // MARK: - timeline

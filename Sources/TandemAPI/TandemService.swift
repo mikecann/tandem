@@ -249,7 +249,53 @@ public final class TandemService: @unchecked Sendable {
                 pictureDelayCorrected: item.pictureDelayCorrected
             )
         }
-        return MediaResult(revision: revision, added: added, items: items)
+        return MediaResult(revision: revision, added: added, items: items, replaced: nil)
+    }
+
+    /// Points a media item at another file of the same length, such as a
+    /// processed copy of a voice, as one undo step: every clip stays where
+    /// it is, and the item takes the new file's probe and fingerprint, so
+    /// loudness, transcript, waveform and the rest are made again from it.
+    /// Refuses a file whose length differs by more than a frame, or that
+    /// lacks the sound or picture the old one had, since clips cut against
+    /// the old file would land on the wrong words.
+    public func replaceMedia(_ mediaID: String, with file: String, label: String?, author: String?, context: CallContext) async throws -> ReplacedMedia {
+        let project = coordinator.project
+        guard let item = project.media(mediaID) else { throw ServiceError(.notFound, "There's no media \(mediaID).") }
+        let url = outputURL(file)
+        guard FileManager.default.fileExists(atPath: url.path) else { throw ServiceError(.notFound, "There's no file at \(url.path).") }
+        var replaced: MediaItem
+        do {
+            replaced = try await MediaScanner.probe(url, replacing: item, folder: folder)
+        } catch {
+            throw ServiceError(.invalid, "Couldn't read \(url.lastPathComponent): \((error as? LocalizedError)?.errorDescription ?? "\(error)")")
+        }
+        replaced.path = MediaRelinker.storedPath(for: url, in: folder)
+        replaced.replaces = MediaItem.replaces(item, with: replaced.path)
+        guard replaced.path != item.path else { throw ServiceError(.invalid, "\(mediaID) already plays \(item.path).") }
+        if item.hasAudio && !replaced.hasAudio { throw ServiceError(.invalid, "\(replaced.path) has no sound and \(item.path) did.") }
+        if item.hasVideo && !replaced.hasVideo { throw ServiceError(.invalid, "\(replaced.path) has no picture and \(item.path) did.") }
+        let frame = project.settings.frameRate.frameDuration
+        if let old = item.duration, let new = replaced.duration, abs((new - old).seconds) > frame.seconds {
+            throw ServiceError(.invalid, "\(replaced.path) is \(TimeText.duration(new)) long and \(item.path) is \(TimeText.duration(old)), more than a frame apart, so clips cut against the old file would play the wrong moments. To use it anyway, apply updateMedia with the new path.")
+        }
+        let before = try JSONValue.from(item)
+        let after = try JSONValue.from(replaced)
+        guard case .object(var fields) = JSONValue.mergePatch(from: before, to: after) else { throw ServiceError(.invalid, "\(mediaID) already plays \(item.path).") }
+        // Always the fingerprint, even one that didn't change (a copy that
+        // kept the original's date), so updateMedia leaves the scan's copy
+        // to the removeMedia below rather than taking it too.
+        fields["fingerprint"] = replaced.fingerprint.map(JSONValue.string) ?? .null
+        let patch = JSONValue.object(fields)
+        // Media a folder scan added for the new file before the swap goes in
+        // the same step, unless a clip plays it.
+        let used = Set(project.allTracks.flatMap(\.clips).compactMap(\.mediaID))
+        let copies = project.media.filter { $0.id != mediaID && $0.path == replaced.path && !used.contains($0.id) }
+        let name = (replaced.path as NSString).lastPathComponent
+        let applied = try apply(ApplyRequest(label: label ?? "Replace \((item.path as NSString).lastPathComponent) with \(name)", author: author,
+                                             commands: [.updateMedia(mediaID: mediaID, patch: patch)] + copies.map { .removeMedia(mediaID: $0.id) }), context: context)
+        let clips = coordinator.project.allTracks.flatMap(\.clips).filter { $0.mediaID == mediaID }.count
+        return ReplacedMedia(mediaID: mediaID, from: item.path, to: replaced.path, oldDuration: item.duration, newDuration: replaced.duration, clips: clips, applied: applied)
     }
 
     /// The analyses that apply to a file, and how far along each is.

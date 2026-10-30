@@ -1,6 +1,6 @@
 # Sound
 
-Recipes for levelling the voice, holding a quiet mic's peaks, cleaning up a roomy mic, measuring the mix instead of guessing (loudness over time, checking gain lanes), and putting a swoosh on every push. Gain keyframes and clip gain are in [edit-commands.md](edit-commands.md#keyframes).
+Recipes for levelling the voice, holding a quiet mic's peaks, cleaning up a roomy mic (and swapping in a copy cleaned up elsewhere), measuring the mix instead of guessing (loudness over time, checking gain lanes), and putting a swoosh on every push. Gain keyframes and clip gain are in [edit-commands.md](edit-commands.md#keyframes).
 
 ## Level the voice
 
@@ -88,6 +88,31 @@ threshold a few dB over the quiet between sentences as the clip plays:
 mic sits around -38 there, so -35; the default, -40, suits a quieter
 room. Keep the clean-up first in the effects, so the compressor and
 limiter work on the cleaned voice.
+
+### Swap in a processed copy of a file
+
+When the clean-up happens outside Tandem (a de-reverb, DeepFilterNet, a
+SAM pass baked to a file), point the media item at the processed copy
+rather than placing it again, so every cut stays where it is:
+
+```sh
+tandem media replace med_voice1 audio/take1-clean.wav
+```
+
+The copy has to be within a frame of the original's length and keep its
+sound (and picture, for a video), or Tandem refuses, since clips cut
+against the old file would play the wrong words. Export it at the same
+sample rate and with no added padding. Tandem then measures the new file's
+loudness and transcribes it again, so speech levelling follows the new
+level, and the old file stays in the folder without coming back as new
+media. Turn off any isolation or expander the clips had for the old file,
+and check the joins: a cleaner voice is often softer on word edges, so a
+cut that was tight can start clipping words (`tandem check`).
+
+A bare `updateMedia` with a new `path` does the same without the length
+check. Don't run `tandem media --refresh` between writing the copy and
+swapping it in: if a scan does pick it up as new media first, the swap
+removes that copy as long as no clip plays it.
 
 ## Separate a sound with SAM Audio
 

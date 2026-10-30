@@ -879,6 +879,9 @@ public final class ProjectArchiver: @unchecked Sendable {
             var patch: [String: JSONValue] = [:]
             if let path = map[item.path], path != item.path {
                 patch["path"] = .string(path)
+                // A copy of the same file, not another one: its analyses
+                // still apply (a fingerprint key tells updateMedia so).
+                patch["fingerprint"] = item.fingerprint.map(JSONValue.string) ?? .null
                 newPaths.insert(path)
                 moved.insert(item.id)
                 count += 1
