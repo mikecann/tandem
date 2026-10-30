@@ -771,6 +771,17 @@ and the upload batch.
   (seven graphics, `useShort` cues in Short seconds). A long video's own
   16:9 graphics can go in the window too, letterboxed at scale 1, where they
   already explain the moment.
+- **A Short that explains a problem ends on the fix.** The first cut of
+  the Nipunn backups Short stopped at "a backup of data that never
+  existed", and Mike: "It's okay, but it hasn't really got a conclusion
+  about how to fix it or what the solution is." A story didn't need one:
+  "It is good because it's kind of like an anecdote. It doesn't necessarily
+  need a conclusion. It's like a fun anecdote" (30 Oct 2026). So when a
+  Short sets up a problem, trim the setup and bring in the speaker's answer
+  from later in the long video (Short 1 v3 cut the setup by 6 s, added
+  Mike's "what is the better algorithm to do this then?" and Nipunn's
+  dance, and stayed at 62 s). An anecdote, a joke or a war story can end
+  where it ends.
 - **Centre his face, not the frame.** He sits left of centre in the 16:9
   shot (nose about 39.5% across in the studio camera, 41% in Record It
   takes), and the 9:16 full-frame crop shows only a third of the width, so
