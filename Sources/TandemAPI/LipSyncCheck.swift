@@ -47,9 +47,13 @@ extension LipSyncFile {
 }
 
 extension SyncResult {
+    /// Whether a measurement found a file out, for the command's exit code,
+    /// as `tandem check` exits 1 on what it finds.
+    public var lipSyncIsOff: Bool { lipSync?.contains { $0.state == .off } == true }
+
     /// The lines `tandem sync --check` adds.
     var lipSyncLines: [String] {
-        guard let lipSync else { return [] }
+        guard let lipSync else { return lipSyncNote.map { [$0] } ?? [] }
         var lines = ["Lip sync, from mouth opening against the voice as it plays (in-sync footage reads the voice about 13 ms ahead; within 30 ms of that counts):"]
         if lipSync.isEmpty { lines.append("  No camera file on the timeline to measure.") }
         let idWidth = lipSync.map(\.id.count).max() ?? 0
@@ -217,9 +221,14 @@ enum LipSyncCheck {
             file.reason = readings.count < 2 ? "only one reading; give it a stretch where one person talks with --from and --to" : "the readings disagree; give it a stretch where one person talks with --from and --to"
         case .off:
             // Lips late means showing later in the file brings them forward.
-            let fixed = PictureDelay.snapped(delay + Time.frames(Int64(assessment.frames), at: frameRate), for: item)
-            file.fixDelay = fixed.delay
-            file.fix = "tandem sync \(PictureDelay.argument(fixed.delay)) --media \(item.id)"
+            // A file with no steady frames has no whole frame to land on, so
+            // it gets what was measured.
+            let steady = item.frameRate != nil && !item.variableFrameRate
+            let fixed = steady
+                ? PictureDelay.snapped(delay + Time.frames(Int64(assessment.frames), at: frameRate), for: item).delay
+                : delay + Time(seconds: assessment.offBy)
+            file.fixDelay = fixed
+            file.fix = "tandem sync \(PictureDelay.argument(fixed)) --media \(item.id)"
         case .inSync:
             break
         }

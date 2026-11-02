@@ -316,13 +316,13 @@ it, 20 s stretches where the voice is going, and follows every face in them:
 in each 8 s window the one whose mouth moves with the voice is the one talking,
 so two people in shot are fine. It changes nothing. `--from` and `--to` read
 that stretch of the timeline instead (`until` in MCP, as `to` means something
-else there), `--media` picks the files. A file that's turned off (a new angle)
+else there), `--media` picks the files. It exits 1 when a file is off. A file that's turned off (a new angle)
 is read anyway, as its clips sit in step with the take.
 
 What the numbers can and can't say. All the windows' correlations are added up
 before taking the peak, since one window's wanders by tens of ms; the two
-"halves" are the same sum over alternate windows, and when they're over a frame
-apart it says "unclear" rather than guess. On the James footage a render of the
+"halves" are the same sum over alternate windows, and when they're further apart
+than a frame or 30 ms, whichever's longer, it says "unclear" rather than guess. On the James footage a render of the
 same stretch read the same to within about 10 ms, and in-sync files still moved
 from -8 to 30 ms between samples with the talker and the words. So a file within
 30 ms of 13 ms counts as in sync, and a file can honestly sit between two
@@ -364,7 +364,8 @@ Sound can't see lip sync: a far camera mic and a camera's own audio-to-picture
 offset leave a lag however well the sounds match. So it goes on to measure the
 take's pictures as `tandem sync --check` does and prints the same report. It's a
 look, so trouble measuring doesn't undo the edit. `--no-check` (MCP: `"check":
-false`) skips it; a `--dry-run` or `--no-place` doesn't measure.
+false`) skips it. So do `--dry-run` and `--no-place`, which leave no new clips to
+read.
 Drift is how far the two clocks part over the overlap. It's good to a
 couple of milliseconds, since someone walking between the cameras moves
 their sound about 3 ms a metre, and it warns when it's over half a frame.

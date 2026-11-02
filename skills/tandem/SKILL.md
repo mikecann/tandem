@@ -334,13 +334,15 @@ From his review comments on the Daytona and Build Your Own Convex videos
   doubles: undo old hand slips (Daytona's +0.09 s) before using it. Don't
   chase exact: the webcam only gives about 22.5 real frames a second (it
   repeats 3 of every 12), so sync wobbles by up to 30 ms whatever you pick.
-  Delays land on whole frames of the file, and `tandem sync` says where.
+  Delays land on whole frames of a file with a steady frame rate, and
+  `tandem sync` says where.
 - **Measure it, on anything filmed: `tandem sync --check`.** Mike spotted the
   James interview's RED wide 55-59 ms out after `tandem sync` had matched its
   sound at confidence 54-59: sound-matching can't see a far camera mic or a
   camera's own offset. The check reads mouths against the voice on a sample of
   each camera file and gives the `tandem sync <delay> --media <id>` fix for any
-  a frame or more out. Trust it for that, not for milliseconds. Run the fix it
+  clearly a frame or more out; "unclear" means give it a stretch where one
+  person talks with `--from` and `--to`. Trust it for that, not for milliseconds. Run the fix it
   prints rather than typing the measured lag. Run it once at the start of an edit;
   `tandem sync <files>` already runs it on the take afterwards.
 - **Edits can break sync too.** On the Ian video one `placeMedia` with

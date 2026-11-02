@@ -330,6 +330,26 @@ final class LipSyncCheckTests: XCTestCase {
         XCTAssertTrue(text.contains("OFF by"), text)
         XCTAssertTrue(text.contains("Fix: tandem sync 0.0417 --media med_wide"), text)
         XCTAssertTrue(text.contains("in sync"), text)
+        XCTAssertTrue(result.lipSyncIsOff, "so the command exits 1")
+    }
+
+    func testAFileWithNoSteadyFramesGetsTheMeasuredDelay() async throws {
+        var project = try project()
+        let index = try XCTUnwrap(project.media.firstIndex { $0.id == "med_wide" })
+        project.media[index].variableFrameRate = true
+        let wide = project.media[index]
+        let h = try ServiceHarness(project: project)
+        defer { h.close() }
+        let file = await LipSyncCheck.measure(wide, in: project, from: nil, until: nil, sources: sources(project: project, leads: ["med_wide": 0.1]))
+        XCTAssertEqual(file.state, .off)
+        XCTAssertEqual(try XCTUnwrap(file.fixDelay).seconds, try XCTUnwrap(file.offBy), accuracy: 0.001, "not rounded to a nominal frame")
+    }
+
+    func testAMeasurementThatFailedAfterSyncingSaysSo() {
+        var result = SyncResult(revision: 1, files: [], defaultDelay: .zero, applied: nil, matches: [], reference: "wide.mov")
+        result.lipSyncNote = "Couldn't measure lip sync: no. tandem sync --check tries again."
+        XCTAssertTrue(result.readableText.contains("Couldn't measure lip sync"), result.readableText)
+        XCTAssertFalse(result.lipSyncIsOff)
     }
 
     func testAFixAddsToTheDelayAFileAlreadyHas() async throws {
@@ -402,8 +422,9 @@ final class LipSyncCLITests: XCTestCase {
         let folder = TempFolder()
         let url = try APIFixture.write(to: folder.url)
         let before = try ProjectFile.load(from: url).revision
-        // The fixture's files aren't on disk, so this is the can't-read path;
-        // measuring real faces is checked by hand on real footage.
+        // The fixture's files aren't on disk, so nothing can be read, the voice
+        // or the frames: this covers saying so, and exiting 0 as nothing's off.
+        // Measuring real faces is checked by hand on real footage.
         let run = try cli.tandem("sync", "--check", "--from", "0", "--to", "20", in: folder.url)
         XCTAssertEqual(run.status, 0, run.stderr)
         XCTAssertTrue(run.stdout.contains("Lip sync, from mouth opening"), run.stdout)
@@ -415,6 +436,11 @@ final class LipSyncCLITests: XCTestCase {
         let mixed = try cli.tandem("sync", "0.04", "--check", in: folder.url)
         XCTAssertEqual(mixed.status, 2)
         XCTAssertTrue(mixed.stderr.contains("only measures"), mixed.stderr)
+        for option in ["--no-check", "--dry-run", "--default", "--no-place"] {
+            let conflict = try cli.tandem("sync", "--check", option, in: folder.url)
+            XCTAssertEqual(conflict.status, 2, option)
+            XCTAssertTrue(conflict.stderr.contains("\(option) doesn't go with --check"), conflict.stderr)
+        }
     }
 
     func testLiningAFileUpGoesOnToMeasureUnlessToldNot() throws {
