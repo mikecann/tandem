@@ -840,7 +840,12 @@ final class PlaybackController {
             pause()
             return
         }
-        guard players[slot].rate != 0 else { return }
+        // The player's rate alone doesn't say it's moving. Stopped between
+        // a start set for a moment ahead and reaching it, it can call here
+        // as a seek ends with the old rate showing again and that seek's
+        // time. Paused or waiting to start, the playhead is already where
+        // it's going, and may be past that seek.
+        guard playingTogether, pendingStart == nil, players[slot].rate != 0 else { return }
         time = Time(cmTime: cmTime)
     }
 
