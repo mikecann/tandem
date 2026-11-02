@@ -140,10 +140,12 @@ goes with the fix (or `tandem comments resolve <id>` after). Comments move
 with ripple edits, so list them again after one. Leave any you couldn't
 do, and say why when you hand back.
 
-Plan the rounds so his watches count: get the B-roll, sound effects and
-music in before his big watch. Then he watches the whole video about twice,
-instead of three comment rounds plus separate listens for the sound effects
-and the music (Build Your Own Convex retro).
+Plan the rounds so his watches count: the first hand-back has everything
+in, the cut plus B-roll, sound effects and music, never a dialogue-only cut
+first. Mike, 2 Nov 2026: "I've gotten more confidence with this tandem
+process so we can kind of like get to a later stage quicker." That replaces
+the two-stage cut-then-everything plan; Build Your Own Convex took three
+comment rounds plus separate listens for the sound effects and the music.
 
 ## What Mike changed
 
@@ -1043,7 +1045,9 @@ comments, changed these rules for a conversation like this:
   circle when the person is on screen ("we can see our face"), and no
   drop shadow under the yellow line (it only looks right under white).
 - **A cartoon of someone not in the room gets their name on it** ("JAMIE"
-  on his jumper) so viewers know who it is.
+  on his jumper) so viewers know who it is. Once per beat: Mike deleted
+  the copy that switched sides on the cut and the second smug pop, keeping
+  one questioning Jamie and one smug one.
 - **Show who and what they mention:** a cartoon of a colleague named in a
   story (Jamie sliding in, eyebrow raised; popping up smug on "Jamie's
   always right"), and pop-ups of the real thing named (a product's site,
