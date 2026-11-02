@@ -24,7 +24,7 @@ Every operation with its CLI command, HTTP endpoint and MCP tool, archiving a fi
 | history | `tandem history` | `POST /v1/history` | `history` |
 | diff | `tandem diff --since <revision, file or export>` | `POST /v1/diff {"since"}` | `diff` |
 | restore | `tandem restore --from <ref> (--clips <ids> \| --from-time --to-time [--track]) [--apply]` | `POST /v1/restore {"from", "clips", "fromTime", "toTime", "track", "apply"}` | `restore` |
-| sync | `tandem sync [<seconds>] [--media] [--default]`, or `tandem sync <file>... [--to] [--no-place] [--dry-run]` | `POST /v1/sync {"delay", "media", "makeDefault"}` or `{"files", "to", "place", "dryRun"}` | `sync` |
+| sync | `tandem sync [<seconds>] [--media] [--default]`, `tandem sync --check [--from] [--to] [--media]`, or `tandem sync <file>... [--to] [--no-place] [--no-check] [--dry-run]` | `POST /v1/sync {"delay", "media", "makeDefault"}`, `{"check": true, "from", "until", "media"}` or `{"files", "to", "place", "check", "dryRun"}` | `sync` |
 | clips | `tandem clips [--track] [--from] [--to] [--media] [--ids]` | `POST /v1/clips {"track", "from", "to", "media", "ids"}` | `clips` |
 | validate | `tandem validate` | `POST /v1/validate` | `validate` |
 | check | `tandem check [--changed] [--quick \| --cuts]` | `POST /v1/check {"from", "to", "changed", "quick", "cuts"}` | `check` |

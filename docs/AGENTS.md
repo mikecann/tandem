@@ -305,7 +305,7 @@ One line each; `tandem help <command>` has the options and what they do.
 | `tandem restore --from <ref>` | put clips back as they were (dry run without `--apply`) |
 | `tandem validate` | check the project for problems |
 | `tandem check` | what Mike would catch in review (`--changed`, `--quick`, `--cuts`, `--listen`) |
-| `tandem sync [<seconds> \| <file>...]` | how late each camera's picture is, or set it; or line another angle or mic up with the camera by sound |
+| `tandem sync [<seconds> \| --check \| <file>...]` | how late each camera's picture is, or set it; measure voice against lips on each file; or line another angle or mic up with the camera by sound |
 | `tandem comments` | Mike's timeline comments (`resolve <id>`) |
 | `tandem handback` | hand a round back: the two to five places Mike should look at first (alone, what he hasn't watched) |
 | `tandem frame <time>` | one frame as a PNG |

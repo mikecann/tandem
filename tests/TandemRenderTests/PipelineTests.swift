@@ -50,6 +50,35 @@ final class PipelineTests: XCTestCase {
         }
     }
 
+    /// Why `tandem sync` rounds to whole frames: a delay between two frames
+    /// moves a clip by one or the other depending where it starts between its
+    /// file's frames, and a whole number of frames moves every clip the same.
+    func testAWholeFrameDelayMovesEveryClipTheSameAndOneBetweenFramesDoesnt() async throws {
+        let media = try TestMedia()
+        try await indexMovie(media)
+        let whole = CGRect(x: 0, y: 0, width: 320, height: 180)
+        func moved(delay: Double, phase: Double) async throws -> Int {
+            func index(_ delay: Double) async throws -> Int {
+                var item = media.item("med_i", "index.mov", seconds: 3)
+                item.pictureDelay = t(delay)
+                let clip = Clip(id: "clip_a", content: .media(mediaID: "med_i"), start: .zero, duration: t(1), sourceStart: t(0.5 + phase))
+                let project = smallProject(video: [Track(kind: .video, name: "V1", clips: [clip])], media: [item])
+                return TestMedia.readIndex(Bitmap(try await FrameRenderer(context: RenderContext(project: project, folder: media.projectFolder)).image(at: .zero)), in: whole)
+            }
+            let shifted = try await index(delay)
+            let plain = try await index(0)
+            return shifted - plain
+        }
+        for phase in [0.0, 0.01, 0.02, 0.03] {
+            let two = try await moved(delay: 2.0 / 30, phase: phase)
+            XCTAssertEqual(two, 2, "two frames from \(phase) past a frame")
+        }
+        let onAFrame = try await moved(delay: 0.057, phase: 0)
+        let pastAFrame = try await moved(delay: 0.057, phase: 0.02)
+        XCTAssertEqual(onAFrame, 1)
+        XCTAssertEqual(pastAFrame, 2, "the same delay, a frame further")
+    }
+
     func testSpeedAndFreezeFrames() async throws {
         let media = try TestMedia()
         try await indexMovie(media, seconds: 4)

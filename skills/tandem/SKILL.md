@@ -334,6 +334,15 @@ From his review comments on the Daytona and Build Your Own Convex videos
   doubles: undo old hand slips (Daytona's +0.09 s) before using it. Don't
   chase exact: the webcam only gives about 22.5 real frames a second (it
   repeats 3 of every 12), so sync wobbles by up to 30 ms whatever you pick.
+  Delays land on whole frames of the file, and `tandem sync` says where.
+- **Measure it, on anything filmed: `tandem sync --check`.** Mike spotted the
+  James interview's RED wide 55-59 ms out after `tandem sync` had matched its
+  sound at confidence 54-59: sound-matching can't see a far camera mic or a
+  camera's own offset. The check reads mouths against the voice on a sample of
+  each camera file and gives the `tandem sync <delay> --media <id>` fix for any
+  a frame or more out. Trust it for that, not for milliseconds. Run the fix it
+  prints rather than typing the measured lag. Run it once at the start of an edit;
+  `tandem sync <files>` already runs it on the take afterwards.
 - **Edits can break sync too.** On the Ian video one `placeMedia` with
   `mode: overwrite` trimmed 60 ms off the next voice clip's head and put
   Ian's voice 60 ms early for 20 minutes. Place or insert instead, and check
@@ -655,7 +664,7 @@ scripts and the speaker tracker are in
   them in its take and places them in one undo step: the angle on "Angle
   2", off, and the mic on Voice with the camera's own sound muted. Show the
   angle where it helps with `showAngle`; never untick its clips, unlink or
-  slip anything by hand.
+  slip anything by hand. Read the lip-sync report it ends with.
 - **Cutting a speaker's "right?"s:** only where there's a gap after it.
   Where it runs straight into the next word ("economy, right? And..."),
   leave it. The transcript's word times ran about 0.2 s early on this
