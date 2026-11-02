@@ -416,6 +416,16 @@ From his review comments on the Daytona and Build Your Own Convex videos
   clips that span an inserted point don't grow. Titles and subtitles have
   to make sense on their own: he swapped "Adding it" for "Setup", and
   "VIBES FIRST, THEN DATA" "doesn't really make any sense".
+- **A Convex wipe without a card.** For a section change that doesn't
+  need a title (into the outro on the James interview, Mike: "that kind of
+  convex colours wipe that goes across"), use the library segment
+  `tandem segments insert "Convex wipe" --at <cut - 0.47>`: the card's
+  yellow, red and plum bands, each a frame wide, 0.93 s with the card's
+  in swish (-5.4 dB). They cover the whole frame from 0.38 to 0.55 s, so
+  the cut underneath goes about 0.47 s in, and the frame is clear again
+  by 0.85 s: keep that clear of the next word. Source:
+  `james-spicy-questions/motion-graphics/src/wipe/ConvexWipe.tsx` (60 fps,
+  4K, alpha).
 - **Music around cards.** The track plays through the whole card and never
   cuts out under it. A new track starts right after a card ends, at chapter
   breaks only. Swell about +14 dB in the card's speech-free middle with
