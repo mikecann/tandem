@@ -279,6 +279,7 @@ tandem sync                                  # how late each file's picture is
 tandem sync 0.08                             # every camera take: picture 80 ms late
 tandem sync 0.05 --media med_screen          # one file
 tandem sync 0.08 --default                   # also what new camera takes get
+tandem sync --check                          # measure it: voice against lips on each file
 ```
 
 A webcam's picture lags its microphone (Mike's by about 75 ms), so lips
@@ -290,6 +291,46 @@ default (Settings in the app, or `--default`); a camera's take (a timecode
 track, or a phone's make and model) records in step and gets none. Never slip clips by hand as
 well, or the delay doubles. `tandem media` shows it as "picture 80 ms
 late, shown in sync". In MCP: `sync {"delay": 0.08}`.
+
+The picture moves by whole frames of the file, so `tandem sync` rounds to
+the nearest and says so ("57 ms rounds to 42 ms, 1 frame at 23.976 fps").
+Each timeline frame shows the last file frame at or before its moment, so a
+delay between two frames moves a clip by one or the other depending on where
+it starts between the file's frames: that's why 57 ms overshot on the James
+interview. A file with no steady frame rate keeps the delay as given, and so
+does the default new takes get; `tandem sync` lists those as "between frames".
+
+### Measure it
+
+```
+Lip sync, from mouth opening against the voice as it plays (in-sync footage reads the voice about 13 ms ahead; within 30 ms of that counts):
+  med_vndbfm9c  source/James Gemini.mov  voice 56 ms ahead of the lips (halves of the 6 readings say 50 and 61): OFF by 43 ms
+    Fix: tandem sync 0.0417 --media med_vndbfm9c
+  med_cjajwppv  source/Red Dragon.mov  voice 8 ms behind the lips (halves of the 6 readings say -18 and -3): in sync
+```
+
+`tandem sync --check` (MCP: `sync {"check": true}`) compares mouth opening
+(Vision's face landmarks) with the loudness of the speech tracks as export
+plays them. It reads a sample of each camera file and anything recorded with
+it, 20 s stretches where the voice is going, and follows every face in them:
+in each 8 s window the one whose mouth moves with the voice is the one talking,
+so two people in shot are fine. It changes nothing. `--from` and `--to` read
+that stretch of the timeline instead (`until` in MCP, as `to` means something
+else there), `--media` picks the files. It exits 1 when a file is off. A file that's turned off (a new angle)
+is read anyway, as its clips sit in step with the take.
+
+What the numbers can and can't say. All the windows' correlations are added up
+before taking the peak, since one window's wanders by tens of ms; the two
+"halves" are the same sum over alternate windows, and when they're further apart
+than a frame or 30 ms, whichever's longer, it says "unclear" rather than guess. On the James footage a render of the
+same stretch read the same to within about 10 ms, and in-sync files still moved
+from -8 to 30 ms between samples with the talker and the words. So a file within
+30 ms of 13 ms counts as in sync, and a file can honestly sit between two
+frames (the second wide read 35 ms with no delay and -8 with a frame): leave
+that alone. Trust it for "a frame or more out", not for milliseconds. "Not
+measured" says why: no face, nobody talking on that camera, or a face too small
+to read. Speed changes and freeze frames aren't read. The voice is read without
+clips' audio effects, which would take minutes to render and don't move it.
 
 Record It now takes the lag out as it records (its Settings → Camera
 delay) and tags the file `com.mikerosoft.record-it.camera-delay`. Tandem
@@ -318,6 +359,13 @@ Applied "Sync 2 files to Ian by sound" by claude as revision 9.
 The offset is how much further into the file the same moment is (here
 the close-up and mic started 2.856 s before the camera), measured at the
 middle of where they overlap; the file can cover any part of the take.
+
+Sound can't see lip sync: a far camera mic and a camera's own audio-to-picture
+offset leave a lag however well the sounds match. So it goes on to measure the
+take's pictures as `tandem sync --check` does and prints the same report. It's a
+look, so trouble measuring doesn't undo the edit. `--no-check` (MCP: `"check":
+false`) skips it. So do `--dry-run` and `--no-place`, which leave no new clips to
+read.
 Drift is how far the two clocks part over the overlap. It's good to a
 couple of milliseconds, since someone walking between the cameras moves
 their sound about 3 ms a metre, and it warns when it's over half a frame.

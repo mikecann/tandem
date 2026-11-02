@@ -203,11 +203,31 @@ struct CLI {
             _ = show(result, json: json)
             return result.ok ? 0 : 1
         case "sync":
+            if args.has("check") {
+                guard args.positionals.isEmpty else { throw UsageError(message: "--check only measures, so it takes no delay or files. Use --from, --to and --media to narrow it.") }
+                // It changes nothing, so none of these could mean anything.
+                for option in ["default", "dry-run", "no-place", "no-check"] where args.has(option) {
+                    throw UsageError(message: "--\(option) doesn't go with --check, which only measures.")
+                }
+                for option in ["label", "expect"] where args.options[option] != nil {
+                    throw UsageError(message: "--\(option) doesn't go with --check, which only measures.")
+                }
+                let media = args.values("media")
+                let request = SyncRequest(media: media.isEmpty ? nil : media, check: true, from: try time(args, "from"), until: try time(args, "to"))
+                let result = try await client().call(request)
+                // An app built before --check ignores it and lists the delays.
+                guard result.check == true else {
+                    throw UsageError(message: "The Tandem app holding this project is older than --check. Restart it on the current build, then try again.")
+                }
+                _ = show(result, json: json)
+                return result.lipSyncIsOff ? 1 : 0
+            }
             // Files to line up by sound, or one picture delay.
             if args.positionals.count > 1 || args.positionals.first.map(Self.isSyncFile) == true {
                 let request = SyncRequest(
                     files: args.positionals.map(mediaReference), to: args.options["to"].map(mediaReference),
                     place: args.has("no-place") ? false : nil, dryRun: args.has("dry-run") ? true : nil,
+                    check: args.has("no-check") ? false : nil,
                     label: args.options["label"], expectedRevision: try args.integer("expect")
                 )
                 return show(try await client().call(request), json: json)
