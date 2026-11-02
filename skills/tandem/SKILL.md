@@ -938,10 +938,7 @@ this as a portrait video?... under the 3 mins").
 - **Hide notification banners** (Gmail and X pop-ups mid-recording) with
   a `freezeFrame` copy of a clean frame, cropped to the top strip, on
   B-roll, where the picture under the banner is still. `tandem check`
-  hung on a 9 s one (mikecann/tandem#62); check that stretch with
-  `tandem frames` instead.
-- **Run `tandem check` with the app holding the project.** Headless it
-  hung or lost the connection; through the app it took seconds.
+  used to hang on these; it doesn't now (mikecann/tandem#62).
 
 ### A two-person whiteboard interview: Ian Macartney on time in Convex (October 2026)
 

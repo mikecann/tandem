@@ -293,9 +293,10 @@ final class ExportPipeline: @unchecked Sendable {
 
     /// Where to start reading for an export that starts at `start`: a
     /// little earlier if a layer's file is on leading frames AVFoundation
-    /// can't seek to there (a reader starting on them stalls). The frames
-    /// in between are read and dropped.
-    static func readStart(_ start: Time, instructions: [any AVVideoCompositionInstructionProtocol]) -> Time {
+    /// can't seek to there (a reader starting on them stalls), or a layer is
+    /// partway through a held frame (see `heldFrameStart`). The frames in
+    /// between are read and dropped.
+    static func readStart(_ start: Time, composition: AVComposition, instructions: [any AVVideoCompositionInstructionProtocol]) -> Time {
         var time = start
         for _ in 0..<8 {
             guard let instruction = instructions.first(where: { CMTimeRangeContainsTime($0.timeRange, time: time.cmTime) }) as? TandemInstruction else { break }
@@ -316,10 +317,36 @@ final class ExportPipeline: @unchecked Sendable {
                     earliest = min(earliest, back)
                 }
             }
+            for id in instruction.requiredSourceTrackIDs ?? [] {
+                guard let number = id as? NSNumber, let track = composition.track(withTrackID: number.int32Value) else { continue }
+                if let held = heldFrameStart(at: time, in: track.segments, frameDuration: instruction.scene.frameDuration) {
+                    earliest = min(earliest, held)
+                }
+            }
             if earliest >= time { break }
             time = max(.zero, earliest)
         }
         return time
+    }
+
+    /// Where the held frame showing at `time` on a track starts, if one is:
+    /// a segment of about one source frame stretched longer, which is how
+    /// `CompositionAssembler.insert` places freeze frames and media that
+    /// runs out. A reader that starts partway through one can stall before
+    /// asking for a single frame, depending on exactly where it starts,
+    /// though one that starts on it or plays into it is fine. A segment of
+    /// two frames or more, as a slow clip is, doesn't do it, and starting
+    /// those early would re-read a long stretch for nothing.
+    static func heldFrameStart(at time: Time, in segments: [AVCompositionTrackSegment], frameDuration: Time) -> Time? {
+        for segment in segments where !segment.isEmpty {
+            let mapping = segment.timeMapping
+            guard CMTimeRangeContainsTime(mapping.target, time: time.cmTime) else { continue }
+            let source = Time(cmTime: mapping.source.duration)
+            let target = Time(cmTime: mapping.target.duration)
+            guard source <= frameDuration.scaled(by: 1.5), target > source else { return nil }
+            return Time(cmTime: mapping.target.start)
+        }
+        return nil
     }
 
     /// The gain that brings the limited mix to `target`, from measurements
@@ -359,7 +386,7 @@ final class ExportPipeline: @unchecked Sendable {
         let reader = try AVAssetReader(asset: built.composition)
         // Reading may start a little early (see `readStart`); frames and
         // sound before the range are dropped.
-        let readFrom = Self.readStart(range.start, instructions: built.videoComposition.instructions)
+        let readFrom = Self.readStart(range.start, composition: built.composition, instructions: built.videoComposition.instructions)
         reader.timeRange = CMTimeRange(start: readFrom.cmTime, end: range.end.cmTime)
         let pictures = AVAssetReaderVideoCompositionOutput(videoTracks: videoTracks, videoSettings: [
             kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,

@@ -198,6 +198,11 @@ still when it's beside it. It's one undo step.
   last edited by something that kept none), and there's no backup saved
   at that revision. Diff against a backup file in `.tandem/backups` or an
   export (`--since "exports/<name>.mp4"`) instead.
+- **"AVFoundation stopped handing over frames while reading ..."**: `tandem
+  check` gave up on a stretch after a minute with no frame, rather than
+  waiting forever. `tandem frames` still shows the stretch, and `tandem check
+  --quick` checks what doesn't need frames. Worth reporting with the times it
+  names, since it reads around the stall it knows about (held frames).
 - **"Nothing to undo" after editing with the app closed**: headless undo
   history only lasts while nobody else edits the project. `tandem history`
   shows what can be undone.

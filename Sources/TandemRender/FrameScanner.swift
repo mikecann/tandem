@@ -21,6 +21,11 @@ public enum FrameScanner {
     public static let pieceLength = Time(seconds: 10)
     /// How many pieces are read at once.
     static var readers: Int { max(2, min(4, ProcessInfo.processInfo.activeProcessorCount / 3)) }
+    /// How long a reader may go without a frame before the scan gives up. A
+    /// frame takes a fraction of a second at this size, a slow first one a
+    /// few seconds, and a stalled AVFoundation reader never comes back: with
+    /// nothing watching, `tandem check` sat silent until something killed it.
+    static let stallLimit: TimeInterval = 60
 
     /// Every frame of `ranges`, rendered `width` wide and measured. With
     /// `scanlines`, each frame's lines are measured too (in
@@ -66,13 +71,14 @@ public enum FrameScanner {
         }
     }
 
-    /// Reads one stretch on a thread of its own: the reader blocks.
-    private static func read(_ built: BuiltComposition, tracks: [AVAssetTrack], range: TimeRange, scanlines: Bool) async throws -> [FrameStats] {
+    /// Reads one stretch on a thread of its own: the reader blocks. `from`
+    /// overrides where reading starts, for a test to make a reader stall.
+    static func read(_ built: BuiltComposition, tracks: [AVAssetTrack], range: TimeRange, scanlines: Bool, stallLimit: TimeInterval = FrameScanner.stallLimit, from: Time? = nil) async throws -> [FrameStats] {
         let source = Unchecked((built: built, tracks: tracks))
         return try await withCheckedThrowingContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
                 do {
-                    continuation.resume(returning: try readNow(source.value.built, tracks: source.value.tracks, range: range, scanlines: scanlines))
+                    continuation.resume(returning: try readNow(source.value.built, tracks: source.value.tracks, range: range, scanlines: scanlines, stallLimit: stallLimit, from: from))
                 } catch {
                     continuation.resume(throwing: error)
                 }
@@ -80,11 +86,11 @@ public enum FrameScanner {
         }
     }
 
-    private static func readNow(_ built: BuiltComposition, tracks: [AVAssetTrack], range: TimeRange, scanlines: Bool) throws -> [FrameStats] {
+    private static func readNow(_ built: BuiltComposition, tracks: [AVAssetTrack], range: TimeRange, scanlines: Bool, stallLimit: TimeInterval, from start: Time?) throws -> [FrameStats] {
         let reader = try AVAssetReader(asset: built.composition)
         // As an export does: frames that can't be decoded from a seek are
         // read from their keyframe, and those before the range dropped.
-        let from = ExportPipeline.readStart(range.start, instructions: built.videoComposition.instructions)
+        let from = start ?? ExportPipeline.readStart(range.start, composition: built.composition, instructions: built.videoComposition.instructions)
         reader.timeRange = CMTimeRange(start: from.cmTime, end: range.end.cmTime)
         let output = AVAssetReaderVideoCompositionOutput(videoTracks: tracks, videoSettings: [
             kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA
@@ -94,11 +100,23 @@ public enum FrameScanner {
         reader.add(output)
         guard reader.startReading() else { throw reader.error ?? RenderError.export("couldn't start reading the timeline") }
         defer { if reader.status == .reading { reader.cancelReading() } }
+        // copyNextSampleBuffer blocks with no timeout of its own, and
+        // cancelling the reader is what makes it return.
+        let held = Unchecked(reader)
+        let watch = StallWatch(limit: stallLimit) { held.value.cancelReading() }
+        defer { watch.stop() }
         var stats: [FrameStats] = []
         while let sample = output.copyNextSampleBuffer() {
+            watch.noteProgress()
             let time = Time(cmTime: CMSampleBufferGetPresentationTimeStamp(sample))
             guard time >= range.start, let pixels = CMSampleBufferGetImageBuffer(sample) else { continue }
             stats.append(measure(pixels, at: time, scanlines: scanlines))
+        }
+        if watch.stalled {
+            throw RenderError.media(
+                "AVFoundation stopped handing over frames while reading \(range.start) to \(range.end): nothing for \(Int(stallLimit)) s, so I gave up on it. "
+                    + "`tandem frames` still shows that stretch, and `tandem check --quick` checks what doesn't need frames."
+            )
         }
         if reader.status == .failed { throw reader.error ?? RenderError.export("reading the timeline failed") }
         return stats
@@ -168,5 +186,45 @@ public enum FrameScanner {
         }
         let profile = lines.indices.map { UInt8(clamping: lines[$0] / max(lineCounts[$0], 1)) }
         return (grid, profile)
+    }
+}
+
+/// Calls `onStall` once if `noteProgress` isn't called for `limit` seconds,
+/// for a blocking read that has no timeout of its own.
+final class StallWatch: @unchecked Sendable {
+    private let lock = NSLock()
+    private let limit: TimeInterval
+    private let onStall: @Sendable () -> Void
+    private let timer: any DispatchSourceTimer
+    private var last = Date()
+    private var fired = false
+
+    init(limit: TimeInterval, onStall: @escaping @Sendable () -> Void) {
+        self.limit = limit
+        self.onStall = onStall
+        timer = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
+        let every = max(limit / 4, 0.01)
+        timer.schedule(deadline: .now() + every, repeating: every)
+        timer.setEventHandler { [weak self] in self?.tick() }
+        timer.resume()
+    }
+
+    deinit { timer.cancel() }
+
+    var stalled: Bool { lock.withLock { fired } }
+
+    func noteProgress() { lock.withLock { last = Date() } }
+
+    func stop() { timer.cancel() }
+
+    func tick(at now: Date = Date()) {
+        let due: Bool = lock.withLock {
+            guard !fired, now.timeIntervalSince(last) >= limit else { return false }
+            fired = true
+            return true
+        }
+        guard due else { return }
+        timer.cancel()
+        onStall()
     }
 }
