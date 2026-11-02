@@ -130,7 +130,7 @@ public struct Separator {
     }
 
     /// Runs the runner, passing on the lines worth seeing as it goes.
-    static func run(_ runner: URL, _ arguments: [String], progress: @escaping @Sendable (String) -> Void) async throws -> RunResult {
+    static func run(_ runner: URL, _ arguments: [String], drainSeconds: Double = 5, progress: @escaping @Sendable (String) -> Void) async throws -> RunResult {
         let process = Process()
         process.executableURL = runner
         process.arguments = arguments
@@ -144,26 +144,51 @@ public struct Separator {
         }
         let lines = Lines()
         let interesting = ["created", "ready after", "loaded", "window", "Traceback", "Error", "out of GPU memory", "No capacity", "deleted"]
+        let keep = { (bytes: Data) in
+            let line = String(decoding: bytes, as: UTF8.self).trimmingCharacters(in: .whitespaces)
+            guard !line.isEmpty else { return }
+            lines.all.append(line)
+            if interesting.contains(where: line.contains) { progress(line) }
+        }
+        let reachedEnd = DispatchSemaphore(value: 0)
         pipe.fileHandleForReading.readabilityHandler = { handle in
             let data = handle.availableData
+            if data.isEmpty {
+                handle.readabilityHandler = nil
+                reachedEnd.signal()
+                return
+            }
             lines.lock.withLock {
                 lines.buffer.append(data)
                 // Progress bars rewrite one line with carriage returns.
                 while let end = lines.buffer.firstIndex(where: { $0 == 10 || $0 == 13 }) {
-                    let line = String(decoding: lines.buffer[..<end], as: UTF8.self).trimmingCharacters(in: .whitespaces)
+                    keep(lines.buffer[..<end])
                     lines.buffer.removeSubrange(...end)
-                    guard !line.isEmpty else { continue }
-                    lines.all.append(line)
-                    if interesting.contains(where: line.contains) { progress(line) }
                 }
             }
         }
-        try process.run()
-        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+        try await withCheckedThrowingContinuation { (done: CheckedContinuation<Void, Error>) in
+            // Set before it starts, so an exit straight away can't be missed.
             process.terminationHandler = { _ in done.resume() }
+            do { try process.run() } catch { done.resume(throwing: error) }
+        }
+        // The exit can overtake the output: render-box's last lines (the metrics path,
+        // "No capacity") may still be in the pipe, so read on until it's empty. Something
+        // the runner left behind can hold the pipe open, and the job's been paid for by
+        // now, so that wait has a limit.
+        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+            DispatchQueue.global().async {
+                _ = reachedEnd.wait(timeout: .now() + drainSeconds)
+                done.resume()
+            }
         }
         pipe.fileHandleForReading.readabilityHandler = nil
-        let all = lines.lock.withLock { lines.all }
+        let all = lines.lock.withLock {
+            // A last line with no newline never met the loop above.
+            keep(lines.buffer)
+            lines.buffer.removeAll()
+            return lines.all
+        }
         // render-box prints where it kept the job's metrics, with the estimated cost.
         var cost: Double?
         if let line = all.last(where: { $0.contains("metrics: ") }), let path = line.components(separatedBy: "metrics: ").last,

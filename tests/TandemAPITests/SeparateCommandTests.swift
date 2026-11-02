@@ -115,6 +115,55 @@ final class SeparateCommandTests: XCTestCase {
         XCTAssertEqual(callCount, 0)
     }
 
+    /// A runner that prints `body` from a bash script, for `Separator.run` directly.
+    private func script(_ body: String) throws -> URL {
+        let url = folder.appendingPathComponent("script-\(UUID().uuidString)")
+        try "#!/bin/bash\n\(body)\n".write(to: url, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
+        return url
+    }
+
+    // render-box prints the metrics path and the "No capacity" line just before it
+    // exits, so reading must carry on past the exit until the pipe is empty. The
+    // flood makes the runner exit well before the reader has caught up.
+    func testReadsEverythingTheRunnerPrintedBeforeExiting() async throws {
+        let metrics = folder.appendingPathComponent("metrics.json")
+        try Data(#"{"estimated_cost_usd": 0.3}"#.utf8).write(to: metrics)
+        let runner = try script("""
+        for i in $(seq 1 20000); do echo "setup line $i"; done
+        echo "render-box: No capacity in any allowed tier"
+        echo "render-box: metrics: \(metrics.path)"
+        """)
+        let result = try await Separator.run(runner, [], progress: { _ in })
+        XCTAssertEqual(result.costUSD, 0.3)
+        XCTAssertTrue(result.noCapacity)
+        XCTAssertEqual(result.tail.last, "render-box: metrics: \(metrics.path)")
+    }
+
+    func testKeepsALastLineWithNoNewline() async throws {
+        let metrics = folder.appendingPathComponent("metrics.json")
+        try Data(#"{"estimated_cost_usd": 0.3}"#.utf8).write(to: metrics)
+        let runner = try script(#"printf 'render-box: metrics: \#(metrics.path)'"#)
+        let result = try await Separator.run(runner, [], progress: { _ in })
+        XCTAssertEqual(result.costUSD, 0.3)
+    }
+
+    // A pod job has already been paid for by now: something left running that still
+    // holds the pipe mustn't keep `tandem separate` from saving the stems.
+    func testDoesntWaitForeverOnAChildThatKeepsThePipeOpen() async throws {
+        let metrics = folder.appendingPathComponent("metrics.json")
+        try Data(#"{"estimated_cost_usd": 0.3}"#.utf8).write(to: metrics)
+        let runner = try script("""
+        sleep 5 &
+        echo "render-box: metrics: \(metrics.path)"
+        """)
+        let started = Date()
+        let result = try await Separator.run(runner, [], drainSeconds: 0.5, progress: { _ in })
+        XCTAssertLessThan(Date().timeIntervalSince(started), 4)
+        XCTAssertEqual(result.status, 0)
+        XCTAssertEqual(result.costUSD, 0.3)
+    }
+
     func testMaxMinutesCoverSetupAndEveryPrompt() {
         XCTAssertEqual(Separator.maxMinutes(seconds: 45, prompts: 3), 18 + 4)
         XCTAssertEqual(Separator.maxMinutes(seconds: 360, prompts: 1), 18 + 10)
