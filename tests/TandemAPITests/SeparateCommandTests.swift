@@ -125,7 +125,9 @@ final class SeparateCommandTests: XCTestCase {
 
     // render-box prints the metrics path and the "No capacity" line just before it
     // exits, so reading must carry on past the exit until the pipe is empty. The
-    // flood makes the runner exit well before the reader has caught up.
+    // flood keeps the reader busy, so up to a pipe's worth is usually unread at the
+    // exit. That's timing rather than a guarantee, so a pass doesn't prove much but a
+    // failure does.
     func testReadsEverythingTheRunnerPrintedBeforeExiting() async throws {
         let metrics = folder.appendingPathComponent("metrics.json")
         try Data(#"{"estimated_cost_usd": 0.3}"#.utf8).write(to: metrics)
