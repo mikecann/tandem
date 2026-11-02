@@ -1038,9 +1038,12 @@ comments, changed these rules for a conversation like this:
   0.25 s + 1.5 s after they're written; stay on his shot longer rather
   than cutting the title short. Every question gets one, including a
   follow-up asked mid-answer.
-- **Name cards over each person,** a cartoon circle and title above or
-  under their own face, his too ("Mad Scientist at Convex", his X
-  avatar), not one centred card.
+- **Name tags over each person,** a two-line title above their own head,
+  his too ("Mad Scientist at Convex"), not one centred card. No avatar
+  circle when the person is on screen ("we can see our face"), and no
+  drop shadow under the yellow line (it only looks right under white).
+- **A cartoon of someone not in the room gets their name on it** ("JAMIE"
+  on his jumper) so viewers know who it is.
 - **Show who and what they mention:** a cartoon of a colleague named in a
   story (Jamie sliding in, eyebrow raised; popping up smug on "Jamie's
   always right"), and pop-ups of the real thing named (a product's site,
