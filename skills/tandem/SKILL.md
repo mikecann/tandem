@@ -1016,6 +1016,44 @@ quicker model to copy.
   there too), check the size with `rclone lsf --format sp`, make the link
   with `rclone link "<path>"`, and delete the staging copy on Bruce.
 
+### A seated rapid-fire Q&A: James Cowling's "Spicy Questions" (November 2026)
+
+Mike asks about 34 questions, James answers, two RED cameras and one lav
+on James (`convex-videos/james-spicy-questions/`). His first watch, 17
+comments, changed these rules for a conversation like this:
+
+- **Loose pacing, not the whiteboard tightening.** `tighten --mike` and a
+  dead-air pass made "janky silence cutouts... it cuts out some of the
+  nuance, it's okay to have a bit of silence in this video". In a seated
+  conversation, keep natural silences: only shorten a pause over about
+  3 s (to about 1.2 s), and cut only content (false starts, retakes,
+  off-camera chat) and clean fillers.
+- **His asides to the edit are editor's notes even without the words.**
+  "I'm not sure about this question, but I'll ask anyway", "Only got four
+  questions left", "Yep. Yep. This is interesting." before a question:
+  cut them and keep the question. Also trim the wait after an answer ends
+  before his next question to a natural beat.
+- **Question titles stay up long enough to read.** Handwritten on the wall
+  as he asks (no "N of 33" counter, which he dropped), held about words x
+  0.25 s + 1.5 s after they're written; stay on his shot longer rather
+  than cutting the title short. Every question gets one, including a
+  follow-up asked mid-answer.
+- **Name cards over each person,** a cartoon circle and title above or
+  under their own face, his too ("Mad Scientist at Convex", his X
+  avatar), not one centred card.
+- **Show who and what they mention:** a cartoon of a colleague named in a
+  story (Jamie sliding in, eyebrow raised; popping up smug on "Jamie's
+  always right"), and pop-ups of the real thing named (a product's site,
+  the event video).
+- **Sound on a single far lav:** voice isolation on audio someone already
+  cleaned sounded "too much AI audio compression". He compared Adobe
+  Podcast (best, but he won't depend on uploading), SAM and self-hosted
+  models, and picked RoFormer dereverb then DeepFilterNet 3 capped at
+  12 dB (`convex-videos/tools/voice-enhance/`, run it on RunPod). It
+  softens quiet word edges, so re-run `check --cuts --listen` over every
+  join after swapping a voice file in; DeepFilterNet's digital silence
+  can drop whole quiet words, so find and fix dropouts too.
+
 ## Rules
 
 - Insert at a cut's exact time, read from the clips (`start + duration`),
