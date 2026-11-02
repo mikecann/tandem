@@ -109,6 +109,7 @@ enum Icons {
     /// What the grade applies to: every clip of the take, or this one.
     static let wholeTake = "film.stack"
     static let thisClip = "film"
+    static let notShowing = "eye.slash"
     /// A section's reset arrow.
     static let reset = "arrow.counterclockwise"
     static let expanded = "chevron.down"

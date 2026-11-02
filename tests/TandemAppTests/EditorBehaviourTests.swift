@@ -1271,6 +1271,50 @@ final class EditorBehaviourTests: XCTestCase {
         XCTAssertEqual(editor.model.inspectorTab, .video)
     }
 
+    /// Mike's linked camera and screen, with the screen in focus: pressing
+    /// the camera's picture in the viewer has to bring the inspector to the
+    /// camera, even though the press lands on a clip that's selected already.
+    func testPressingAPictureInTheViewerPutsTheInspectorOnIt() throws {
+        let editor = try EditorHarness()
+        defer { editor.close() }
+        let camera = editor.clip("Camera"), screen = editor.clip("Screen")
+        editor.model.apply(EditBatch(label: "Fill", commands: [.updateClip(clipID: camera.id, patch: .object(["video": .object(["transform": .object(["scale": .number(1), "position": .object(["x": .number(0.5), "y": .number(0.5)])])])]))]))
+        editor.settle()
+        editor.click(editor.point(of: screen.id, at: 5))
+        XCTAssertEqual(editor.model.primaryClipID, screen.id)
+        XCTAssertTrue(editor.model.selection.contains(camera.id), "linked, so both are selected")
+
+        editor.model.playback.seek(to: t(5))
+        editor.settle()
+        let overlay = try XCTUnwrap(editor.view(ViewerOverlayView.self))
+        editor.click(editor.windowPoint(CGPoint(x: overlay.bounds.midX, y: overlay.bounds.midY), in: overlay))
+        XCTAssertEqual(editor.model.primaryClipID, camera.id)
+    }
+
+    /// The close-up turned off above the wide: clicking the group by the
+    /// turned-off clip opens the Colour tab on the one that's showing.
+    func testClickingATurnedOffAngleOnTheTimelineGradesTheOneShowing() throws {
+        let editor = try EditorHarness()
+        defer { editor.close() }
+        let camera = editor.clip("Camera"), screen = editor.clip("Screen")
+        editor.model.apply(EditBatch(label: "Angle off", commands: [.updateClip(clipID: camera.id, patch: .object(["enabled": .bool(false)]))]))
+        editor.settle()
+        editor.click(editor.point(of: camera.id, at: 5))
+        XCTAssertEqual(editor.model.primaryClipID, screen.id)
+        // Option-click takes just the turned-off one, on purpose.
+        editor.click(editor.point(of: camera.id, at: 5), modifiers: .option)
+        XCTAssertEqual(editor.model.primaryClipID, camera.id)
+        // The Colour tab says it isn't showing, and its button goes to what is.
+        editor.model.playback.seek(to: t(5))
+        editor.model.inspectorTab = .colour
+        editor.settle()
+        let button = try XCTUnwrap(editor.point(ofTip: "Show the clip that's on screen here"), "the Colour tab offers the clip that's showing")
+        editor.click(button)
+        editor.settle()
+        XCTAssertEqual(editor.model.primaryClipID, screen.id)
+        XCTAssertNil(editor.point(ofTip: "Show the clip that's on screen here"), "and then there's nothing to warn about")
+    }
+
     /// Issue #60: a look dragged in the Colour tab's whole take outlived
     /// its drag, and the viewer kept drawing it over the looks an agent
     /// gave the file afterwards until the app restarted.

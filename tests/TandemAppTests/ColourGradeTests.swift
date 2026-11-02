@@ -185,12 +185,59 @@ final class ColourGradeTests: XCTestCase {
         XCTAssertEqual(grade.insertionIndex(for: .light), 0)
         XCTAssertEqual(grade.insertionIndex(for: .wheels), 0)
         XCTAssertEqual(grade.insertionIndex(for: .sharpen), 2)
-        XCTAssertEqual(grade.insertionIndex(for: .lut), 2)
+        // The LUT goes under everything, whatever was there first.
+        XCTAssertEqual(grade.insertionIndex(for: .lut), 0)
         let wheels = try XCTUnwrap(grade.setting(.wheels, ["midtonesAmount": .number(10)], label: "Midtones wheel", newID: newID))
         XCTAssertEqual(wheels.effects.map(\.type), ["colorWheels", "hsl", "vignette"])
         // A clip's style effects stay where they are.
         let clipEffects = [Effect(id: "fx_s", type: "dropShadow")]
         XCTAssertEqual(ColourGrade(clipEffects).insertionIndex(for: .light), 0)
+    }
+
+    /// The James interview's camera look: a LUT, then Mike's sharpen.
+    private var lutLook: [Effect] {
+        [
+            Effect(id: "fx_lut", type: "lut", params: ["path": .string("assets/lut/Wide.cube"), "intensity": .number(1)]),
+            Effect(id: "fx_sharp", type: "sharpen", params: ["amount": .number(3)])
+        ]
+    }
+
+    func testNewSectionsGoOnTopOfTheLUT() throws {
+        let light = try XCTUnwrap(ColourGrade(lutLook).setting(.light, ["contrast": .number(20)], label: "Contrast", newID: newID))
+        XCTAssertEqual(light.effects.map(\.type), ["lut", "colorAdjust", "sharpen"])
+        XCTAssertEqual(ColourGrade(lutLook).lutNote, "Applied first. Everything below goes on top of it.")
+    }
+
+    func testALUTAddedToAGradeGoesUnderIt() throws {
+        let graded = [adjust("fx_a", ["contrast": 20])]
+        let lut = try XCTUnwrap(ColourGrade(graded).setting(.lut, ["path": .string("a.cube")], label: "LUT file", newID: newID))
+        XCTAssertEqual(lut.effects.map(\.type), ["lut", "colorAdjust"])
+    }
+
+    func testAGradeThatPutsALUTLastKeepsItsOrderAndSaysSo() throws {
+        // A Filmora import has its LUT last, and it has to keep looking the same.
+        let look = [adjust("fx_a", ["contrast": 20]), lutLook[0]]
+        let grade = ColourGrade(look)
+        let more = try XCTUnwrap(grade.setting(.light, ["contrast": .number(30)], label: "Contrast", newID: newID))
+        XCTAssertEqual(more.effects.map(\.type), ["colorAdjust", "lut"])
+        XCTAssertEqual(grade.lutNote, "Applied after Light. Everything else goes on top of it.")
+    }
+
+    func testALeftoverEffectUnderTheLUTMovesOnTopWhenItsUsedAgain() throws {
+        // What seven contrast edits and their reverts left on the close-up.
+        let look = [adjust("fx_old", ["contrast": 0])] + lutLook
+        let grade = ColourGrade(look)
+        XCTAssertNil(grade.setting(.light, ["contrast": .number(0)], label: "Contrast", newID: newID), "still no change")
+        let change = try XCTUnwrap(grade.setting(.light, ["contrast": .number(20)], label: "Contrast", newID: newID))
+        XCTAssertEqual(change.effects.map(\.type), ["lut", "colorAdjust", "sharpen"])
+        XCTAssertEqual(change.effects[1].params["contrast"], .number(20))
+    }
+
+    func testNoLUTNoNote() {
+        XCTAssertEqual(ColourGrade([adjust("fx_a", ["contrast": 20])]).lutNote, "")
+        var off = lutLook
+        off[0].enabled = false
+        XCTAssertEqual(ColourGrade(off).lutNote, "", "a LUT that's off isn't under anything")
     }
 
     func testSettingWhatsThereChangesNothing() {

@@ -1,12 +1,17 @@
 import Foundation
 import TandemCore
 
-/// The Colour tab's sections, top to bottom. Each is backed by an effect
-/// that's only added once something in the section changes, so an
-/// ungraded clip carries no effects. Light and Colour share one
-/// `colorAdjust` until one of them needs its own on/off switch.
+/// The Colour tab's sections, top to bottom, in the order they apply. Each
+/// is backed by an effect that's only added once something in the section
+/// changes, so an ungraded clip carries no effects. Light and Colour share
+/// one `colorAdjust` until one of them needs its own on/off switch.
+///
+/// The LUT is first because it's what turns log footage into a normal
+/// picture. Sliders under it then work on what's on screen: before it, a bit
+/// of contrast on the flat log image gets multiplied by the LUT's own curve,
+/// and a temperature shift bends its colours.
 enum ColourSection: String, CaseIterable, Identifiable, Hashable {
-    case light, colour, wheels, mixer, vignette, sharpen, lut
+    case lut, light, colour, wheels, mixer, vignette, sharpen
 
     var id: String { rawValue }
 
@@ -201,6 +206,18 @@ struct ColourGrade {
         effect(section)?.enabled ?? true
     }
 
+    /// Where the LUT sits, for the LUT section to say: first, under the rest,
+    /// or after the sections an imported or hand-written grade put before it.
+    /// Empty when no LUT is doing anything.
+    var lutNote: String {
+        guard let lut = backing[.lut], effects[lut].enabled, isChanged(.lut),
+              case .string(let path)? = values(.lut)["path"], !path.isEmpty else { return "" }
+        let before = ColourSection.allCases.filter { $0 != .lut && (backing[$0] ?? lut) < lut && isChanged($0) }.map(\.title)
+        guard let last = before.last else { return "Applied first. Everything below goes on top of it." }
+        let list = before.count == 1 ? last : before.dropLast().joined(separator: ", ") + " and " + last
+        return "Applied after \(list). Everything else goes on top of it."
+    }
+
     /// The effects no section shows, in order.
     var others: [Effect] {
         let used = Set(backing.values)
@@ -215,6 +232,15 @@ struct ColourGrade {
     /// one has values, this section moves to an effect of its own so the
     /// other stays off.
     func setting(_ section: ColourSection, _ values: [String: ParamValue], label: String, newID: () -> String = { IDs.make("fx") }) -> ColourChange? {
+        // A section's leftover effect from before the LUT, back at no change,
+        // does nothing, so the new value starts afresh in the tab's order
+        // rather than staying under the LUT.
+        if let index = backing[section], let lut = backing[.lut], index < lut, isLeftover(section),
+           values.contains(where: { self.values(section)[$0.key] != $0.value }) {
+            var rest = effects
+            rest.remove(at: index)
+            return ColourGrade(rest, animated: animated, registry: registry).setting(section, values, label: label, newID: newID)
+        }
         var list = effects
         var moves: [ColourChange.Move] = []
         let target: Int
@@ -286,6 +312,12 @@ struct ColourGrade {
             list.remove(at: index)
         }
         return ColourChange(effects: list, label: "Reset \(section.title.lowercased())", moves: moves)
+    }
+
+    /// The section's effect does nothing, and nothing else depends on it.
+    private func isLeftover(_ section: ColourSection) -> Bool {
+        guard let effect = effect(section), animated[effect.id]?.isEmpty != false, !isChanged(section) else { return false }
+        return !isShared(section) || section.partner.map { !isChanged($0) } == true
     }
 
     /// Light and Colour's shared effect as two: the original keeps the

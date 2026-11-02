@@ -140,6 +140,24 @@ final class ColourInspectorSnapshots: XCTestCase {
         try render(panel(clip), "4-light-off-collapsed")
     }
 
+    func testATurnedOffClipSaysWhatsShowing() throws {
+        let clip = try XCTUnwrap(cameraClips.first)
+        model.apply(EditBatch(label: "Angle off", commands: [.updateClip(clipID: clip.id, patch: .object(["enabled": .bool(false)]))]))
+        // Selected alone, as an Option-click does.
+        model.selection = [clip.id]
+        try render(panel(try XCTUnwrap(model.project.clip(clip.id))), "8-turned-off")
+    }
+
+    func testTheLUTSaysItsUnderTheGrade() throws {
+        let clip = try XCTUnwrap(cameraClips.first)
+        model.apply(InspectorEdits.look("med_camera", [
+            Effect(id: "fx_lut", type: "lut", params: ["path": .string("assets/lut/Wide, high contrast soft, -0.3 stop.cube")]),
+            Effect(id: "fx_adjust", type: "colorAdjust", params: ["contrast": .number(20)])
+        ], label: "Look"))
+        AppDefaults.store.set("wheels,mixer,vignette,sharpen,lut", forKey: "colourCollapsedSections")
+        try render(panel(clip), "9-lut-under-the-grade")
+    }
+
     func testTitleClip() throws {
         let track = try XCTUnwrap(model.project.track(named: "Text"))
         model.apply(EditBatch(label: "Title", commands: [
@@ -207,17 +225,17 @@ final class ColourEditorTests: XCTestCase {
         XCTAssertEqual(look.count, 1)
         XCTAssertEqual(look.first?.type, "colorAdjust")
         XCTAssertEqual(look.first?.params["contrast"], .number(25))
-        XCTAssertEqual(model.session.coordinator.undoLabel, "Contrast (whole take)")
+        XCTAssertEqual(model.session.coordinator.undoLabel, "Contrast (whole take: take1-camera.mov)")
         XCTAssertTrue(clip.video?.effects.isEmpty ?? true, "the clip itself is untouched")
 
         editor(.take).set(.colour, ["temperature": .number(-3)], label: "Temperature")
         XCTAssertEqual(look.count, 1, "Light and Colour share one effect")
         editor(.take).toggle(.light)
         XCTAssertEqual(look.map(\.enabled), [false, true])
-        XCTAssertEqual(model.session.coordinator.undoLabel, "Turn off light (whole take)")
+        XCTAssertEqual(model.session.coordinator.undoLabel, "Turn off light (whole take: take1-camera.mov)")
         editor(.take).reset(.colour)
         XCTAssertEqual(look.count, 1)
-        XCTAssertEqual(model.session.coordinator.undoLabel, "Reset colour (whole take)")
+        XCTAssertEqual(model.session.coordinator.undoLabel, "Reset colour (whole take: take1-camera.mov)")
         // Light is still off: changing it turns it back on.
         editor(.take).set(.light, ["contrast": .number(25)], label: "Contrast")
         XCTAssertEqual(look.map(\.enabled), [true])

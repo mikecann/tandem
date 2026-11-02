@@ -9,8 +9,8 @@ enum ColourTarget: String, CaseIterable, Hashable, Sendable {
 }
 
 /// The Colour tab: a switch between the whole take and this clip, then
-/// fixed sections in grading order (Light, Colour, Colour wheels, Colour
-/// mixer, Vignette, Sharpen, LUT), each with an on/off switch, a reset and
+/// fixed sections in the order they apply (LUT, Light, Colour, Colour wheels,
+/// Colour mixer, Vignette, Sharpen), each with an on/off switch, a reset and
 /// a chevron. The sections are views onto the look's or the clip's
 /// effects (`ColourGrade`); anything they don't cover is listed at the end
 /// as it is.
@@ -39,6 +39,7 @@ struct ColourInspector: View {
             let editor = ColourEditor(model: model, clipID: clip.id, target: target)
             let shown = ColourShown(model: model, clip: clip, item: item, target: target)
             VStack(alignment: .leading, spacing: 0) {
+                ColourNotShowing(model: model, clip: clip, editingLook: target == .take)
                 if let item {
                     targetSwitch(item, target: target)
                 } else if case .adjustment = clip.content {
@@ -101,7 +102,7 @@ struct ColourInspector: View {
             )
             Text(verbatim: target == .take
                 ? "Changes here grade every clip from \(file)."
-                : (item.look.isEmpty ? "Changes here grade only this clip." : "Changes here grade only this clip, on top of the \(whole.lowercased())'s grade."))
+                : (item.look.isEmpty ? "Changes here grade only this clip." : "Changes here grade only this clip, on top of the \(whole.lowercased())'s grade\(ColourGrade(item.look).lutNote.isEmpty ? "" : ", LUT included")."))
                 .font(.ui(11.5))
                 .foregroundStyle(Theme.textMuted.color)
                 .fixedSize(horizontal: false, vertical: true)
@@ -173,6 +174,40 @@ struct ColourInspector: View {
     }
 }
 
+/// Says so when the clip being graded isn't what's on screen, and offers the
+/// one that is. It's its own view because it reads the playhead: this way
+/// only this line follows it, not the thirty controls below.
+private struct ColourNotShowing: View {
+    let model: EditorModel
+    let clip: Clip
+    let editingLook: Bool
+
+    var body: some View {
+        // Not during playback, when B-roll going past would make the whole
+        // tab jump up and down.
+        if !model.playback.isPlaying,
+           let notice = PictureVisibility.notice(for: clip, editingLook: editingLook, playhead: model.playback.time, in: model.project) {
+            HStack(alignment: .top, spacing: 8) {
+                PanelIcon(name: Icons.notShowing, color: Theme.amber.color)
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(verbatim: notice.text)
+                        .font(.ui(11.5))
+                        .foregroundStyle(Theme.text.color)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if let instead = notice.instead {
+                        OutlineButton(title: "Edit that instead") { model.editInstead(instead, at: notice.time) }
+                            .tip("Show the clip that's on screen here")
+                    }
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .overlay(alignment: .bottom) { Rectangle().fill(Theme.border.color).frame(height: 1) }
+        }
+    }
+}
+
 /// What the tab shows for its target, worked out once per redraw: the
 /// grade, and for a clip with animated values, its effects at the
 /// playhead.
@@ -205,7 +240,8 @@ struct ColourShown {
             hasEffect: effect != nil,
             isOn: grade.isOn(section),
             isChanged: grade.isChanged(section, shown: atPlayhead),
-            diamond: isLook ? .none : (effect.map { .effect($0.id) } ?? .gap)
+            diamond: isLook ? .none : (effect.map { .effect($0.id) } ?? .gap),
+            note: section == .lut ? grade.lutNote : ""
         )
     }
 
@@ -225,6 +261,8 @@ struct ColourSectionState: Equatable, Sendable {
     var isOn: Bool
     var isChanged: Bool
     var diamond: ColourDiamond
+    /// A line that stays under the header, open or closed.
+    var note = ""
 
     /// Something to turn off, or an effect that's off to turn back on.
     var canToggle: Bool { isChanged || !isOn }
@@ -272,7 +310,7 @@ struct ColourEditor: Equatable, Sendable {
     func apply(_ make: (ColourGrade) -> ColourChange?) {
         guard let (clip, item, grade) = current(), let change = make(grade) else { return }
         if isLook, let item {
-            model.apply(InspectorEdits.look(item.id, change.effects, label: "\(change.label) (whole take)"))
+            model.apply(InspectorEdits.look(item.id, change.effects, label: InspectorEdits.lookLabel(change.label, item)))
             return
         }
         let commands = ColourEdits.clipCommands(clip, change, at: model.clipTime(of: clip), tolerance: model.keyframeTolerance)
@@ -369,6 +407,7 @@ struct ColourSectionView: View, Equatable {
             isChanged: state.isChanged,
             canToggle: state.canToggle,
             summary: expanded || !state.isChanged ? "" : ColourSummary.text(section, state.values),
+            note: state.note,
             expanded: expanded,
             toggleExpanded: toggleCollapsed,
             toggle: { editor.toggle(section) },
@@ -405,6 +444,8 @@ struct ColourSectionBlock<Content: View>: View {
     let canToggle: Bool
     /// What a collapsed section changes, in a few words.
     let summary: String
+    /// Where the section sits in the grade, open or closed.
+    var note = ""
     let expanded: Bool
     let toggleExpanded: () -> Void
     let toggle: () -> Void
@@ -449,6 +490,14 @@ struct ColourSectionBlock<Content: View>: View {
             .frame(height: 18)
             if !expanded, !summary.isEmpty {
                 Text(summary)
+                    .font(.ui(11))
+                    .foregroundStyle(Theme.textFaint.color)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.leading, 22)
+                    .padding(.top, -5)
+            }
+            if !note.isEmpty {
+                Text(verbatim: note)
                     .font(.ui(11))
                     .foregroundStyle(Theme.textFaint.color)
                     .fixedSize(horizontal: false, vertical: true)
