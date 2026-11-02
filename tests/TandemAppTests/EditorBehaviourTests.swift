@@ -841,6 +841,59 @@ final class EditorBehaviourTests: XCTestCase {
         }
     }
 
+    /// A start has been set for a moment just ahead, and the picture hasn't
+    /// reached it yet: the window `testASeekDuringASeek...` interrupt in.
+    private func waitForStartSetAhead(_ playback: PlaybackController, _ what: String, whileWaiting check: () -> Void = {}) {
+        editor.wait(for: what) {
+            check()
+            return playback.audio.isPlaying && playback.playerLayers.contains { ($0.player?.rate ?? 0) != 0 }
+        }
+    }
+
+    /// Stopped between setting a start for a moment ahead and reaching it,
+    /// then sent somewhere by a seek, AVPlayer can call its time observer
+    /// with the old rate showing again and the seek's time. Heard then, a
+    /// second seek made during the first lost out to the first: the playhead
+    /// went back to it, stayed there when the player reached the second, and
+    /// playing never started again, as the sound was queued from somewhere
+    /// the playhead no longer was.
+    func testASeekDuringASeekWhilePlayingLandsOnTheLastAndPlaysOn() {
+        let playback = editor.model.playback
+        editor.wait(for: "the viewer's first composition", timeout: 10) { playback.hasComposition }
+        playback.play(rate: 2)
+        waitForStartSetAhead(playback, "the first start")
+        for rate in [4.0, -2, 1, -4, 2, 1, 4, -2] {
+            playback.pause()
+            playback.seek(to: t(5))
+            playback.play(rate: rate)
+            playback.seek(to: t(15))
+            var wentBack = false
+            waitForStartSetAhead(playback, "playing on from the second seek at \(rate)x") {
+                wentBack = wentBack || playback.time.seconds < 10
+            }
+            XCTAssertFalse(wentBack, "the playhead went back to the first seek at \(rate)x")
+        }
+        let started = playback.time
+        editor.wait(for: "the picture to move") { playback.time != started }
+    }
+
+    /// The same observer call just after pausing, where no start is under
+    /// way: the scrubbed playhead stays on the latest seek.
+    func testASeekDuringASeekJustAfterPausingLandsOnTheLast() {
+        let playback = editor.model.playback
+        editor.wait(for: "the viewer's first composition", timeout: 10) { playback.hasComposition }
+        for rate in [4.0, -2, 1, -4, 2, 1, 4, -2] {
+            playback.seek(to: t(40))
+            playback.play(rate: rate)
+            waitForStartSetAhead(playback, "a start at \(rate)x")
+            playback.pause()
+            playback.seek(to: t(5))
+            playback.seek(to: t(15))
+            editor.settle()
+            XCTAssertEqual(playback.time.seconds, 15, accuracy: 0.001, "after a start at \(rate)x")
+        }
+    }
+
     func testCommentDoubleClicksPausePlaybackBeforeOpeningTheBox() throws {
         editor.model.apply(CommentEdits.add("A note", at: t(10))!)
         editor.settle()
