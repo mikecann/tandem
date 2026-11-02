@@ -233,6 +233,18 @@ final class ColourGradeTests: XCTestCase {
         XCTAssertEqual(change.effects[1].params["contrast"], .number(20))
     }
 
+    func testALeftoverNextToAnotherAdjustmentDoesntOverwriteIt() throws {
+        let look = [adjust("fx_old", ["contrast": 0]), adjust("fx_other", ["contrast": 50])] + lutLook
+        let change = try XCTUnwrap(ColourGrade(look).setting(.light, ["contrast": .number(20)], label: "Contrast", newID: newID))
+        XCTAssertEqual(change.effects.first { $0.id == "fx_other" }?.params["contrast"], .number(50))
+        XCTAssertEqual(change.effects.first { $0.id == "fx_old" }?.params["contrast"], .number(20))
+    }
+
+    func testTheLUTNoteLeavesOutSectionsThatAreOff() {
+        let look = [adjust("fx_a", enabled: false, ["contrast": 20]), lutLook[0]]
+        XCTAssertEqual(ColourGrade(look).lutNote, "Applied first. Everything below goes on top of it.")
+    }
+
     func testNoLUTNoNote() {
         XCTAssertEqual(ColourGrade([adjust("fx_a", ["contrast": 20])]).lutNote, "")
         var off = lutLook

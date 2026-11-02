@@ -156,7 +156,7 @@ struct ColourSliderSpec: Equatable {
         case .mixer: return "Colour mixer: the hue, saturation and luminance of one colour at a time. Click to show or hide."
         case .vignette: return "Vignette: darker or lighter edges. Click to show or hide."
         case .sharpen: return "Sharpen: crisper detail. Click to show or hide."
-        case .lut: return "LUT: a .cube lookup table, applied before the sections below it. Click to show or hide."
+        case .lut: return "LUT: a .cube lookup table. Click to show or hide."
         }
     }
 }

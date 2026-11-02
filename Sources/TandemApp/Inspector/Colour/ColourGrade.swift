@@ -212,7 +212,7 @@ struct ColourGrade {
     var lutNote: String {
         guard let lut = backing[.lut], effects[lut].enabled, isChanged(.lut),
               case .string(let path)? = values(.lut)["path"], !path.isEmpty else { return "" }
-        let before = ColourSection.allCases.filter { $0 != .lut && (backing[$0] ?? lut) < lut && isChanged($0) }.map(\.title)
+        let before = ColourSection.allCases.filter { $0 != .lut && (backing[$0] ?? lut) < lut && isOn($0) && isChanged($0) }.map(\.title)
         guard let last = before.last else { return "Applied first. Everything below goes on top of it." }
         let list = before.count == 1 ? last : before.dropLast().joined(separator: ", ") + " and " + last
         return "Applied after \(list). Everything else goes on top of it."
@@ -234,8 +234,11 @@ struct ColourGrade {
     func setting(_ section: ColourSection, _ values: [String: ParamValue], label: String, newID: () -> String = { IDs.make("fx") }) -> ColourChange? {
         // A section's leftover effect from before the LUT, back at no change,
         // does nothing, so the new value starts afresh in the tab's order
-        // rather than staying under the LUT.
+        // rather than staying under the LUT. Only when it's the one effect of
+        // its type: with another, taking this away would promote that one to
+        // back the section, and the new value would overwrite it.
         if let index = backing[section], let lut = backing[.lut], index < lut, isLeftover(section),
+           effects.filter({ $0.type == section.effectType }).count == 1,
            values.contains(where: { self.values(section)[$0.key] != $0.value }) {
             var rest = effects
             rest.remove(at: index)

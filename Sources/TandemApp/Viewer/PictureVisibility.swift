@@ -57,20 +57,42 @@ enum PictureVisibility {
     /// The selected picture to show in place of a turned-off one: clicking
     /// a linked group by its turned-off angle still means the group, so the
     /// inspector goes to the angle that's on. Nil when `clipID` is on, isn't
-    /// a picture, or was selected alone (Option-click), which is how to get
-    /// at a turned-off clip on purpose.
+    /// a picture, or was selected without its group (Option-click), which is
+    /// how to get at a turned-off clip on purpose. An unrelated clip selected
+    /// alongside doesn't count: that's not another angle of this shot.
     ///
     /// It works from the clips' ranges rather than the playhead, because the
     /// inspector calls this on every redraw and shouldn't follow playback.
     static func onInstead(of clipID: String, among selection: Set<String>, in project: Project) -> String? {
-        guard let clip = project.clip(clipID), selection.count > 1,
+        guard let clip = project.clip(clipID), selection.count > 1, let group = clip.linkGroup,
               project.track(containingClip: clipID)?.kind == .video, !isOn(clip, in: project) else { return nil }
         for track in project.videoTracks.reversed() where !track.hidden {
-            for other in track.clips where selection.contains(other.id) && other.enabled && other.range.overlaps(clip.range) {
+            for other in track.clips where selection.contains(other.id) && other.linkGroup == group && other.enabled && other.range.overlaps(clip.range) {
                 if case .media = other.content { return other.id }
             }
         }
         return nil
+    }
+
+    /// Whether this clip's picture is what you'd see, at the playhead or, when
+    /// the playhead is elsewhere, at the clip's own start.
+    static func isShowing(_ clip: Clip, playhead: Time, in project: Project) -> Bool {
+        isOn(clip, in: project) && coveringClip(of: clip, at: judgedTime(of: clip, playhead: playhead), in: project) == nil
+    }
+
+    /// The selected pictures an inspector could act on, top track first: the
+    /// angles of a linked group.
+    static func pictures(in selection: Set<String>, of project: Project) -> [Clip] {
+        project.videoTracks.reversed().flatMap { track in
+            track.clips.filter { clip in
+                guard selection.contains(clip.id), case .media = clip.content else { return false }
+                return true
+            }
+        }
+    }
+
+    private static func judgedTime(of clip: Clip, playhead: Time) -> Time {
+        clip.start <= playhead && playhead < clip.end ? playhead : clip.start
     }
 
     /// Says a clip isn't what's on screen, and what is.
@@ -86,8 +108,7 @@ enum PictureVisibility {
     /// the file's look, which reaches every clip of that file, so a hidden
     /// clip is no problem when another clip of the same file is on screen.
     static func notice(for clip: Clip, editingLook look: Bool, playhead: Time, in project: Project) -> Notice? {
-        // A clip away from the playhead is judged at its own start.
-        let time = clip.start <= playhead && playhead < clip.end ? playhead : clip.start
+        let time = judgedTime(of: clip, playhead: playhead)
         let replacement: Clip?
         let reason: String
         if !isOn(clip, in: project) {
@@ -111,7 +132,9 @@ enum PictureVisibility {
         guard clip.linkGroup != nil else { return nil }
         let linked = Set(project.linkedClipIDs(of: clip.id))
         for track in project.videoTracks.reversed() where !track.hidden {
-            if let other = track.clip(at: time), linked.contains(other.id), other.enabled, case .media = other.content { return other }
+            // Not one that's under something else: "you're seeing" has to be true.
+            if let other = track.clip(at: time), linked.contains(other.id), other.enabled, case .media = other.content,
+               coveringClip(of: other, at: time, in: project) == nil { return other }
         }
         return nil
     }

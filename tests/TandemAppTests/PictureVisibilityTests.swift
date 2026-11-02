@@ -68,6 +68,26 @@ final class PictureVisibilityTests: XCTestCase {
         XCTAssertEqual(model.primaryClipID, clip("Screen").id)
     }
 
+    func testAnUnrelatedClipSelectedAlongsideIsntAnAngle() throws {
+        turnOffCamera()
+        model.apply(EditBatch(label: "B-roll", commands: [.placeMedia(mediaIDs: ["med_broll"], at: t(20), duration: t(5))]))
+        let broll = try XCTUnwrap(model.project.track(named: "B-roll")?.clips.first)
+        model.selection = [clip("Camera").id, broll.id]
+        model.focusedClipID = clip("Camera").id
+        XCTAssertEqual(model.primaryClipID, clip("Camera").id)
+    }
+
+    func testTheNoticeDoesntNameALinkedAngleThatsCovered() throws {
+        // The turned-off angle's partner is under full-frame B-roll: what you
+        // can see, and what you'd edit, is the B-roll.
+        turnOffCamera()
+        model.apply(EditBatch(label: "B-roll", commands: [.placeMedia(mediaIDs: ["med_broll"], at: t(20), duration: t(5))]))
+        let broll = try XCTUnwrap(model.project.track(named: "B-roll")?.clips.first)
+        model.apply(EditBatch(label: "Fill", commands: [.updateClip(clipID: broll.id, patch: .object(["video": .object(["transform": .object(["scale": .number(1), "position": .object(["x": .number(0.5), "y": .number(0.5)])])])]))]))
+        let notice = try XCTUnwrap(PictureVisibility.notice(for: clip("Camera"), editingLook: false, playhead: t(21), in: model.project))
+        XCTAssertEqual(notice.instead, broll.id)
+    }
+
     func testATurnedOffClipSelectedAloneStaysSelected() {
         // Option-click: how to get at a turned-off clip on purpose.
         turnOffCamera()
@@ -86,6 +106,39 @@ final class PictureVisibilityTests: XCTestCase {
         model.apply(EditBatch(label: "Hide", commands: [.updateTrack(trackID: camera.id, patch: .object(["hidden": .bool(true)]))]))
         selectGroup(focus: clip("Camera").id)
         XCTAssertEqual(model.primaryClipID, clip("Screen").id)
+    }
+
+    func testPickingAHiddenAngleFromTheMenuHoldsUntilTheNextClick() {
+        turnOffCamera()
+        selectGroup(focus: clip("Screen").id)
+        model.chosenPictureID = clip("Camera").id
+        XCTAssertEqual(model.primaryClipID, clip("Camera").id, "asked for by name, so it wins even turned off")
+        XCTAssertEqual(PictureVisibility.pictures(in: model.selection, of: model.project).map(\.id), [clip("Camera").id, clip("Screen").id], "top track first, no sound")
+        XCTAssertFalse(PictureVisibility.isShowing(clip("Camera"), playhead: t(1), in: model.project))
+        XCTAssertTrue(PictureVisibility.isShowing(clip("Screen"), playhead: t(1), in: model.project))
+        model.focusedClipID = clip("Screen").id
+        XCTAssertEqual(model.primaryClipID, clip("Screen").id, "the same clip clicked again still clears it")
+        XCTAssertNil(model.chosenPictureID)
+    }
+
+    func testAChosenPictureGoesWithTheSelection() {
+        selectGroup()
+        model.chosenPictureID = clip("Screen").id
+        model.selection = [clip("Camera").id]
+        XCTAssertNil(model.chosenPictureID)
+    }
+
+    func testTheTimelineMarksTheInspectedClipAndRedrawsWhenItMoves() {
+        selectGroup(focus: clip("Camera").id)
+        let before = TimelineDrawState(model: model)
+        XCTAssertEqual(before.inspectedClipID, clip("Camera").id)
+        model.focusedClipID = clip("Screen").id
+        let after = TimelineDrawState(model: model)
+        XCTAssertEqual(after.inspectedClipID, clip("Screen").id)
+        let layout = TimelineLayout.make(project: model.project, showTranscript: false, heightOverrides: model.timeline.trackHeights)
+        XCTAssertEqual(TimelineDamage.selectionRects(from: before, to: after, layout: layout).count, 2, "only the two clips that swapped")
+        model.selection = [clip("Screen").id]
+        XCTAssertNil(TimelineDrawState(model: model).inspectedClipID, "one clip selected has nothing to pick out")
     }
 
     // MARK: - What covers what

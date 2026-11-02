@@ -5,6 +5,9 @@ import TandemMedia
 /// How a clip should look this frame.
 struct ClipDrawState {
     var selected = false
+    /// Selected, but the inspector is acting on another selected clip. It's
+    /// drawn lighter, so the one the inspector means stands out in a group.
+    var behindInspected = false
     /// Shares a link group with a selected clip but isn't selected itself.
     var linked = false
     /// Changed by the drag being previewed.
@@ -138,8 +141,8 @@ struct ClipRenderer {
         if state.selected || state.previewed {
             let inset = rect.insetBy(dx: 1, dy: 1)
             context.addPath(CGPath(roundedRect: inset, cornerWidth: max(radius - 1, 0), cornerHeight: max(radius - 1, 0), transform: nil))
-            context.setStrokeColor(Theme.amber.cg)
-            context.setLineWidth(2)
+            context.setStrokeColor((state.behindInspected ? Theme.amber.opacity(0.55) : Theme.amber).cg)
+            context.setLineWidth(state.behindInspected ? 1 : 2)
             context.strokePath()
         } else if state.linked {
             context.saveGState()

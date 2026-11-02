@@ -120,6 +120,7 @@ final class EditorModel {
     var selection: Set<String> = [] {
         didSet {
             guard selection != oldValue else { return }
+            if let chosenPictureID, !selection.contains(chosenPictureID) { self.chosenPictureID = nil }
             selectedTransitionID = selection.isEmpty ? selectedTransitionID : nil
             // A keyframe stays chosen only while its clip is selected.
             if let keyframe = selectedKeyframe, !selection.contains(keyframe.clipID) { selectedKeyframe = nil }
@@ -132,11 +133,18 @@ final class EditorModel {
     /// group is selected. The inspector turns to a tab that fits it.
     var focusedClipID: String? {
         didSet {
+            // Any click on a clip overrides the picture picked from the menu.
+            chosenPictureID = nil
             guard focusedClipID != oldValue, let focusedClipID else { return }
             let tab = InspectorTabs.fitting(inspectorTab, clip: focusedClipID, in: project)
             if tab != inspectorTab { inspectorTab = tab }
         }
     }
+
+    /// The picture picked from the inspector header's menu. That's asking for
+    /// this clip by name, so it wins even when it's a turned-off angle, where
+    /// clicking the group by that clip goes to the angle that's on.
+    var chosenPictureID: String?
 
     // Timeline settings
     var tool: TimelineTool = .select
@@ -596,6 +604,7 @@ final class EditorModel {
     /// turned-off angle of a linked group, or else the selected picture
     /// that's on screen, preferring picture over sound.
     var primaryClipID: String? {
+        if let chosenPictureID, selection.contains(chosenPictureID) { return chosenPictureID }
         if let focused = focusedClipID, selection.contains(focused) {
             return PictureVisibility.onInstead(of: focused, among: selection, in: project) ?? focused
         }

@@ -124,8 +124,10 @@ private struct InspectorTabButton: View {
     }
 }
 
-/// The clip's name, "Take 2" or "Take 2 and 3 more". Where it is and
-/// what it's linked to are in the Info tab.
+/// The clip's name. With several selected, it also says which of them the
+/// tabs are acting on, since a click on a linked group selects them all and
+/// only one is in the inspector. Where it is and what it's linked to in
+/// detail are in the Info tab.
 struct ClipHeader: View {
     let model: EditorModel
     let clip: Clip
@@ -136,6 +138,10 @@ struct ClipHeader: View {
                 .font(.ui(13, .bold))
                 .foregroundStyle(Theme.text.color)
                 .lineLimit(1)
+                .truncationMode(.middle)
+            if model.selection.count > 1 {
+                ClipHeaderDetail(model: model, clip: clip)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 16)
@@ -145,9 +151,52 @@ struct ClipHeader: View {
     }
 
     private var title: String {
-        let name = ClipRenderer.name(of: clip, in: model.project)
-        let count = model.selection.count
-        return count > 1 ? "\(name) and \(count - 1) more" : name
+        ClipRenderer.name(of: clip, in: model.project)
+    }
+}
+
+/// "Showing · linked with 3", and a menu of the group's other pictures. It's
+/// its own view because it reads the playhead: only this line follows it.
+private struct ClipHeaderDetail: View {
+    let model: EditorModel
+    let clip: Clip
+
+    var body: some View {
+        let project = model.project
+        let others = model.selection.count - 1
+        let isPicture = project.track(containingClip: clip.id)?.kind == .video
+        let playhead = model.playback.time
+        let showing = isPicture ? PictureVisibility.isShowing(clip, playhead: playhead, in: project) : nil
+        let linked = Set(project.linkedClipIDs(of: clip.id))
+        let company = model.selection.isSubset(of: linked) ? "linked with \(others)" : "and \(others) more"
+        let status = showing.map { ($0 ? "Showing" : "Not showing here") + " · " + company } ?? company
+        let pictures = PictureVisibility.pictures(in: model.selection, of: project)
+        HStack(spacing: 8) {
+            Text(verbatim: status)
+                .font(.ui(11.5))
+                .foregroundStyle(showing == false ? Theme.amber.color : Theme.textMuted.color)
+                .lineLimit(1)
+            if isPicture, pictures.count > 1 {
+                Spacer(minLength: 4)
+                Menu {
+                    ForEach(pictures, id: \.id) { picture in
+                        let name = ClipRenderer.name(of: picture, in: project)
+                        let here = PictureVisibility.isShowing(picture, playhead: playhead, in: project)
+                        Button(here ? name : "\(name) (not showing here)", systemImage: picture.id == clip.id ? "checkmark" : Icons.thisClip) {
+                            model.chosenPictureID = picture.id
+                        }
+                    }
+                } label: {
+                    Text("Switch clip")
+                        .font(.ui(11.5))
+                        .foregroundStyle(Theme.amber.color)
+                }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .tip("Choose which selected picture these tabs act on")
+            }
+        }
     }
 }
 
