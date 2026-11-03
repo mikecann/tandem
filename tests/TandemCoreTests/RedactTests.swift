@@ -133,6 +133,52 @@ final class RedactTests: XCTestCase {
         assertCovered(c, "Privacy (Angle 2)")
     }
 
+    func testThePatchIsSolidEvenOverASeeThroughPicture() throws {
+        // A see-through patch over a see-through picture lets the sharp one
+        // show through it: at 50% each, a quarter of the private text.
+        let (_, c) = try Fixture.edited()
+        let screen = c.clips("Screen")[0]
+        try c.run("Half", .updateClip(clipID: screen.id, patch: .object(["video": .object(["opacity": .number(0.5)])])))
+        let result = try c.run("Hide", .redact(range: TimeRange(start: t(10), end: t(15)), rect: email, mediaID: "med_screen"))
+        XCTAssertEqual(c.clips("Privacy (Screen)").first?.video?.opacity, 1)
+        XCTAssertTrue(result.warnings.contains { $0.contains("solid") }, "\(result.warnings)")
+    }
+
+    func testFormatLayoutsAreHiddenWhereTheyShowTheRegionAndLeftAloneWhereTheyDont() throws {
+        let (_, c) = try Fixture.edited()
+        let screen = c.clips("Screen")[0]
+        // The main layout crops the email column out; the short shows it,
+        // and a square format crops it out too.
+        try c.run("Crops", .updateClip(clipID: screen.id, patch: .object(["video": .object([
+            "crop": .object(["left": .number(0.5)]),
+            "formatOverrides": .object([
+                "portrait": .object(["crop": .object(["left": .number(0)])]),
+                "square": .object(["crop": .object(["left": .number(0.6)])])
+            ])
+        ])])))
+        try c.run("Hide", .redact(range: TimeRange(start: t(10), end: t(15)), rect: email, mediaID: "med_screen"))
+        let copy = try XCTUnwrap(c.clips("Privacy (Screen)").first, "the short still shows it, so it isn't skipped")
+        let main = try XCTUnwrap(copy.video?.crop)
+        XCTAssertGreaterThanOrEqual(main.left + main.right, 1, "nothing drawn where the main crop already hides it")
+        XCTAssertEqual(copy.video?.formatOverrides["portrait"]?.crop?.left ?? 0, 0.1, accuracy: 1e-9)
+        XCTAssertEqual(copy.video?.formatOverrides["portrait"]?.hidden, false)
+        XCTAssertEqual(copy.video?.formatOverrides["square"]?.hidden, true, "not the whole square shot pixelated")
+    }
+
+    func testASwitchBackToTheCameraTurnsOffOnlyTheRedactionsInIt() throws {
+        let c = try SyncedPlacementTests.project()
+        try c.run("Add the close-up", .placeSynced(mediaID: "med_angle"))
+        try c.run("Show", .showAngle(range: TimeRange(start: t(20), end: t(30)), trackID: "Angle 2"))
+        try c.run("Hide", .redact(range: TimeRange(start: t(20), end: t(30)), rect: email, mediaID: "med_angle"))
+        try c.run("Back", .showAngle(range: TimeRange(start: t(25), end: t(27)), trackID: "Camera"))
+        let copies = c.clips("Privacy (Angle 2)")
+        XCTAssertEqual(copies.map(\.range), [
+            TimeRange(start: t(20), end: t(25)), TimeRange(start: t(25), end: t(27)), TimeRange(start: t(27), end: t(30))
+        ])
+        XCTAssertEqual(copies.map(\.enabled), [true, false, true])
+        assertCovered(c, "Privacy (Angle 2)")
+    }
+
     func testSaysWhatsWrong() throws {
         let (_, c) = try Fixture.edited()
         let range = TimeRange(start: t(10), end: t(15))

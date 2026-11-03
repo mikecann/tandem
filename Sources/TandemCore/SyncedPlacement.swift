@@ -205,17 +205,15 @@ enum SyncedPlacement {
     /// its linked clip of the same file: one over an angle that's off would
     /// otherwise show a patch of it over the camera.
     static func followHiddenPictures(_ p: inout Project, in range: TimeRange) {
-        var shown: [String: Bool] = [:]
-        for clip in p.videoTracks.flatMap(\.clips) where !clip.isObscured {
-            guard let group = clip.linkGroup, let media = clip.mediaID else { continue }
-            shown["\(group) \(media)", default: false] = shown["\(group) \(media)", default: false] || clip.enabled
-        }
+        let pictures = p.videoTracks.flatMap(\.clips).filter { !$0.isObscured && $0.linkGroup != nil && $0.range.overlaps(range) }
         for t in p.videoTracks.indices {
             for i in p.videoTracks[t].clips.indices {
                 let clip = p.videoTracks[t].clips[i]
-                guard clip.isObscured, range.start <= clip.start, clip.end <= range.end,
-                      let group = clip.linkGroup, let media = clip.mediaID, let on = shown["\(group) \(media)"] else { continue }
-                p.videoTracks[t].clips[i].enabled = on
+                guard clip.isObscured, range.start <= clip.start, clip.end <= range.end, let group = clip.linkGroup else { continue }
+                // The picture it hides is the same file, linked, at the same time.
+                let under = pictures.filter { $0.linkGroup == group && $0.mediaID == clip.mediaID && $0.range.overlaps(clip.range) }
+                guard !under.isEmpty else { continue }
+                p.videoTracks[t].clips[i].enabled = under.contains(where: \.enabled)
             }
         }
     }

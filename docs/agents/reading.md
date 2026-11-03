@@ -10,10 +10,10 @@ AVFoundation reads them. `ffmpeg -ss` counts from the file's start
 instead, so when you analyse a source with ffmpeg, add the stream's
 `start_time` (`ffprobe -show_entries stream=start_time`). Record It's
 camera files start at 0.1 s and its screen files anywhere from 0.33 s to
-0.77 s: left out, that's enough to clip a word. Read each stream's own, as
-a file's picture and sound can start apart (0.77 s and 0.72 s in the
-Threadbear launch's screen recording): a time found by diffing frames with
-ffmpeg needs the video stream's, one from its sound the audio stream's.
+0.77 s: left out, that's enough to clip a word. A file's picture and sound
+can start apart (0.77 s and 0.72 s in the Threadbear launch's screen
+recording), so add the video stream's `start_time` to a time found by
+diffing frames, and the audio stream's to one found in the sound.
 
 ## The timeline view
 

@@ -89,7 +89,11 @@ extension Editing {
                       let item = p.media(id), item.hasVideo, var span = clip.range.intersection(range) else { continue }
                 if span.start - clip.start < SyncedPlacement.minimumPiece { span = TimeRange(start: clip.start, end: span.end) }
                 if clip.end - span.end < SyncedPlacement.minimumPiece { span = TimeRange(start: span.start, end: clip.end) }
-                guard redactedCrop(clip.video?.crop ?? Crop(), rect) != nil else {
+                // A format's own crop replaces the main one there, so the
+                // region's only already hidden when every layout crops it out.
+                let mainCrop = clip.video?.crop ?? Crop()
+                let formatCrops = (clip.video?.formatOverrides.values).map { $0.filter { !$0.hidden }.map { $0.crop ?? mainCrop } } ?? []
+                guard ([mainCrop] + formatCrops).contains(where: { redactedCrop($0, rect) != nil }) else {
                     context.warn("Left \(clip.name ?? clip.id) on \"\(track.name)\" alone: its crop already hides that region.")
                     continue
                 }
@@ -138,7 +142,9 @@ extension Editing {
         copy.name = name.map { "Privacy: \($0)" } ?? "Privacy"
         var video = piece.video ?? VideoProperties()
         let mainCrop = video.crop
-        video.crop = redactedCrop(mainCrop, rect) ?? mainCrop
+        // Where a layout already crops the region out, the copy draws
+        // nothing there (an empty crop), rather than hiding the whole shot.
+        video.crop = redactedCrop(mainCrop, rect) ?? nothingShown
         video.cutout = nil
         let drawnRound = Set(["border", "dropShadow", "roundedCorners"])
         video.effects = video.effects.filter { !drawnRound.contains($0.type) }.map { effect in
@@ -150,16 +156,28 @@ extension Editing {
         // has to be cut from it too, or the short would show the copy uncropped.
         video.formatOverrides = video.formatOverrides.mapValues { override in
             var override = override
-            override.crop = redactedCrop(override.crop ?? mainCrop, rect) ?? override.crop ?? mainCrop
+            if let crop = redactedCrop(override.crop ?? mainCrop, rect) { override.crop = crop } else { override.hidden = true }
             override.cutout = nil
             return override
         }
+        // Solid whatever the picture's opacity: a see-through patch over a
+        // see-through picture lets the sharp one show through it. At 50% each
+        // that's a quarter of the private text, readable.
+        if video.opacity < 1 || piece.keyframes["video.opacity"] != nil {
+            context.warn("Kept the patch over \(piece.name ?? piece.id) solid: it fades or shows through, and a see-through patch would let the picture under it show.")
+        }
+        video.opacity = 1
         copy.video = video
         // The effects have new IDs, so their animation goes, and so does any
         // crop animation, which would uncover the picture round the region.
-        copy.keyframes = piece.keyframes.filter { !$0.key.hasPrefix("video.crop") && !$0.key.hasPrefix("video.effects") }
+        copy.keyframes = piece.keyframes.filter {
+            !$0.key.hasPrefix("video.crop") && !$0.key.hasPrefix("video.effects") && $0.key != "video.opacity"
+        }
         return copy
     }
+
+    /// A crop that leaves nothing, so the layer isn't drawn.
+    static let nothingShown = Crop(left: 0.5, top: 0.5, right: 0.5, bottom: 0.5)
 
     /// `crop` narrowed to `rect`, or nil when the crop already hides all of it.
     static func redactedCrop(_ crop: Crop, _ rect: Rect) -> Crop? {

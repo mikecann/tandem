@@ -179,7 +179,7 @@ public enum EditCommand: Codable, Equatable, Sendable {
     /// left, as `zoomToRegion` takes) over `range`: a QR code, an email
     /// column, a phone's notifications. Every clip of `mediaID` there (or
     /// every clip on `trackID`) gets a copy of itself on a `cut` track right
-    /// above its own, "Privacy (Screen)": the same file, times and placement,
+    /// above its own, named after it ("Privacy (Screen)"): the same file, times and placement,
     /// cropped to the region with a pixelate (the default) or blur on,
     /// `size` its block size or radius in px@1080. The take is cut at the
     /// range's edges and each copy is linked to the piece it hides, so ripple

@@ -63,7 +63,9 @@ on and off with an angle that `showAngle` switches. `check` doesn't count
 it as the same shot twice. Give `trackID` instead of `mediaID` to hide
 part of whatever's on a track. Two regions at once stack on "Privacy
 (Screen) 2". To undo one, remove its copies (the clips named
-"Privacy: ...").
+"Privacy: ...") with `removeClips` and `"includeLinked": false`: they're
+linked to the take, so the default takes the screen, camera and voice
+with them.
 
 Pad the range a few frames either side: the copy is cut on whole frames,
 and hiding a moment too long is better than showing one frame. Find when
