@@ -24,13 +24,20 @@ final class BarkTranscriptionTests: TempFolderTestCase {
         // be nil unless the model type is ML Program". The CPU needs none.
         struct NoRoom: Error {}
         var tried: [MLComputeUnits] = []
-        let loaded = try BarkRuntime.Lease.encoder(.cpuAndNeuralEngine) { units in
+        var fellBack: [Error] = []
+        let loaded = try BarkRuntime.Lease.encoder(.cpuAndNeuralEngine, fellBack: { fellBack.append($0) }) { units in
             tried.append(units)
             if units != .cpuOnly { throw NoRoom() }
             return "encoder"
         }
         XCTAssertEqual(loaded, "encoder")
         XCTAssertEqual(tried, [.cpuAndNeuralEngine, .cpuOnly])
+        XCTAssertTrue(fellBack.count == 1 && fellBack[0] is NoRoom, "the Neural Engine's error, for the check to say")
+
+        // Loaded where it was asked: nothing fell back.
+        fellBack = []
+        XCTAssertEqual(try BarkRuntime.Lease.encoder(.cpuAndNeuralEngine, fellBack: { fellBack.append($0) }) { _ in "encoder" }, "encoder")
+        XCTAssertTrue(fellBack.isEmpty)
 
         // Already on the CPU: its failure is the one to see.
         tried = []

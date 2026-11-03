@@ -327,7 +327,10 @@ cached) or "couldn't listen" (every engine failed there). An engine
 failing at one join still hears the rest, and SpeechAnalyzer hears the
 joins Bark missed; Bark failing two joins in a row hands the rest over to
 SpeechAnalyzer too. Bark's encoder loads on the CPU when the Neural Engine
-can't compile it (it needs about 2 GB free on disk). In `--json`, `listened` has `engine`, `heard` and `cached` (how
+can't compile it (it needs about 2 GB free on disk), and a warning says so,
+since it's slower and can hear a little differently. "E5RT encountered an
+STL exception ... zero shape error" on stderr is CoreML loading Bark's
+preprocessor, once a process: harmless, what's heard is the same. In `--json`, `listened` has `engine`, `heard` and `cached` (how
 many joins were heard this time and how many came from the cache),
 `secondsPerJoin`, and `joins`: each with `time`, `said`, `heard`,
 `clipIDs`, `cached`, `skipped` when it wasn't compared, and `findings`

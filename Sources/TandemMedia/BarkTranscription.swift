@@ -243,8 +243,8 @@ final class BarkFeed: @unchecked Sendable {
 /// The loaded model, shared by every transcript in the process and run one
 /// piece at a time. It stays loaded for a minute after the last transcript,
 /// so a project's takes don't each load 1.2 GB, then goes.
-actor BarkRuntime {
-    static let shared = BarkRuntime()
+public actor BarkRuntime {
+    public static let shared = BarkRuntime()
 
     /// Where the encoder runs. The Neural Engine; `TANDEM_BARK_UNITS=cpu`
     /// (or `gpu`) for machines or sandboxes without it.
@@ -301,6 +301,13 @@ actor BarkRuntime {
         if !busy { loaded = nil }
     }
 
+    /// How the loaded encoder fell back, for `tandem check --listen` to say:
+    /// on the CPU, when the Neural Engine couldn't compile it. Nil on the
+    /// Neural Engine, or with nothing loaded.
+    public func encoderFallback() -> String? {
+        loaded?.lease.encoderFallback.map { "listened on the CPU (slower, and it can hear a little differently), as the Neural Engine couldn't load its encoder: \($0)" }
+    }
+
     /// The model, with the encoder function the last take needed: `full15`,
     /// or `short8` for a take of up to 8 s.
     final class Lease: @unchecked Sendable {
@@ -311,6 +318,8 @@ actor BarkRuntime {
         private let decoder: MLModel
         private let joint: MLModel
         private var managers: [String: AsrManager] = [:]
+        /// Why the encoder is on the CPU rather than `units`, when it is.
+        private(set) var encoderFallback: String?
 
         init(folder: URL, vocabulary url: URL, units: MLComputeUnits) throws {
             self.folder = folder
@@ -334,11 +343,16 @@ actor BarkRuntime {
         /// with the disk nearly full that fails, and CoreML reports it as
         /// "`.functionName` must be nil unless the model type is ML
         /// Program". The CPU is slower but needs no compile.
-        static func encoder<Model>(_ units: MLComputeUnits, _ load: (MLComputeUnits) throws -> Model) throws -> Model {
+        /// `fellBack` hears the first failure when the CPU took over.
+        static func encoder<Model>(
+            _ units: MLComputeUnits, fellBack: (Error) -> Void = { _ in }, _ load: (MLComputeUnits) throws -> Model
+        ) throws -> Model {
             do {
                 return try load(units)
             } catch where units != .cpuOnly {
-                return try load(.cpuOnly)
+                let model = try load(.cpuOnly)
+                fellBack(error)
+                return model
             }
         }
 
@@ -350,7 +364,11 @@ actor BarkRuntime {
             managers.removeAll()
             let configuration = MLModelConfiguration()
             configuration.computeUnits = .cpuOnly
-            let encoder = try Self.encoder(units) { try Self.load(folder, "Encoder", $0, function: function) }
+            var fallback: String?
+            let encoder = try Self.encoder(units, fellBack: { fallback = ($0 as? LocalizedError)?.errorDescription ?? "\($0)" }) {
+                try Self.load(folder, "Encoder", $0, function: function)
+            }
+            encoderFallback = fallback
             let models = AsrModels(encoder: encoder, preprocessor: preprocessor,
                                    decoder: decoder, joint: joint, configuration: configuration, vocabulary: vocabulary, version: .ultra)
             let manager = AsrManager(models: models)

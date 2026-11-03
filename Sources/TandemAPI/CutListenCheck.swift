@@ -77,10 +77,19 @@ extension CutCheck {
         var engine: String
         var model: String
         var listen: @Sendable ([Float]) async throws -> [CutListen.Word]
+        /// How it fell back while listening, when it did, after the engine's
+        /// name in a warning ("listened on the CPU: ..."): Bark's encoder
+        /// on the CPU when the Neural Engine can't compile it. Asked only
+        /// of an engine that listened this check.
+        var fellBack: @Sendable () async -> String?
 
-        init(engine: String, model: String = "", listen: @escaping @Sendable ([Float]) async throws -> [CutListen.Word]) {
+        init(
+            engine: String, model: String = "", fellBack: @escaping @Sendable () async -> String? = { nil },
+            listen: @escaping @Sendable ([Float]) async throws -> [CutListen.Word]
+        ) {
             self.engine = engine
             self.model = model
+            self.fellBack = fellBack
             self.listen = listen
         }
 
@@ -89,7 +98,11 @@ extension CutCheck {
         static func standard() -> [Ear] {
             var ears: [Ear] = []
             let bark = BarkListener.standard
-            if bark.isReady { ears.append(Ear(engine: BarkListener.engine, model: BarkListener.model) { try await bark.listen($0) }) }
+            if bark.isReady {
+                ears.append(Ear(engine: BarkListener.engine, model: BarkListener.model, fellBack: { await BarkRuntime.shared.encoderFallback() }) {
+                    try await bark.listen($0)
+                })
+            }
             if #available(macOS 26, *) {
                 let speech = SpeechAnalyzerListener()
                 ears.append(Ear(engine: SpeechAnalyzerListener.engine, model: SpeechAnalyzerListener.model) { try await speech.listen($0) })
@@ -180,6 +193,8 @@ extension CutCheck {
         var failed: [(index: Int, input: [Float], error: String)] = []
         var unheard: [Time] = []
         var reported = Set<String>()
+        // The engines that listened this check, for what they fell back on.
+        var listened = Set<Int>()
 
         /// What's heard at one join, and by which engine; nil when nothing
         /// is: the engine failed, or heard nothing where there's speech.
@@ -189,6 +204,7 @@ extension CutCheck {
             var index = start ?? active
             while index < ears.count {
                 let ear = ears[index]
+                listened.insert(index)
                 do {
                     var heard = try await ear.listen(input)
                     if heard.isEmpty, speech { heard = try await ear.listen(input) }
@@ -331,6 +347,9 @@ extension CutCheck {
         if rescued > 0, let rescuer, let firstError {
             let what = firstFailures == 1 ? "1 join" : "\(firstFailures) joins"
             warnings.append("\(ears[0].engine) couldn't listen at \(what), so \(rescued == firstFailures ? "they were" : "\(rescued) were") heard with \(ears[rescuer].engine): \(firstError)")
+        }
+        for index in listened.sorted() {
+            if let how = await ears[index].fellBack() { warnings.append("\(ears[index].engine) \(how)") }
         }
         if let first = stillFailed.first {
             let what = stillFailed.count == 1 ? "1 join" : "\(stillFailed.count) joins"
