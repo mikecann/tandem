@@ -213,6 +213,9 @@ enum Kernels {
         // colour is left alone, since the pipeline keeps values past black
         // and white (the colour wheels lean on them).
         r.a = clamp(r.a, 0.0, 1.0);
+        // Where nothing's left showing, nothing at all: colour from the
+        // lobes under zero alpha would leak into the layers below.
+        if (r.a <= 0.0) return float4(0.0);
         return r;
     }
     }}

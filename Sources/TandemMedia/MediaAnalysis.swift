@@ -24,6 +24,9 @@ public final class MediaAnalysis: @unchecked Sendable {
     /// Requests for the picture of a file that's still being converted,
     /// by media ID: submitted once its `converted` copy lands.
     private var afterConversion: [String: [(kind: AnalysisKind, item: MediaItem, priority: JobPriority, settings: AnalysisSettings?)]] = [:]
+    /// Exports waiting on each upscale job, so one stopping cancels the
+    /// job only when nobody else is waiting for it.
+    private var upscaleWaiters: [String: Int] = [:]
     /// Fingerprints computed for items that didn't carry one, by path.
     private var fingerprints: [String: (stat: FileStat, value: String)] = [:]
     /// Decoded transcripts and waveforms by cache key, and transcripts
@@ -486,14 +489,23 @@ extension MediaAnalysis {
                     if let status = statuses.first(where: { $0.id == id }) { progress(status.progress, status.message) }
                 }
             }
-            // Polled rather than awaited, so a stopped export stops it.
+            lock.withLock { upscaleWaiters[id, default: 0] += 1 }
+            // Polled rather than awaited, so a stopped export stops waiting,
+            // and stops the job unless another export is waiting on it.
+            var gaveUp = false
             while let status = scheduler.status(id: id), status.state == .queued || status.state == .running {
                 if cancelled() {
-                    scheduler.cancel(id: id)
+                    gaveUp = true
                     break
                 }
                 try? await Task.sleep(nanoseconds: 200_000_000)
             }
+            let others: Int = lock.withLock {
+                let left = (upscaleWaiters[id] ?? 1) - 1
+                upscaleWaiters[id] = left > 0 ? left : nil
+                return left
+            }
+            if gaveUp, others == 0 { scheduler.cancel(id: id) }
             if let token { removeObserver(token) }
         }
         if upscaledURL(for: item, covering: span.timeRange) != nil { return .ready }

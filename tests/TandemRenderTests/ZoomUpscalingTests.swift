@@ -264,6 +264,14 @@ final class ZoomUpscalingTests: XCTestCase {
         }
     }
 
+    /// A rotated recording's transform moves it by its own pixels, so the
+    /// copy's moves twice as far and turns the same way.
+    func testTheCopyOfARotatedRecordingKeepsItsTurn() {
+        let turned = CGAffineTransform(a: 0, b: 1, c: -1, d: 0, tx: 1800, ty: 0)
+        XCTAssertEqual(UpscaleJob.doubled(turned), CGAffineTransform(a: 0, b: 1, c: -1, d: 0, tx: 3600, ty: 0))
+        XCTAssertEqual(UpscaleJob.doubled(.identity), .identity)
+    }
+
     /// Tiles count as changed past the tolerance, not at HEVC's wobble.
     func testTileComparisonHasATolerance() {
         let a = [UInt8](repeating: 100, count: 200)
