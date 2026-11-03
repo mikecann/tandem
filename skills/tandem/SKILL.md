@@ -892,6 +892,9 @@ His first review round, 16 comments, became these:
   recording's frames for the popup's region (mean brightness catches the
   fade in and out; a dark-pixel count missed about 0.1 s each side) and put
   a cropped, blurred copy of the screen on B-roll over each stretch.
+  Add the screen file's `start_time` to every ffmpeg frame time first: a
+  Record It screen file can start 0.77 s in, and a blur placed without it
+  lands that much early (docs/agents/reading.md, "Source times and ffmpeg").
 
 ### A quick personal live demo for X: the pool model (October 2026)
 
@@ -1062,6 +1065,12 @@ comments, changed these rules for a conversation like this:
   his too ("Mad Scientist at Convex"), not one centred card. No avatar
   circle when the person is on screen ("we can see our face"), and no
   drop shadow under the yellow line (it only looks right under white).
+- **Shorts from it (layout A):** full-bleed on whoever's talking, the
+  question handwritten big as he asks it, then parked small at the top
+  only long enough to read, then off: "I don't think we need to show the
+  question on the screen the whole time." Name tag at the bottom under
+  the captions, not above the head. Dramatic music, not chill lounge,
+  and a different bed per Short: "not every clip has the same music."
 - **A cartoon of someone not in the room gets their name on it** ("JAMIE"
   on his jumper) so viewers know who it is. Once per beat: Mike deleted
   the copy that switched sides on the cut and the second smug pop, keeping
