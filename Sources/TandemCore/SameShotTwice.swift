@@ -13,7 +13,8 @@ extension QualityCheck {
     /// window over his face below, or Mike pointing at the board up top over
     /// Mike talking below. Mike, 30 Oct 2026: "there's awkward moments where
     /// you can see both my arm and my face talking at the same time. It seems
-    /// a bit odd." A copy under a blur (the blurred fill behind a shot that
+    /// a bit odd." A copy under a pixelate or blur (`Clip.isObscured`: a
+    /// redaction over a QR code, or the blurred fill behind a shot that
     /// doesn't cover the frame) is the same picture on purpose, so it's left
     /// out.
     public static func sameShotTwice(in project: Project, ranges: [TimeRange]) -> [CheckProblem] {
@@ -22,7 +23,7 @@ extension QualityCheck {
         for track in project.videoTracks where !track.hidden {
             for clip in track.clips where clip.enabled && clip.duration > .zero {
                 guard let mediaID = clip.mediaID, let item = project.media(mediaID), item.hasVideo, !clip.freezeFrame else { continue }
-                if clip.video?.effects.contains(where: { $0.enabled && $0.type == "blur" }) == true { continue }
+                if clip.isObscured { continue }
                 if (clip.video?.opacity ?? 1) <= 0.01 { continue }
                 byMedia[mediaID, default: []].append(Shown(clip: clip, track: track.name))
             }

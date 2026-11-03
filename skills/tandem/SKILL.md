@@ -1111,7 +1111,9 @@ comments, changed these rules for a conversation like this:
 - Tandem's media times are the file's own timestamps, but `ffmpeg -ss`
   counts from the file's start. Add the stream's `start_time` (ffprobe)
   when you analyse a source with ffmpeg: Record It's camera files start at
-  0.1 s and its screen files at 0.33 s, enough to clip a word.
+  0.1 s and its screen files anywhere from 0.33 s to 0.77 s, with the
+  sound a little earlier than the picture, enough to clip a word or put a
+  redaction on before the QR code shows. Read each stream's own.
 - Change the project only through `tandem` (apply, undo, and tools run
   with `--apply`). Never edit `.tandem` files or anything in a `.tandem/`
   folder by hand or with scripts.
@@ -1149,6 +1151,8 @@ comments, changed these rules for a conversation like this:
   - `tandem cards` for section cards;
   - `zoomToRegion` for zooms, keeping 1080p shots at or under 150% on a 4K
     frame;
+  - `redact` to hide a QR code, an email or a phone's notifications over a
+    stretch, never copies of the clip cropped and linked by hand;
   - `placeMedia` with `anchor` (or `tandem assets use --anchor`) for
     stickers;
   - `tandem segments` for Mike's saved intro, outro and like-and-subscribe

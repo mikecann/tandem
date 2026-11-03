@@ -695,6 +695,20 @@ extension CommandSchema {
             example: #"{"showAngle": {"range": {"start": 297, "duration": 21}, "trackID": "Angle 2"}}"#
         ),
         Entry(
+            command: .redact,
+            summary: "Hides part of a picture over a range (snapped to frames): a QR code, an email column, a phone's notifications. Every clip of mediaID there (or every clip on trackID) gets a copy of itself on a cut track right above its own, named after it (\"Privacy (Screen)\" over Screen): the same file, times and placement, cropped to rect (fractions of the source frame from its top left, as zoomToRegion takes, not of the canvas) with a pixelate or blur on, so it follows a phone shown as a PiP. The take is cut at the range's edges and each copy is linked to the piece it hides, so ripple cuts, trims, slips and moves keep it there. An edge under half a second inside a clip goes out to the clip's edge.",
+            arguments: S.object([
+                "range": S.ref("TimeRange"),
+                "rect": S.ref("Rect"),
+                "mediaID": S.string("The recording to hide part of, wherever it shows. Give this or trackID."),
+                "trackID": S.track("Hide part of every clip on this video track instead."),
+                "style": S.enumeration(RedactStyle.allCases.map(\.rawValue), "Default pixelate."),
+                "size": S.number("Block size (pixelate) or radius (blur) in px@1080. Default the effect's own: 24 and 20."),
+                "name": S.string("What's hidden, for the copies' names: \"Privacy: QR code\".")
+            ], required: ["range", "rect"]),
+            example: #"{"redact": {"mediaID": "med_phone", "range": {"start": 1134.1, "duration": 2.8}, "rect": {"x": 0.05, "y": 0.22, "width": 0.9, "height": 0.63}, "size": 40, "name": "QR code"}}"#
+        ),
+        Entry(
             command: .trim,
             summary: "Moves a clip edge to a timeline time. With ripple the clip keeps its place and everything after it moves instead.",
             arguments: S.object([

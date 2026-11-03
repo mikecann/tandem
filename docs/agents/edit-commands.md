@@ -59,6 +59,7 @@ removes a field. A range is always an object under its own key (`"range":
 | | `slip` | change which part of the file a clip plays |
 | | `slide` | move a clip between its neighbours |
 | | `holdFrame` | hold the frame before a flash over it, picture only (`check` gives these for flickers) |
+| | `redact` | pixelate or blur part of a picture over a range ([recipe](layout-and-colour.md#hide-part-of-the-picture)) |
 | | `setSpeed` | change speed, keeping the media |
 | Clips | `moveClips` | move in time or to another track |
 | | `updateClip` | any clip setting ([below](#updateclip)) |

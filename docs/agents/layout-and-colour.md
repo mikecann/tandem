@@ -1,6 +1,6 @@
 # Layout, zooms and colour
 
-Recipes for the PiP camera layout, zooming into the screen recording, and grading the camera take (the Colour tab's sections and how colour wheels work).
+Recipes for the PiP camera layout, zooming into the screen recording, hiding part of the picture, and grading the camera take (the Colour tab's sections and how colour wheels work).
 
 ## Set the PiP layout
 
@@ -36,6 +36,45 @@ Zoom the screen clip into the top-right quarter at 1:12 and back out at
 
 `tandem check` notes a zoom past three times the picture's own pixels as
 soft.
+
+## Hide part of the picture
+
+A QR code, an email column, an API key or a phone's notifications that
+shouldn't go out: `redact` pixelates (or blurs) a rectangle of the
+recording over a stretch of the timeline. The rectangle is fractions of
+the source frame from its top left, as `zoomToRegion` takes, so measure it
+on the file's own picture (a `tandem frame` where the clip fills the frame,
+or a frame of the file), not where a PiP sits on the canvas; it then holds
+wherever the clip is placed, PiP or zoomed.
+
+```json
+{"label": "Hide the QR code", "commands": [
+  {"redact": {"mediaID": "med_phone", "range": {"start": 1134.1, "duration": 2.8},
+              "rect": {"x": 0.05, "y": 0.22, "width": 0.9, "height": 0.63}, "size": 40, "name": "QR code"}}
+]}
+```
+
+Each clip of the file there gets a copy of itself on a `cut` track right
+above its own, "Privacy (Phone)", cropped to the region, with the same
+times, placement and animation, so it follows a phone shown as a PiP. The
+take is cut at the range's edges and every copy is linked to the piece it
+hides, so ripple cuts, trims, slips and moves keep it on it, and it goes
+on and off with an angle that `showAngle` switches. `check` doesn't count
+it as the same shot twice. Give `trackID` instead of `mediaID` to hide
+part of whatever's on a track. Two regions at once stack on "Privacy
+(Screen) 2". To undo one, remove its copies (the clips named
+"Privacy: ...") with `removeClips` and `"includeLinked": false`: they're
+linked to the take, so the default takes the screen, camera and voice
+with them.
+
+Pad the range a few frames either side: the copy is cut on whole frames,
+and hiding a moment too long is better than showing one frame. Find when
+the thing appears with `tandem frame` at the clip's times. If you time it
+by diffing the file's frames with ffmpeg instead, add the video stream's
+`start_time` ([reading.md](reading.md#source-times-and-ffmpeg)): Record It's
+screen files have started as late as 0.77 s, and a time 0.77 s early puts
+the redaction on before the QR code shows and takes it off while it's
+still there.
 
 ## Grade the camera take
 

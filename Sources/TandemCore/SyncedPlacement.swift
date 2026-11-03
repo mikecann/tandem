@@ -201,6 +201,23 @@ enum SyncedPlacement {
         }
     }
 
+    /// Turns each redaction in `range` on or off with the picture it hides,
+    /// its linked clip of the same file: one over an angle that's off would
+    /// otherwise show a patch of it over the camera.
+    static func followHiddenPictures(_ p: inout Project, in range: TimeRange) {
+        let pictures = p.videoTracks.flatMap(\.clips).filter { !$0.isObscured && $0.linkGroup != nil && $0.range.overlaps(range) }
+        for t in p.videoTracks.indices {
+            for i in p.videoTracks[t].clips.indices {
+                let clip = p.videoTracks[t].clips[i]
+                guard clip.isObscured, range.start <= clip.start, clip.end <= range.end, let group = clip.linkGroup else { continue }
+                // The picture it hides is the same file, linked, at the same time.
+                let under = pictures.filter { $0.linkGroup == group && $0.mediaID == clip.mediaID && $0.range.overlaps(clip.range) }
+                guard !under.isEmpty else { continue }
+                p.videoTracks[t].clips[i].enabled = under.contains(where: \.enabled)
+            }
+        }
+    }
+
     static func ceilingFrame(_ time: Time, _ rate: FrameRate) -> Time {
         let perFrame = rate.flicksPerFrame
         return Time(flicks: Int64((Double(time.flicks) / Double(perFrame)).rounded(.up)) * perFrame)
@@ -227,7 +244,9 @@ enum SyncedPlacement {
                 ? "\"\(shown.name)\" has nothing from a synced take between \(range.start) and \(range.end)"
                 : "\"\(shown.name)\" has clips from more than one take between \(range.start) and \(range.end)")
         }
-        func inTake(_ clip: Clip) -> Bool { clip.mediaID.flatMap(p.media)?.takeID == take }
+        // A redaction (`redact`) is the take too, but it's a patch over the
+        // picture below it, not an angle; it follows that picture instead.
+        func inTake(_ clip: Clip) -> Bool { !clip.isObscured && clip.mediaID.flatMap(p.media)?.takeID == take }
         func isCamera(_ clip: Clip) -> Bool { clip.mediaID.flatMap(p.media)?.role == .camera }
         // The camera's track is the lowest with the take's camera on it
         // there; its angles are the take's tracks above it.
@@ -261,6 +280,7 @@ enum SyncedPlacement {
                 if on { covered += clip.duration }
             }
         }
+        followHiddenPictures(&p, in: range)
         if location.index != base, covered < range.duration {
             context.warn("\"\(shown.name)\" only covers \(String(format: "%.1f", covered.seconds)) s of that; the camera shows the rest.")
         }
