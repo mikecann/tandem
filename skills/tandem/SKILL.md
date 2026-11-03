@@ -301,6 +301,20 @@ transitions, media or markers.
   keep had left it in), so read each long kept pause in context and decide
   sentence or not yourself. Then let `check --cuts` move any edge that
   clipped a word: edges from a level threshold cut soft word ends.
+  That still wasn't enough: on his next full watch he made dozens of 0.2 to
+  0.5 s mid-sentence trims himself and wrote "I've had to make lots of
+  little minor mid-sentence tightenings. I thought you had all these
+  fixed." Measure each gap from the take's own level, speech end to speech
+  start at about -42 dB, so a breath counts as part of the pause rather than
+  splitting it into two short quiet runs, then cut mid-sentence gaps over
+  0.2 s to about 0.1 s, gaps before but/and/so/because over 0.3 s to 0.18 s,
+  and sentence gaps over 0.5 s to 0.35 s (his own trims landed there).
+  Leave his own joins, the card gaps, the prompter-read cold open and his
+  sign-off beat alone, and never plan across a word a cut has half removed.
+  `check --cuts` then flags many of the new joins: apply its trim-to-pause
+  fixes, but its put-back fixes undo the cut, so only take those where the
+  clip's edge sits under 15 dB below speech and let `--listen` judge the
+  rest (two cuts came back unnoticed when the whole fix line was applied).
 - **Live demos: keep the playback.** When Mike plays the timeline back to
   show the viewer ("let's have a look", "let's listen"), keep that stretch
   even though he's silent: "When I'm explicitly telling the user I'm
@@ -914,6 +928,54 @@ His first review round, 16 comments, became these:
   Add the screen file's `start_time` to every ffmpeg frame time first: a
   Record It screen file can start 0.77 s in, and a blur placed without it
   lands that much early (docs/agents/reading.md, "Source times and ffmpeg").
+
+### A long screen demo with phone footage: the Threadbear launch (November 2026)
+
+A 63-minute unscripted take of Mike showing his own app, cut to about 26
+minutes over three rounds. What his comments asked for:
+
+- **Full screen only when he turns to the camera at the start of a
+  section,** then back to the corner: "while I'm facing the camera directly
+  here, just at the start of this section, can you make me full screen";
+  "from this clip onwards back to picture in picture". Never switch to full
+  screen mid-flow: "leave me picture in picture as I'm talking here because
+  the jump is a bit weird".
+- **Move the corner when it covers what he's showing:** `pipLeft` while he
+  shows patches on the right ("I'll be covering up a lot of the patch stuff
+  on the right hand side"). A phone recording shown over the desktop
+  shrinks to the top right while he points at the desktop ("I can't see
+  the desktop"), with position and scale keyframes on the phone clip, its
+  frame and any redaction copies alike.
+- **Show the thing as he names it,** everywhere: the project pickers of the
+  apps he compares, the previous video he mentions, the rule he describes
+  (B-roll from that earlier video, fetched from the archive on Bruce), the
+  menu he opens (a zoom), the setting he describes (a look-alike), and
+  evidence for any number he gives ("back this up with evidence visually":
+  a terminal look-alike of the real `du -sh` of his agent logs). Where he
+  explains how something works, a motion graphic: "what the kind of
+  architecture is", "how the data moves around and why".
+- **Old messages read as old.** His real past messages in a look-alike
+  confused him as an "early version"; zoom them out on a dark backing with
+  a date caption underneath.
+- **Zooms on a screen recording stay at about 1.6x** or less: 1.8 to 2.2x
+  turned small UI text soft ("this text is a little bit blurry when it's
+  zoomed in"). Text-aware upscaling is being looked at separately.
+- **Gags he asked for:** a Windows logo with a crying emoji popping up on
+  "sorry Windows users"; a cartoon of his Mac mini Bruce as an Aussie bloke
+  in a cork hat (Codex image tool); the pairing QR code replaced with a
+  Rickroll QR rather than blurred ("it'd be funny to see if anybody actually
+  tries scanning that QR code").
+- **The outro, as usual:** a title-less `Convex wipe` segment before the
+  sign-off section (give it room: a beat of silence either side of the
+  cut), his closing question handwritten (Caveat) beside him as he asks
+  it, the `Comment below` segment on "let me know in the comments" and
+  `Like and subscribe` on "drop me a like and sub".
+- **Music under every chapter,** not just test beds: "for some reason
+  there's no music in the middle of it". A bed per chapter in one family
+  (Rhodes, soft guitar, round bass, brushed drums, 85 to 95 BPM), each
+  swelling under its section card; a chapter longer than its bed carries on
+  with a second copy of the same bed from further in, crossfaded over 3 s
+  on a second music track.
 
 ### A quick personal live demo for X: the pool model (October 2026)
 
