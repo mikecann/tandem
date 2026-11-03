@@ -210,6 +210,13 @@ public enum SoundTightening {
         var phantoms = Set<Int>()
         for (number, index) in lone.enumerated() {
             guard let sound = heard.sounds[number], !sound.runsThrough else { continue }
+            // Its sound can be part of a word either side's, with no pause
+            // between ("Because," running into "to be honest" on the same
+            // video): then it's said, and only a word wholly inside the gap
+            // as it's heard can be a phantom.
+            let tolerance = CutAudit.wordTolerance
+            guard sound.span.lowerBound - tolerance <= words[index].start.seconds,
+                  words[index].end.seconds <= sound.span.upperBound + tolerance else { continue }
             // Allowing for the transcript's word times being off the sound.
             let word = (words[index].start.seconds - CutPlanner.slack)...(words[index].end.seconds + CutPlanner.slack)
             if !sound.heard.contains(where: { $0.voiced && $0.range.overlaps(word) }) { phantoms.insert(index) }

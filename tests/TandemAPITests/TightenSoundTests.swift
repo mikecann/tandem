@@ -229,13 +229,18 @@ final class TightenSoundTests: XCTestCase {
         let h = try harness()
         defer { h.close() }
         try Self.write(
-            to: h.folder.file("source/take1-camera.wav"), length: 64, words: Self.voice + [(21.0, 21.5, 0)],
+            to: h.folder.file("source/take1-camera.wav"), length: 64, words: Self.voice + [(21.0, 21.5, 0), (23.0, 24.5, 0)],
             breaths: Self.breaths, room: true
         )
         var transcript = Self.transcript
         transcript.words += [
             TranscriptWord(text: "Yes.", start: t(19.0), end: t(19.3)),
-            TranscriptWord(text: "Next.", start: t(21.0), end: t(21.5))
+            TranscriptWord(text: "Next.", start: t(21.0), end: t(21.5)),
+            // Said, but its sound runs straight into "go." with no pause,
+            // though the transcript has 0.5 s between them ("Because, to
+            // be honest" on the Threadbear video): it stays.
+            TranscriptWord(text: "Well,", start: t(23.0), end: t(23.3)),
+            TranscriptWord(text: "go.", start: t(23.8), end: t(24.5))
         ]
         h.analysis.transcripts["med_camera"] = transcript
 
@@ -245,6 +250,7 @@ final class TightenSoundTests: XCTestCase {
         XCTAssertEqual(merged.end, t(21.0))
         XCTAssertTrue(merged.after.hasPrefix("Next."), merged.after)
         XCTAssertTrue(pauses.warnings?.contains { $0.contains("\"Yes.\"") } == true, "\(pauses.warnings ?? [])")
+        XCTAssertFalse(pauses.warnings?.contains { $0.contains("Well,") } == true, "\(pauses.warnings ?? [])")
         // "Done." and "Okay." are lone words too, with their voice: they stay.
         XCTAssertTrue(pauses.pauses.contains { $0.after.hasPrefix("Done.") })
         XCTAssertTrue(pauses.pauses.contains { $0.after.hasPrefix("Okay.") })
