@@ -322,14 +322,14 @@ final class ZoomUpscalingTests: XCTestCase {
         let media = try TestMedia()
         let (analysis, item) = try await screenRecording(media)
         let stopped = StopFlag()
-        let waiting = Task { await analysis.waitForUpscale(of: item, span: UpscaleSpan(start: 0, end: 2), cancelled: { stopped.value }) }
+        let waiting = Task { await analysis.waitForUpscale(of: item, span: UpscaleSpan(start: 0, end: 2), cancelled: { stopped.isSet }) }
         var running: JobStatus?
         for _ in 0..<500 where running == nil {
             running = analysis.jobs.first { $0.kind == .upscale && $0.state == .running }
             try await Task.sleep(nanoseconds: 10_000_000)
         }
         let id = try XCTUnwrap(running?.id, "the copy never started")
-        stopped.value = true
+        stopped.set()
         analysis.cancel(jobID: id)
         let state = await waiting.value
         XCTAssertEqual(state, .missing)
@@ -356,13 +356,4 @@ private final class LastMessage: @unchecked Sendable {
     private var stored: String?
     func set(_ message: String?) { lock.withLock { if let message { stored = message } } }
     var value: String? { lock.withLock { stored } }
-}
-
-private final class StopFlag: @unchecked Sendable {
-    private let lock = NSLock()
-    private var stored = false
-    var value: Bool {
-        get { lock.withLock { stored } }
-        set { lock.withLock { stored = newValue } }
-    }
 }
