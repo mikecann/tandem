@@ -225,10 +225,10 @@ copies of a file share a job):
 
 - Order: priority (`interactive` > `timeline` > `background`), then kind
   (conversion, waveform, loudness, thumbnails, transcript, proxy, isolated
-  voice, matte), then first come. Conversions go first because a file's
+  voice, matte, upscale), then first come. Conversions go first because a file's
   other picture analyses wait for them.
 - Limits: two each of thumbnails, waveform and loudness, one of each other
-  kind, one encoder job (proxy or matte) at a time, four in total.
+  kind, one encoder job (proxy, matte or upscale) at a time, four in total.
 - Asking again with a higher priority moves a job up.
 - Long jobs call `checkpoint()` between frames: it throws on cancel, hands
   `EncoderLock.shared` to a waiting export (`.export` priority), and steps
@@ -523,13 +523,18 @@ Notes on each:
   layouts line up within a sample on the real footage. The render module mixes it with the original by
   `voiceIsolation`.
 - **Upscale.** Real-ESRGAN's realesr-animevideov3 (BSD-3-Clause) as Core
-  ML, its x4 network then a 2x2 average, in 512 px tiles overlapping by
-  24 px (`Resources/Upscaler`, with the conversion script). A tile goes
+  ML, its x4 network then a 2x2 average, run on 512 px tiles that each
+  read 24 px past the part they keep (so neighbouring inputs overlap by
+  48 px) and return 1024 px (`Resources/Upscaler`, with the conversion
+  script). A tile goes
   through the model again only when a pixel has moved more than 6 steps
   since it last did, so on a screen recording most of each frame is
   reused. The key holds the stretch; a clip finds any copy that covers its
   segment, so trims and splits keep using it. Exports make them
-  (`ZoomUpscaling`), never the defaults.
+  (`ZoomUpscaling`), never the defaults. On the M5 (debug build, background
+  priority) 6 s of the Threadbear launch screen recording (3200x1800, 176
+  frames) took 17.9 s, 0.1 s a frame with 1.7 of 28 tiles a frame through
+  the model, and made a 3.8 MB copy.
 - **Converted.** A 2 s 512x512 Animation or PNG sticker converts in about a
   quarter of a second; 10 s of 1080p30 Animation (118 MB) takes 3.9 s and
   makes an 11 MB copy. The ProRes intermediate sits in the job's folder and
@@ -570,7 +575,6 @@ Real footage, release build (`report.txt` has the latest numbers):
 | Matte, RVM (the default) | 40 fps on a quiet machine before the edge fix, the same as version 2 (GPU, one frame at a time); 36 to 38 with the edge fix while other work ran |
 | Matte, Vision (fallback) | 41 fps with 4 workers (18 min for a 24 min take, 1.4x real time at 30 fps); the Neural Engine is the limit, the smoother (about 10 ms a frame) hides behind it. Version 1 was 49 to 52 fps |
 | Isolated voice | 38x realtime, within 1 sample of the original |
-| Upscale, M5 (debug build, background priority) | 6 s of the Threadbear launch screen recording (3200x1800, 176 frames) in 17.9 s: 0.1 s a frame, 1.7 of 28 tiles a frame through the model. 3.8 MB for the 6400x3600 copy |
 | Every default for a 43 s take, background priority | 33 s, the matte last |
 
 ## Tests

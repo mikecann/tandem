@@ -2,7 +2,8 @@
 # realesr-animevideov3 (SRVGGNetCompact, x4, BSD-3-Clause, see
 # LICENSE-Real-ESRGAN.txt) as Core ML, with a 2x2 average after it so it
 # outputs 2x. Real-ESRGAN's own "x2" ncnn model is the same network with a
-# half-size resize after it. Takes and returns 512 px tiles as images.
+# half-size resize after it. Takes 512 px tiles and returns 1024 px ones,
+# as images.
 #
 #   curl -LO https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesr-animevideov3.pth
 #   uv run --with torch --with coremltools python convert.py realesr-animevideov3.pth 512 Upscaler2x.mlpackage

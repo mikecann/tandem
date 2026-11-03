@@ -38,12 +38,14 @@ Zoom the screen clip into the top-right quarter at 1:12 and back out at
 soft.
 
 Zooms into screen recordings stay sharp in the export without anything
-from you. Every picture scaled up is resampled with Lanczos rather than
-bilinear, and where a zoom draws a screen recording (role `screen`) at 1.3
-times its own pixels or more at the export's size, the export first makes
-a twice-the-size copy of that stretch with an upscaling model
-(Real-ESRGAN's realesr-animevideov3, on the Mac) and plays it from the
-copy. A 3200 px Retina recording zoomed 1.8x into a 4K frame is 2.16x, so
+from you. Pictures scaled up are resampled with Lanczos rather than
+bilinear (Core Image's own filter only if the kernel can't load), and
+where a zoom draws a screen recording (role `screen`) at 1.3 times its own
+pixels or more at the export's size, the export first makes a
+twice-the-size copy of that stretch with an upscaling model (Real-ESRGAN's
+realesr-animevideov3, on the Mac) and plays it from the copy. If a copy
+can't be made, that stretch plays from the original and the export's
+warnings say so. A 3200 px Retina recording zoomed 1.8x into a 4K frame is 2.16x, so
 it gets one. The first export with new zooms spends the first half of its
 progress bar making them (about 3 s per second of zoomed screen recording
 on an M5), and the copies are cached in `.tandem/cache/upscale`, so later

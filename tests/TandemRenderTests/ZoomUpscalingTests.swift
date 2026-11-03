@@ -236,6 +236,9 @@ final class ZoomUpscalingTests: XCTestCase {
             throw XCTSkip("set TANDEM_UPSCALE_PROJECT, _RANGE, _AT and _OUT to run")
         }
         let bounds = rangeText.split(separator: "-").compactMap { Double($0) }
+        guard bounds.count == 2, bounds[0] < bounds[1] else {
+            return XCTFail("TANDEM_UPSCALE_RANGE should be start-end in seconds, like 757.2-759.5")
+        }
         let range = TimeRange(start: t(bounds[0]), end: t(bounds[1]))
         let file = URL(fileURLWithPath: path)
         let project = try ProjectFile.load(from: file).project
