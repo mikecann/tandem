@@ -1,3 +1,4 @@
+import Observation
 import XCTest
 @testable import TandemAPI
 @testable import TandemApp
@@ -139,6 +140,23 @@ final class PictureVisibilityTests: XCTestCase {
         XCTAssertEqual(TimelineDamage.selectionRects(from: before, to: after, layout: layout).count, 2, "only the two clips that swapped")
         model.selection = [clip("Screen").id]
         XCTAssertNil(TimelineDrawState(model: model).inspectedClipID, "one clip selected has nothing to pick out")
+    }
+
+    func testTheTimelinesDrawStateDoesntFollowThePlayhead() {
+        // No clip clicked, the one case where the inspector goes by the
+        // playhead. The draw state redraws the timeline whenever what it read
+        // changes, so reading the playhead would mean 60 times a second.
+        selectGroup()
+        var changed = false
+        withObservationTracking {
+            _ = TimelineDrawState(model: model)
+        } onChange: {
+            changed = true
+        }
+        model.playback.seek(to: t(9))
+        XCTAssertEqual(model.playback.timeUnobserved, model.playback.time)
+        XCTAssertEqual(model.playback.time, t(9), "the seek has to move the playhead for this to prove anything")
+        XCTAssertFalse(changed)
     }
 
     // MARK: - What covers what

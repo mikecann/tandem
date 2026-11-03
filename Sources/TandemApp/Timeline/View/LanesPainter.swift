@@ -81,7 +81,7 @@ struct LanesPainter {
                 let clipRect = CGRect(x: x0, y: lane.y, width: max(1, x1 - x0), height: lane.height)
                 var drawState = ClipDrawState()
                 drawState.selected = selected.contains(clip.id)
-                drawState.behindInspected = drawState.selected && state.inspectedClipID != nil && state.inspectedClipID != clip.id
+                drawState.behindInspected = state.isBehindInspected(clip.id)
                 drawState.linked = !drawState.selected && (clip.linkGroup.map(linkedGroups.contains) == true || clip.id == tiedSound)
                 drawState.previewed = previewed.contains(clip.id) && !drawState.selected
                 if let keyframe = state.selectedKeyframe, keyframe.clipID == clip.id {

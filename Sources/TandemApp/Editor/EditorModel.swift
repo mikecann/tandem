@@ -604,13 +604,25 @@ final class EditorModel {
     /// turned-off angle of a linked group, or else the selected picture
     /// that's on screen, preferring picture over sound.
     var primaryClipID: String? {
+        primaryClipID { playback.time }
+    }
+
+    /// The same without following the playhead. The timeline's draw state
+    /// uses it, since it redraws whatever it observes. Its mark only goes by
+    /// the playhead when no clip was clicked (a marquee, say), and catches up
+    /// at the next change to the timeline.
+    var primaryClipIDUnobserved: String? {
+        primaryClipID { playback.timeUnobserved }
+    }
+
+    private func primaryClipID(playhead: () -> Time) -> String? {
         if let chosenPictureID, selection.contains(chosenPictureID) { return chosenPictureID }
         if let focused = focusedClipID, selection.contains(focused) {
             return PictureVisibility.onInstead(of: focused, among: selection, in: project) ?? focused
         }
         let ordered = TimelineEdits.ordered(selection, in: project)
         let video = ordered.filter { project.location(ofClip: $0)?.track.kind == .video }
-        let time = playback.time
+        let time = playhead()
         let clips = video.compactMap { project.clip($0) }
         let here = clips.filter { $0.start <= time && time < $0.end }
         let on = here.filter { PictureVisibility.isOn($0, in: project) }

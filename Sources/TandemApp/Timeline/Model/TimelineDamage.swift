@@ -30,6 +30,11 @@ struct TimelineDrawState {
     var inspectedClipID: String?
 
     var frameRate: FrameRate { project.settings.frameRate }
+
+    /// Selected, but the inspector is on another selected clip.
+    func isBehindInspected(_ clipID: String) -> Bool {
+        selection.contains(clipID) && inspectedClipID != nil && inspectedClipID != clipID
+    }
 }
 
 @MainActor
@@ -42,7 +47,7 @@ extension TimelineDrawState {
             selectedTransitionID: model.selectedTransitionID, selectedKeyframe: model.selectedKeyframe,
             inPoint: model.inPoint, outPoint: model.outPoint, renamingTrackID: model.timeline.renamingTrackID,
             artworkRevision: model.artworkRevision, review: model.review,
-            inspectedClipID: model.selection.count > 1 ? model.primaryClipID : nil
+            inspectedClipID: model.selection.count > 1 ? model.primaryClipIDUnobserved : nil
         )
     }
 }
@@ -145,9 +150,7 @@ struct TimelineDamage: Equatable {
                 let oldKeyframe = old.selectedKeyframe?.clipID == clip.id ? old.selectedKeyframe?.time : nil
                 let newKeyframe = new.selectedKeyframe?.clipID == clip.id ? new.selectedKeyframe?.time : nil
                 // The inspected clip and the rest of the selection differ.
-                let wasBehind = wasSelected && old.inspectedClipID != nil && old.inspectedClipID != clip.id
-                let isBehind = isSelected && new.inspectedClipID != nil && new.inspectedClipID != clip.id
-                guard wasSelected != isSelected || wasLinked != isLinked || wasBehind != isBehind || oldKeyframe != newKeyframe || sounds.contains(clip.id) else { continue }
+                guard wasSelected != isSelected || wasLinked != isLinked || old.isBehindInspected(clip.id) != new.isBehindInspected(clip.id) || oldKeyframe != newKeyframe || sounds.contains(clip.id) else { continue }
                 let x0 = scale.x(clip.start)
                 let x1 = scale.x(clip.end)
                 // Keyframe diamonds reach a few points past the clip's ends.
