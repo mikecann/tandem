@@ -485,7 +485,8 @@ extension MediaAnalysis {
         // A job another export stopped can still be winding down when this
         // one joins it; it ends cancelled, so it's asked for again.
         for _ in 0..<3 {
-            guard let id = submitUpscale(for: item, span: span, priority: priority) else { break }
+            // A stopped export never starts a copy, first time or again.
+            guard !cancelled(), let id = submitUpscale(for: item, span: span, priority: priority) else { break }
             var token: UUID?
             if let progress {
                 token = observe { statuses in

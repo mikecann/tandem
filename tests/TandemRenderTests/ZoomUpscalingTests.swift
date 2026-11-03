@@ -272,6 +272,49 @@ final class ZoomUpscalingTests: XCTestCase {
         XCTAssertEqual(UpscaleJob.doubled(.identity), .identity)
     }
 
+    /// A small screen recording and an analysis for it, for the waits below.
+    func screenRecording(_ media: TestMedia) async throws -> (analysis: MediaAnalysis, item: MediaItem) {
+        let size = CGSize(width: 640, height: 520)
+        try await media.movie("screen.mov", seconds: 2, size: size, draw: { index, context in
+            TestMedia.fill(context, 0.1, 0.1, 0.12, size: size)
+            context.setFillColor(CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 1))
+            context.fill(CGRect(x: 30 + index * 4, y: 40, width: 12, height: 12))
+        })
+        var item = media.item("med_screen", "screen.mov", role: .screen, seconds: 2)
+        item.width = 640
+        item.height = 520
+        return (MediaAnalysis(folder: media.projectFolder, encoderLock: EncoderLock()), item)
+    }
+
+    /// An export that joins a copy another export stopped (the job still
+    /// winding down) asks for it again and gets it.
+    func testAnExportRejoinsACopyAnotherExportStopped() async throws {
+        let media = try TestMedia()
+        let (analysis, item) = try await screenRecording(media)
+        let span = UpscaleSpan(start: 0, end: 2)
+        let waiting = Task { await analysis.waitForUpscale(of: item, span: span) }
+        // Stop the job once it's running, as the last other export would.
+        var running: JobStatus?
+        for _ in 0..<500 where running == nil {
+            running = analysis.jobs.first { $0.kind == .upscale && $0.state == .running }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        let id = try XCTUnwrap(running?.id, "the copy never started")
+        analysis.cancel(jobID: id)
+        let state = await waiting.value
+        XCTAssertEqual(state, .ready)
+        XCTAssertNotNil(analysis.upscaledURL(for: item, covering: span.timeRange))
+    }
+
+    /// A stopped export doesn't start a copy.
+    func testAStoppedExportStartsNoCopy() async throws {
+        let media = try TestMedia()
+        let (analysis, item) = try await screenRecording(media)
+        let state = await analysis.waitForUpscale(of: item, span: UpscaleSpan(start: 0, end: 2), cancelled: { true })
+        XCTAssertEqual(state, .missing)
+        XCTAssertTrue(analysis.jobs.filter { $0.kind == .upscale }.isEmpty)
+    }
+
     /// Tiles count as changed past the tolerance, not at HEVC's wobble.
     func testTileComparisonHasATolerance() {
         let a = [UInt8](repeating: 100, count: 200)
