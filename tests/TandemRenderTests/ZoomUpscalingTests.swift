@@ -315,6 +315,28 @@ final class ZoomUpscalingTests: XCTestCase {
         XCTAssertTrue(analysis.jobs.filter { $0.kind == .upscale }.isEmpty)
     }
 
+    /// An export stopped while its copy is cancelled under it doesn't queue
+    /// another: whichever it sees first, the job ending or its own stop, it
+    /// ends without a copy and leaves nothing running.
+    func testAnExportStoppedAsItsCopyIsCancelledDoesntRetry() async throws {
+        let media = try TestMedia()
+        let (analysis, item) = try await screenRecording(media)
+        let stopped = StopFlag()
+        let waiting = Task { await analysis.waitForUpscale(of: item, span: UpscaleSpan(start: 0, end: 2), cancelled: { stopped.value }) }
+        var running: JobStatus?
+        for _ in 0..<500 where running == nil {
+            running = analysis.jobs.first { $0.kind == .upscale && $0.state == .running }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        let id = try XCTUnwrap(running?.id, "the copy never started")
+        stopped.value = true
+        analysis.cancel(jobID: id)
+        let state = await waiting.value
+        XCTAssertEqual(state, .missing)
+        try await Task.sleep(nanoseconds: 500_000_000)
+        XCTAssertFalse(analysis.jobs.contains { $0.kind == .upscale && ($0.state == .queued || $0.state == .running) }, "no copy queued again")
+    }
+
     /// Tiles count as changed past the tolerance, not at HEVC's wobble.
     func testTileComparisonHasATolerance() {
         let a = [UInt8](repeating: 100, count: 200)
@@ -334,4 +356,13 @@ private final class LastMessage: @unchecked Sendable {
     private var stored: String?
     func set(_ message: String?) { lock.withLock { if let message { stored = message } } }
     var value: String? { lock.withLock { stored } }
+}
+
+private final class StopFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var stored = false
+    var value: Bool {
+        get { lock.withLock { stored } }
+        set { lock.withLock { stored = newValue } }
+    }
 }
