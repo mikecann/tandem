@@ -44,7 +44,8 @@ public struct SpeechEnergy: Sendable {
         let perFrame = max(1, Int((sampleRate * Self.frameSeconds).rounded()))
         let count = samples.count / perFrame
         let highPassed = Self.highBand < sampleRate * 0.45 ? Self.highPass(samples, sampleRate: sampleRate) : nil
-        let voicePassed = Self.highPass(samples, sampleRate: sampleRate, from: Self.voiceBand)
+        // Nil (the full band) at a rate too low for the filter.
+        let voicePassed = Self.voiceBand < sampleRate * 0.45 ? Self.highPass(samples, sampleRate: sampleRate, from: Self.voiceBand) : nil
         func levels(_ values: [Float]) -> [Float] {
             values.withUnsafeBufferPointer { buffer in
                 (0..<count).map { frame in
@@ -56,7 +57,7 @@ public struct SpeechEnergy: Sendable {
         }
         full = levels(samples)
         high = highPassed.map(levels) ?? [Float](repeating: -120, count: count)
-        voice = levels(voicePassed)
+        voice = voicePassed.map(levels) ?? full
     }
 
     /// Media time just past the last frame.

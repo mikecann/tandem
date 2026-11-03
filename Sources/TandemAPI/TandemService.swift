@@ -432,20 +432,21 @@ public final class TandemService: @unchecked Sendable {
     /// Pauses with what the sound under each has (`tandem pauses`): the gap
     /// as it's heard, its real pauses, and sound in it no word accounts for.
     public func listenedPauses(minimum: Time, from: Time?, to: Time?) async throws -> PausesResult {
-        var result = try pauses(minimum: minimum, from: from, to: to)
-        let (project, _) = coordinator.snapshot()
+        guard minimum > .zero else { throw ServiceError(.badRequest, "`min` must be more than 0 seconds.") }
+        // One snapshot for everything, so the pauses are the revision's.
+        let (project, revision) = coordinator.snapshot()
         // A word the transcript has where the sound has only the room
         // splits a pause in two: left out, the pause is one.
         let cleaned = await SoundTightening.withoutPhantoms(
             TranscriptTools.speechMap(project, analysis: analysis), from: from, to: to, project: project, folder: folder
         )
         let map = cleaned.map
-        result.pauses = TranscriptTools.pauses(in: map, minimum: minimum, from: from, to: to)
-        result.total = result.pauses.reduce(Time.zero) { $0 + $1.duration }
-        let heard = await SoundTightening.listened(result.pauses, map: map, project: project, folder: folder)
-        result.pauses = heard.pauses
-        result.warnings = SoundTightening.phantomWarning(cleaned.phantoms) + heard.warnings
-        return result
+        let found = TranscriptTools.pauses(in: map, minimum: minimum, from: from, to: to)
+        let heard = await SoundTightening.listened(found, map: map, project: project, folder: folder)
+        return PausesResult(
+            revision: revision, minimum: minimum, pauses: heard.pauses, total: found.reduce(Time.zero) { $0 + $1.duration }, missing: map.missing,
+            warnings: SoundTightening.phantomWarning(cleaned.phantoms) + heard.warnings
+        )
     }
 
     public func tighten(_ request: TightenRequest, context: CallContext) async throws -> TightenResult {

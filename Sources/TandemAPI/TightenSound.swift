@@ -193,8 +193,10 @@ public enum SoundTightening {
         for index in words.indices.dropFirst().dropLast() {
             let word = words[index], before = words[index - 1], after = words[index + 1]
             guard word.end - word.start <= phantomLength, word.start - before.end >= phantomGap, after.start - word.end >= phantomGap else { continue }
-            if let from, after.start < from { continue }
-            if let to, before.end > to { continue }
+            // Only a pause wholly between from and to, as the pauses
+            // themselves are (`TranscriptTools.pauses`).
+            if let from, before.end < from { continue }
+            if let to, after.start > to { continue }
             lone.append(index)
         }
         guard !lone.isEmpty else { return (map, []) }

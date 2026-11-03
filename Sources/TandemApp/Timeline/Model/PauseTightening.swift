@@ -28,14 +28,19 @@ enum PauseTightening {
         for index in unlocked.audioTracks.indices where unlocked.audioTracks[index].locked {
             unlocked.audioTracks[index].clips = []
         }
-        let map = await SoundTightening.withoutPhantoms(
+        let cleaned = await SoundTightening.withoutPhantoms(
             TranscriptTools.speechMap(unlocked, transcripts: transcript), from: within?.start, to: within?.end, project: project, folder: folder
-        ).map
+        )
+        let map = cleaned.map
         let rules = TranscriptTools.PauseRules.uniform(keep: keep, minimum: minimum)
         let pauses = SoundTightening.candidates(in: map, rules: rules, from: within?.start, to: within?.end)
-        return await SoundTightening.plan(
+        var plan = await SoundTightening.plan(
             pauses, rules: rules, snug: false, from: within?.start, to: within?.end, map: map, project: project, folder: folder
         )
+        // The popover lists the words left out, as tandem tighten does: one
+        // could be a real word said very quietly.
+        plan.warnings = SoundTightening.phantomWarning(cleaned.phantoms) + plan.warnings
+        return plan
     }
 
     /// What a plan is made from. The popover keeps the plan for these, so a

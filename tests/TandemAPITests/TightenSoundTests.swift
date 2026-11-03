@@ -259,6 +259,7 @@ final class TightenSoundTests: XCTestCase {
         let plan = try await h.service.tighten(TightenRequest(mike: true), context: h.context)
         let cuts = plan.cuts.filter { $0.cut.start >= t(17.0) && $0.cut.end <= t(21.0) }
         XCTAssertEqual(cuts.count, 1, plan.readableText)
+        XCTAssertTrue(plan.warnings.contains { $0.contains("\"Yes.\"") }, "\(plan.warnings)")
         XCTAssertEqual(4.0 - (cuts.first?.cut.duration.seconds ?? 0), 0.4, accuracy: 0.05)
     }
 
