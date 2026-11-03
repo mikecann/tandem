@@ -506,6 +506,7 @@ enum JobText {
         case .matte: verb = "Cutout matte"
         case .isolatedVoice: verb = "Isolating voice"
         case .converted: verb = "Converting"
+        case .upscale: verb = "Sharpening for the zoom"
         }
         let percent = job.progress > 0 ? " · \(Int(job.progress * 100))%" : ""
         return "\(verb) \(name)\(percent)"

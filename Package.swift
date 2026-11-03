@@ -37,7 +37,14 @@ let package = Package(
         .target(name: "TandemCore", path: "Sources/TandemCore"),
         // Folder scanning, probing, pairing and the background job system
         // (proxies, transcripts, cutout mattes, voice isolation, loudness).
-        .target(name: "TandemMedia", dependencies: ["TandemCore", .product(name: "FluidAudio", package: "FluidAudio")], path: "Sources/TandemMedia"),
+        .target(
+            name: "TandemMedia",
+            dependencies: ["TandemCore", .product(name: "FluidAudio", package: "FluidAudio")],
+            path: "Sources/TandemMedia",
+            // The zoom upscaler: Real-ESRGAN's realesr-animevideov3 as Core
+            // ML (BSD-3-Clause), with its licence and conversion script.
+            resources: [.copy("Resources/Upscaler")]
+        ),
         // Composition building, the Core Image compositor, audio mix,
         // frame grabs and export.
         .target(

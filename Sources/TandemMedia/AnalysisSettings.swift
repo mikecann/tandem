@@ -141,6 +141,8 @@ public struct AnalysisSettings: Codable, Equatable, Sendable {
             values = matte
         case .isolatedVoice: values = ["model": voiceModel.rawValue]
         case .converted: values = [:]
+        // The stretch is added per copy (`UpscaleSpan.canonical`).
+        case .upscale: values = [:]
         }
         return values
     }
@@ -238,6 +240,7 @@ extension AnalysisKind {
         // frame, which still crawled over walls and screen text while
         // playing; these leave still areas still.
         case .proxy: return 3
+        case .upscale: return UpscaleJob.version
         }
     }
 
@@ -248,6 +251,9 @@ extension AnalysisKind {
         case .waveform, .loudness, .transcript, .isolatedVoice: return item.hasAudio
         case .proxy, .matte: return item.kind == .video && item.hasVideo
         case .converted: return item.kind == .video && item.hasVideo && item.undecodableCodec != nil
+        // The model is for flat, hard-edged pictures: on camera footage it
+        // paints. Files macOS can't decode are stickers, not recordings.
+        case .upscale: return item.kind == .video && item.hasVideo && item.role == .screen && item.undecodableCodec == nil
         }
     }
 
@@ -255,7 +261,7 @@ extension AnalysisKind {
     /// they're made from its `converted` copy.
     var readsPicture: Bool {
         switch self {
-        case .thumbnails, .proxy, .matte: return true
+        case .thumbnails, .proxy, .matte, .upscale: return true
         case .waveform, .loudness, .transcript, .isolatedVoice, .converted: return false
         }
     }

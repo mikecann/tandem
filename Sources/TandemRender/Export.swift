@@ -115,7 +115,15 @@ final class ExportPipeline: @unchecked Sendable {
         if sizesTheFrame {
             renderContext.sizeOverride = CGSize(width: plan.width, height: plan.height)
         }
-        let (ready, notes) = await timed("convert") { await ConvertedMedia.prepare(renderContext) }
+        renderContext.upscalesZooms = true
+        let (ready, converted) = await timed("convert") { await ConvertedMedia.prepare(renderContext) }
+        var notes = converted
+        // Sharpened copies for zooms into screen recordings: the first half
+        // of the bar when any are missing, as they take a while.
+        if !ZoomUpscaling.missingCopies(ready, range: preset.range).isEmpty {
+            notes += await timed("upscale") { await ZoomUpscaling.prepare(ready, range: preset.range) { self.report(0.5 * $0) } }
+            lock.withLock { progressFloor = 0.5 }
+        }
         let built = try await timed("build") { try await CompositionAssembler.build(ready) }
         lock.withLock { storedWarnings = notes + built.warnings }
         let range = exportRange(built.duration)
@@ -203,9 +211,13 @@ final class ExportPipeline: @unchecked Sendable {
     // MARK: - Progress
 
     private var lastReported = -1.0
+    /// Where the rest of the export's progress starts, once sharpened
+    /// copies have taken the first part of the bar.
+    private var progressFloor = 0.0
 
     private func report(_ value: Double, force: Bool = false) {
-        let clamped = min(max(value, 0), 1)
+        let floor = lock.withLock { progressFloor }
+        let clamped = min(max(floor + (1 - floor) * value, 0), 1)
         let send: Bool = lock.withLock {
             guard force || clamped - lastReported >= 0.005 else { return false }
             lastReported = clamped

@@ -571,7 +571,7 @@ public final class ProjectArchiver: @unchecked Sendable {
     /// always go; transcripts especially are slow to make again. So do the
     /// converted copies of stickers macOS can't decode: they're small, and
     /// making them again needs ffmpeg, which the Mac opening it may not have.
-    static let rebuildableCache = Set([AnalysisKind.proxy, .matte, .thumbnails, .isolatedVoice].map(\.rawValue))
+    static let rebuildableCache = Set([AnalysisKind.proxy, .matte, .thumbnails, .isolatedVoice, .upscale].map(\.rawValue))
 
     private func walkFolder(_ plan: Plan) {
         // Written by the run itself, with the new paths. A review log waits
@@ -657,7 +657,11 @@ public final class ProjectArchiver: @unchecked Sendable {
             case .matte: what = "cutout mattes"
             case .thumbnails: what = "thumbnails"
             case .isolatedVoice: what = "isolated voice"
+            case .upscale: what = "sharpened copies of zoomed screen recordings"
             default: what = name
+            }
+            if AnalysisKind(rawValue: name) == .upscale {
+                return "\(what), which Tandem makes again on the next export (--with-cache keeps them)"
             }
             return "\(what), which Tandem makes again for what the edit uses when the archive is opened (--with-cache keeps them)"
         }

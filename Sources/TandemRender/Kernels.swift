@@ -168,6 +168,65 @@ enum Kernels {
     }}
     """
 
+    static let lanczosSource = header + """
+    namespace tandem {
+        // Lanczos-3: sinc windowed by a wider sinc, zero from 3 pixels out.
+        inline float lanczos3(float x) {
+            x = fabs(x);
+            if (x < 1e-5) return 1.0;
+            if (x >= 3.0) return 0.0;
+            float px = M_PI_F * x;
+            return 3.0 * sin(px) * sin(px / 3.0) / (px * px);
+        }
+    }
+    extern "C" { namespace coreimage {
+    // Resamples a layer through an affine transform with Lanczos-3 instead of
+    // Core Image's bilinear filter, which goes soft on screen text when a
+    // zoom scales the picture up. Each output pixel maps back into the
+    // source (r0, r1: the rows of the inverse transform) and mixes the 6x6
+    // source pixels around that point. Core Image only hands over the
+    // source's own pixels and clamps reads past them to its edge, so
+    // anything outside its extent (e: x0, y0, x1, y1) counts as clear here.
+    [[stitchable]] float4 tandemLanczos(coreimage::sampler s, float3 r0, float3 r1, float4 e, coreimage::destination dest) {
+        float3 d = float3(dest.coord(), 1.0);
+        float2 p = float2(dot(r0, d), dot(r1, d));
+        // The source pixel centre at or below p, and how far past it p is.
+        float2 c = floor(p - 0.5) + 0.5;
+        float2 f = p - c;
+        float wx[6], wy[6];
+        for (int i = 0; i < 6; i++) {
+            wx[i] = tandem::lanczos3(f.x - float(i - 2));
+            wy[i] = tandem::lanczos3(f.y - float(i - 2));
+        }
+        float4 sum = float4(0.0);
+        float total = 0.0;
+        for (int j = 0; j < 6; j++) {
+            for (int i = 0; i < 6; i++) {
+                float w = wx[i] * wy[j];
+                float2 q = c + float2(float(i - 2), float(j - 2));
+                if (q.x > e.x && q.x < e.z && q.y > e.y && q.y < e.w) sum += w * s.sample(s.transform(q));
+                total += w;
+            }
+        }
+        float4 r = sum / total;
+        // The negative lobes overshoot at hard edges; keep the result a
+        // valid premultiplied colour.
+        r.a = clamp(r.a, 0.0, 1.0);
+        r.rgb = clamp(r.rgb, 0.0, r.a);
+        return r;
+    }
+    }}
+    """
+
+    static let lanczos: CIKernel? = {
+        do {
+            return try CIKernel.kernels(withMetalString: lanczosSource).first { $0.name == "tandemLanczos" }
+        } catch {
+            NSLog("TandemRender: couldn't compile the tandemLanczos kernel: \(error)")
+            return nil
+        }
+    }()
+
     private static func compile(_ source: String, _ name: String) -> CIColorKernel? {
         do {
             return try CIKernel.kernels(withMetalString: source).first { $0.name == name } as? CIColorKernel
@@ -186,6 +245,36 @@ enum Kernels {
 }
 
 extension CIImage {
+    /// The image through `transform`, resampled with Lanczos-3 (see
+    /// `Kernels.lanczosSource`). For scaling up: scaling down this way
+    /// would alias, where Core Image's `highQualityDownsample` doesn't.
+    /// Falls back to Core Image's own sampling if the kernel isn't there or
+    /// the image has no edges to work from.
+    func tandemLanczos(_ transform: CGAffineTransform) -> CIImage {
+        let source = extent
+        guard let kernel = Kernels.lanczos, !source.isInfinite, !source.isEmpty else {
+            return transformed(by: transform)
+        }
+        let inverse = transform.inverted()
+        // A few pixels wider than the picture lands: the kernel makes them
+        // clear (they read only outside the source), and Core Image repeats
+        // a kernel's border pixels past its extent when the frame is bigger,
+        // which with the picture's own edge there spread its colour over the
+        // whole frame.
+        // The filter reaches 3 source pixels, which is that many times the
+        // scale in output pixels.
+        let scale = max(hypot(transform.a, transform.b), hypot(transform.c, transform.d))
+        let margin = (3 * scale).rounded(.up) + 2
+        let out = source.applying(transform).integral.insetBy(dx: -margin, dy: -margin)
+        // The source pixels an output rectangle reads: its corners mapped
+        // back, plus the filter's reach.
+        let roi: CIKernelROICallback = { _, rect in rect.applying(inverse).insetBy(dx: -4, dy: -4) }
+        let r0 = CIVector(x: inverse.a, y: inverse.c, z: inverse.tx)
+        let r1 = CIVector(x: inverse.b, y: inverse.d, z: inverse.ty)
+        let edges = CIVector(x: source.minX, y: source.minY, z: source.maxX, w: source.maxY)
+        return kernel.apply(extent: out, roiCallback: roi, arguments: [self, r0, r1, edges]) ?? transformed(by: transform)
+    }
+
     /// Multiplies the layer, alpha included: opacity.
     func tandemOpacity(_ opacity: Double) -> CIImage {
         if opacity >= 1 { return self }

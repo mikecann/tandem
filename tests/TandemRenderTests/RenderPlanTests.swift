@@ -21,6 +21,11 @@ final class FakeAssets: RenderAssets, @unchecked Sendable {
     var separations: [String: SeparationStems] = [:]
     func separation(for item: MediaItem, prompt: String) -> SeparationStems? { separations["\(item.id)|\(prompt)"] }
     func loudness(for item: MediaItem) -> Loudness? { loudnesses[item.id] }
+    /// By media ID: copies and the stretches they cover.
+    var upscaled: [String: [(span: UpscaleSpan, url: URL)]] = [:]
+    func upscaledURL(for item: MediaItem, covering range: TimeRange) -> URL? {
+        upscaled[item.id]?.first { $0.span.contains(range) }?.url
+    }
 }
 
 extension StackNode {

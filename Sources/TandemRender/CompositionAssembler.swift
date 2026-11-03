@@ -169,6 +169,9 @@ enum CompositionAssembler {
                 if context.useProxies, let proxy = context.assets?.proxyURL(for: item) { return proxy }
                 // The planner leaves such a clip out until its copy exists.
                 if item.undecodableCodec != nil { return context.assets?.convertedURL(for: item) }
+                // Twice the size, it fits the canvas like the original (the
+                // compositor scales by the frame's own size), sharper.
+                if let clip = clips[segment.clipID], let copy = ZoomUpscaling.copy(for: segment, clip: clip, item: item, context: context) { return copy }
                 return context.folder.url(for: item)
             case .matte:
                 let cutout = clips[segment.clipID]?.video?.cutout ?? Cutout()

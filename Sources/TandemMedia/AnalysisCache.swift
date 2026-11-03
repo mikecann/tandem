@@ -75,6 +75,13 @@ public final class AnalysisCache: @unchecked Sendable {
         return try? CacheManifest.decoder.decode(CacheManifest.self, from: data)
     }
 
+    /// The committed entries of one kind and what each holds.
+    public func manifests(kind: AnalysisKind) -> [CacheManifest] {
+        let parent = root.appendingPathComponent(kind.rawValue, isDirectory: true)
+        guard let names = try? FileManager.default.contentsOfDirectory(atPath: parent.path) else { return [] }
+        return names.filter { !$0.hasPrefix(".") && !$0.hasPrefix(Self.temporaryPrefix) }.compactMap { manifest(kind: kind, key: $0) }
+    }
+
     // MARK: - Writing
 
     /// A private folder to write one result into, committed or discarded

@@ -251,6 +251,7 @@ copies of a file share a job):
 | transcript | `transcript.json` | `Transcript`, engine "Bark 3.0 Pro" (language "en") or "SpeechAnalyzer" (en-US), the engine's own word times in media time (aligned to the waveform when read). A SpeechAnalyzer transcript made because Bark couldn't has `fallback.json` beside it |
 | matte | `matte.mov` | 1080p box, HEVC, keyframe every 10 frames; luma of full-range (420f) frames is the alpha (0 background, 255 person), chroma neutral, BT.709 tags, source frame times and rotation |
 | isolatedVoice | `voice.caf` | 48 kHz ALAC, source channels (max 2), same length as the source, lined up to the sample |
+| upscale | `upscaled.mov` | Only for screen recordings a zoom draws at 1.3x their pixels or more in an export: a stretch of the file (`UpscaleSpan`, whole seconds) at twice the size, HEVC, keyframe every 30 frames, the source's colour tags and frame times, with a black frame held from zero to the stretch |
 | converted | `video.mov` | Only for `undecodableCodec` files: HEVC, with alpha when the source has it, BT.709 tags, the source's size and frame times, video only |
 
 Notes on each:
@@ -521,6 +522,14 @@ Notes on each:
   stops at the source's length (resampled sources are padded to it). Both
   layouts line up within a sample on the real footage. The render module mixes it with the original by
   `voiceIsolation`.
+- **Upscale.** Real-ESRGAN's realesr-animevideov3 (BSD-3-Clause) as Core
+  ML, its x4 network then a 2x2 average, in 512 px tiles overlapping by
+  24 px (`Resources/Upscaler`, with the conversion script). A tile goes
+  through the model again only when a pixel has moved more than 6 steps
+  since it last did, so on a screen recording most of each frame is
+  reused. The key holds the stretch; a clip finds any copy that covers its
+  segment, so trims and splits keep using it. Exports make them
+  (`ZoomUpscaling`), never the defaults.
 - **Converted.** A 2 s 512x512 Animation or PNG sticker converts in about a
   quarter of a second; 10 s of 1080p30 Animation (118 MB) takes 3.9 s and
   makes an 11 MB copy. The ProRes intermediate sits in the job's folder and
@@ -561,6 +570,7 @@ Real footage, release build (`report.txt` has the latest numbers):
 | Matte, RVM (the default) | 40 fps on a quiet machine before the edge fix, the same as version 2 (GPU, one frame at a time); 36 to 38 with the edge fix while other work ran |
 | Matte, Vision (fallback) | 41 fps with 4 workers (18 min for a 24 min take, 1.4x real time at 30 fps); the Neural Engine is the limit, the smoother (about 10 ms a frame) hides behind it. Version 1 was 49 to 52 fps |
 | Isolated voice | 38x realtime, within 1 sample of the original |
+| Upscale, M5 (debug build, background priority) | 6 s of the Threadbear launch screen recording (3200x1800, 176 frames) in 17.9 s: 0.1 s a frame, 1.7 of 28 tiles a frame through the model. 3.8 MB for the 6400x3600 copy |
 | Every default for a 43 s take, background priority | 33 s, the matte last |
 
 ## Tests
