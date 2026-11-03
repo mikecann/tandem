@@ -333,8 +333,14 @@ final class ZoomUpscalingTests: XCTestCase {
         analysis.cancel(jobID: id)
         let state = await waiting.value
         XCTAssertEqual(state, .missing)
-        try await Task.sleep(nanoseconds: 500_000_000)
+        // The cancelled job can take a moment to wind down; once nothing is
+        // running, a retry would have made the copy (it takes a second or two).
+        for _ in 0..<500 where analysis.jobs.contains(where: { $0.kind == .upscale && ($0.state == .queued || $0.state == .running) }) {
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        try await Task.sleep(nanoseconds: 3_000_000_000)
         XCTAssertFalse(analysis.jobs.contains { $0.kind == .upscale && ($0.state == .queued || $0.state == .running) }, "no copy queued again")
+        XCTAssertNil(analysis.upscaledURL(for: item, covering: UpscaleSpan(start: 0, end: 2).timeRange), "no copy made")
     }
 
     /// Tiles count as changed past the tolerance, not at HEVC's wobble.
