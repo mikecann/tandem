@@ -482,7 +482,10 @@ extension MediaAnalysis {
                                cancelled: @escaping @Sendable () -> Bool = { false },
                                progress: (@Sendable (Double, String?) -> Void)? = nil) async -> ResultState {
         guard let key = upscaleKey(for: item, span: span) else { return AnalysisKind.upscale.applies(to: item) ? .unreadable : .notApplicable }
-        if let id = submitUpscale(for: item, span: span, priority: priority) {
+        // A job another export stopped can still be winding down when this
+        // one joins it; it ends cancelled, so it's asked for again.
+        for _ in 0..<3 {
+            guard let id = submitUpscale(for: item, span: span, priority: priority) else { break }
             var token: UUID?
             if let progress {
                 token = observe { statuses in
@@ -505,8 +508,12 @@ extension MediaAnalysis {
                 upscaleWaiters[id] = left > 0 ? left : nil
                 return left
             }
-            if gaveUp, others == 0 { scheduler.cancel(id: id) }
             if let token { removeObserver(token) }
+            if gaveUp {
+                if others == 0 { scheduler.cancel(id: id) }
+                break
+            }
+            guard scheduler.status(id: id)?.state == .cancelled else { break }
         }
         if upscaledURL(for: item, covering: span.timeRange) != nil { return .ready }
         if let status = scheduler.status(id: Self.jobID(.upscale, key: key)), status.state == .failed {
