@@ -55,6 +55,10 @@ enum UpscaleJob {
     /// Bump when copies change; it's in their cache key.
     static let version = 1
 
+    static func doubled(_ transform: CGAffineTransform) -> CGAffineTransform {
+        CGAffineTransform(a: transform.a, b: transform.b, c: transform.c, d: transform.d, tx: 2 * transform.tx, ty: 2 * transform.ty)
+    }
+
     static func run(source: URL, span: UpscaleSpan, into folder: URL, context: JobContext) async throws {
         context.progress(0, message: "Loading the upscaler")
         let model = try await UpscaleModel.shared.load()
@@ -71,7 +75,9 @@ enum UpscaleJob {
             // keyframe every second keeps seeking into the copy cheap.
             keyFrameInterval: 30, quality: 0.8, prioritizeSpeed: true,
             colorPrimaries: reader.colors.primaries, transferFunction: reader.colors.transfer, yCbCrMatrix: reader.colors.matrix,
-            timescale: reader.timescale, transform: reader.transform, expectedFrameRate: reader.nominalFrameRate > 0 ? reader.nominalFrameRate : nil
+            // A rotation's translation is in pixels, so it doubles too.
+            timescale: reader.timescale, transform: Self.doubled(reader.transform),
+            expectedFrameRate: reader.nominalFrameRate > 0 ? reader.nominalFrameRate : nil
         ))
         let converter = try FrameConverter(width: width, height: height)
         let counter = FrameCounter()

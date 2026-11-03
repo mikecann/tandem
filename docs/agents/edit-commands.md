@@ -299,8 +299,10 @@ back inside its file first.
   shadow, bottom right. `split` puts the camera on the right half and
   everything else on the left.
 - `zoomToRegion`'s `rect` is a part of the source, 0 to 1 from its top
-  left. Exports sharpen zooms into screen recordings with an upscaled
-  copy ([layout and colour](layout-and-colour.md#zoom-into-the-screen-recording)).
+  left. Where a zoom draws a screen recording at 1.3x its own pixels or
+  more at the export's size, the export plays it from an upscaled copy
+  ([layout and colour](layout-and-colour.md#zoom-into-the-screen-recording));
+  smaller renders skip it.
 - `addMotion` pans travel across whatever part of the photo overflows the
   frame.
 - `setFormatLayout` fills its slot edge to edge with the sides cropped; a

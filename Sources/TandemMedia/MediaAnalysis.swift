@@ -473,7 +473,10 @@ extension MediaAnalysis {
 
     /// Makes the copy of `span` if need be and waits for it: ready, or why
     /// not. `progress` hears the job's own progress, 0...1, as it runs.
+    /// When `cancelled` turns true (the export was stopped) the job is
+    /// cancelled and the answer is `.missing`.
     public func waitForUpscale(of item: MediaItem, span: UpscaleSpan, priority: JobPriority = .interactive,
+                               cancelled: @escaping @Sendable () -> Bool = { false },
                                progress: (@Sendable (Double, String?) -> Void)? = nil) async -> ResultState {
         guard let key = upscaleKey(for: item, span: span) else { return AnalysisKind.upscale.applies(to: item) ? .unreadable : .notApplicable }
         if let id = submitUpscale(for: item, span: span, priority: priority) {
@@ -483,7 +486,14 @@ extension MediaAnalysis {
                     if let status = statuses.first(where: { $0.id == id }) { progress(status.progress, status.message) }
                 }
             }
-            _ = await scheduler.wait(for: id)
+            // Polled rather than awaited, so a stopped export stops it.
+            while let status = scheduler.status(id: id), status.state == .queued || status.state == .running {
+                if cancelled() {
+                    scheduler.cancel(id: id)
+                    break
+                }
+                try? await Task.sleep(nanoseconds: 200_000_000)
+            }
             if let token { removeObserver(token) }
         }
         if upscaledURL(for: item, covering: span.timeRange) != nil { return .ready }

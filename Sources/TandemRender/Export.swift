@@ -120,8 +120,12 @@ final class ExportPipeline: @unchecked Sendable {
         var notes = converted
         // Sharpened copies for zooms into screen recordings: the first half
         // of the bar when any are missing, as they take a while.
-        if !ZoomUpscaling.missingCopies(ready, range: preset.range).isEmpty {
-            notes += await timed("upscale") { await ZoomUpscaling.prepare(ready, range: preset.range) { self.report(0.5 * $0) } }
+        // A sound-only export draws no frames.
+        if !audioOnly, !ZoomUpscaling.missingCopies(ready, range: preset.range).isEmpty {
+            notes += await timed("upscale") {
+                await ZoomUpscaling.prepare(ready, range: preset.range, cancelled: { [weak self] in self?.isCancelled ?? true }) { self.report(0.5 * $0) }
+            }
+            try throwIfCancelled()
             lock.withLock { progressFloor = 0.5 }
         }
         let built = try await timed("build") { try await CompositionAssembler.build(ready) }

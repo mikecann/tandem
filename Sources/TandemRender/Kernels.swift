@@ -209,10 +209,10 @@ enum Kernels {
             }
         }
         float4 r = sum / total;
-        // The negative lobes overshoot at hard edges; keep the result a
-        // valid premultiplied colour.
+        // The negative lobes overshoot at hard edges. Alpha stays in 0...1;
+        // colour is left alone, since the pipeline keeps values past black
+        // and white (the colour wheels lean on them).
         r.a = clamp(r.a, 0.0, 1.0);
-        r.rgb = clamp(r.rgb, 0.0, r.a);
         return r;
     }
     }}

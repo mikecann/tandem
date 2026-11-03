@@ -53,17 +53,41 @@ final class ZoomUpscalingTests: XCTestCase {
         XCTAssertEqual(ZoomUpscaling.maxScale(clip(keyframes: zoom), item: screen(), canvas: canvas, format: nil), 2.16, accuracy: 0.001)
     }
 
-    /// The copy covers the clip's source a second past each end, in whole
-    /// seconds, so a small trim finds the same copy.
-    func testTheSpanCoversTheClipWithAMargin() {
-        XCTAssertEqual(ZoomUpscaling.span(for: clip(), item: screen()), UpscaleSpan(start: 9, end: 15))
-        var trimmed = clip()
+    /// The copy covers the segment's source a second past each end, in
+    /// whole seconds, so a small trim finds the same copy.
+    func testTheSpanCoversTheSegmentWithAMargin() {
+        let segment = PlannedSegment(clipID: "clip_screen", mediaID: "med_screen", role: .picture, timeline: TimeRange(start: t(5), end: t(9)),
+                                     sourceStart: t(10), speed: 1, freeze: false)
+        XCTAssertEqual(ZoomUpscaling.span(for: segment), UpscaleSpan(start: 9, end: 15))
+        var trimmed = segment
         trimmed.sourceStart = t(10.2)
-        trimmed.duration = t(3.7)
-        XCTAssertEqual(ZoomUpscaling.span(for: trimmed, item: screen()), UpscaleSpan(start: 9, end: 15))
+        trimmed.timeline = TimeRange(start: t(5), end: t(8.7))
+        XCTAssertEqual(ZoomUpscaling.span(for: trimmed), UpscaleSpan(start: 9, end: 15))
         XCTAssertEqual(UpscaleSpan(covering: TimeRange(start: t(-0.5), end: t(0.2))), UpscaleSpan(start: 0, end: 1))
         XCTAssertTrue(UpscaleSpan(start: 9, end: 15).contains(TimeRange(start: t(9), end: t(15))))
         XCTAssertFalse(UpscaleSpan(start: 9, end: 15).contains(TimeRange(start: t(8.9), end: t(12))))
+    }
+
+    /// A long transition's handle reaches past the clip; the copy covers it.
+    func testACopyCoversTransitionHandles() async throws {
+        let media = try TestMedia()
+        var item = screen()
+        item.path = "screen.mov"
+        let a = Clip(id: "clip_a", content: .media(mediaID: "med_screen"), start: .zero, duration: t(10), sourceStart: t(20),
+                     video: VideoProperties(transform: Transform(scale: 1.8)))
+        let b = Clip(id: "clip_b", content: .media(mediaID: "med_screen"), start: t(10), duration: t(10), sourceStart: t(40),
+                     video: VideoProperties(transform: Transform(scale: 1.8)))
+        var track = Track(kind: .video, name: "V1", clips: [a, b])
+        track.transitions = [Transition(type: .dissolve, duration: t(4), fromClipID: "clip_a", toClipID: "clip_b")]
+        let project = Project(name: "Zoom", settings: ProjectSettings(width: 3840, height: 2160, frameRate: .fps30),
+                              media: [item], videoTracks: [track], audioTracks: [])
+        let context = RenderContext(project: project, folder: media.projectFolder)
+        let plan = RenderPlanner.plan(project, format: nil, assets: nil)
+        let wanted = ZoomUpscaling.wanted(context, range: nil)
+        for segment in plan.videoSegments where segment.role == .picture {
+            let range = ZoomUpscaling.sourceRange(of: segment)
+            XCTAssertTrue(wanted.contains { $0.span.contains(range) }, "\(segment.clipID) plays \(range), wanted \(wanted.map(\.span))")
+        }
     }
 
     /// Clips cut from one stretch of a take share a copy; one far off gets
