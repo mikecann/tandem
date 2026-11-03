@@ -723,6 +723,42 @@ final class CheckAPITests: XCTestCase {
         XCTAssertTrue(result.warnings.contains { $0.contains("listening with fallback") }, "\(result.warnings)")
     }
 
+    func testAJoinTheEngineCouldntHearIsHeardByTheNext() async throws {
+        // Bark failing at one join (the Neural Engine compile ran out of
+        // disk, say) isn't twice in a row, so it stays the engine, but that
+        // join is still heard with SpeechAnalyzer rather than left out.
+        let (h, script) = try listeningHarness()
+        defer { h.close() }
+        let flaky = FakeEar(script, engine: "flaky")
+        flaky.failing = [-3]
+        let fallback = FakeEar(script, engine: "fallback")
+        h.service.cutListening = ([flaky.ear, fallback.ear], flaky.mix)
+        let result = try await CheckRequest(cuts: true, listen: true).run(on: h.service, context: h.context)
+        let listened = try XCTUnwrap(result.listened)
+        XCTAssertEqual(listened.joins.map(\.skipped), [nil, nil, nil])
+        XCTAssertEqual(flaky.calls, 3, "still the engine for the rest")
+        XCTAssertEqual(fallback.calls, 1, "only for the join flaky missed")
+        XCTAssertEqual(listened.engine, "flaky, then fallback")
+        XCTAssertEqual(heardCutOff(result).map(\.start), [t(30)])
+        XCTAssertFalse(result.warnings.contains { $0.contains("weren't heard") }, "\(result.warnings)")
+        XCTAssertTrue(result.warnings.contains { $0.contains("flaky couldn't listen at 1 join") && $0.contains("heard with fallback") }, "\(result.warnings)")
+    }
+
+    func testOneJoinAnEngineFailsAtIsHeardByTheNext() async throws {
+        // The run that found this: a 1-join check, Bark failing, no fallback.
+        let (h, script) = try listeningHarness()
+        defer { h.close() }
+        let broken = FakeEar(script, engine: "broken")
+        broken.failing = [nil]
+        let fallback = FakeEar(script, engine: "fallback")
+        h.service.cutListening = ([broken.ear, fallback.ear], broken.mix)
+        let result = try await CheckRequest(from: t(25), to: t(35), cuts: true, listen: true).run(on: h.service, context: h.context)
+        let listened = try XCTUnwrap(result.listened)
+        XCTAssertEqual(listened.joins.map(\.skipped), [nil])
+        XCTAssertEqual(fallback.calls, 1)
+        XCTAssertEqual(heardCutOff(result).map(\.start), [t(30)])
+    }
+
     func testANewModelHearsAgain() async throws {
         let (h, script) = try listeningHarness()
         defer { h.close() }

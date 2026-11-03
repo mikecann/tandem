@@ -183,9 +183,10 @@ extension CutCheck {
 
         /// What's heard at one join, and by which engine; nil when nothing
         /// is: the engine failed, or heard nothing where there's speech.
-        func hear(_ input: [Float], speech: Bool) async -> (words: [CutListen.Word]?, error: String?) {
+        /// `from` starts past the active engine, for a join it missed.
+        func hear(_ input: [Float], speech: Bool, from start: Int? = nil) async -> (words: [CutListen.Word]?, ear: Int, error: String?) {
             var error: String?
-            var index = active
+            var index = start ?? active
             while index < ears.count {
                 let ear = ears[index]
                 do {
@@ -197,7 +198,7 @@ extension CutCheck {
                         continue
                     }
                     cache.store(heard, for: CutListenCache.key(input, engine: ear.engine, model: ear.model))
-                    return (heard, nil)
+                    return (heard, index, nil)
                 } catch let failure {
                     error = (failure as? LocalizedError)?.errorDescription ?? "\(failure)"
                     guard index == active else { break }
@@ -210,7 +211,7 @@ extension CutCheck {
                     index = active
                 }
             }
-            return (nil, error)
+            return (nil, index, error)
         }
 
         func compared(_ index: Int, input: [Float], heard: [CutListen.Word]?, wasCached: Bool, skipped: String?) -> HeardJoin {
@@ -267,7 +268,7 @@ extension CutCheck {
             let wasCached = heard != nil
             var skipped: String? = known ? nil : "no transcript"
             if heard == nil {
-                let (words, error) = await hear(input, speech: speech)
+                let (words, _, error) = await hear(input, speech: speech)
                 heard = words
                 if words == nil {
                     if error != nil {
@@ -287,10 +288,17 @@ extension CutCheck {
             joins[index] = compared(index, input: input, heard: heard, wasCached: wasCached, skipped: skipped)
         }
         // The joins an engine failed before the next took over: heard again
-        // with it.
+        // with it. When none took over (it failed now and then, or at the
+        // only join there was, too few in a row to give up on it), the next
+        // engine hears just those: a join heard by SpeechAnalyzer beats one
+        // not heard at all, and Bark stays the engine for the rest.
         var stillFailed: [(index: Int, error: String)] = []
+        let firstFailures = active == 0 ? failed.count : 0
+        var rescued = 0
+        let rescuer = active == 0 && ears.count > 1 ? 1 : nil
+        let firstError = failed.first?.error
         for miss in failed {
-            guard active > 0 else {
+            guard active > 0 || rescuer != nil else {
                 stillFailed.append((miss.index, miss.error))
                 continue
             }
@@ -298,13 +306,19 @@ extension CutCheck {
             let window = (times[miss.index] - CutListen.span)...(times[miss.index] + CutListen.span)
             let known = !said.unknown.contains { $0.overlaps(window) }
             let speech = known && said.words.contains { $0.end > window.lowerBound && $0.start < window.upperBound }
-            let (words, error) = await hear(miss.input, speech: speech)
+            let (words, ear, error) = await hear(miss.input, speech: speech, from: active > 0 ? nil : rescuer)
+            if words != nil, active == 0 {
+                rescued += 1
+                if !engines.contains(ears[ear].engine) { engines.append(ears[ear].engine) }
+            }
             if let words {
                 fresh += 1
                 seconds += Date().timeIntervalSince(started)
                 joins[miss.index] = compared(miss.index, input: miss.input, heard: words, wasCached: false, skipped: known ? nil : "no transcript")
             } else if let error {
-                stillFailed.append((miss.index, error))
+                // Bark's own error when the rescue failed too: it's the one
+                // the warning names.
+                stillFailed.append((miss.index, active == 0 ? miss.error : error))
             } else {
                 unheard.append(groups[miss.index][0].time)
                 joins[miss.index]?.skipped = "nothing heard"
@@ -313,6 +327,10 @@ extension CutCheck {
         if untranscribed > 0, !said.untranscribed.isEmpty {
             let what = untranscribed == 1 ? "1 join wasn't" : "\(untranscribed) joins weren't"
             warnings.append("No transcript yet for \(said.untranscribed.joined(separator: ", ")), so what's heard at \(what) compared with the take.")
+        }
+        if rescued > 0, let rescuer, let firstError {
+            let what = firstFailures == 1 ? "1 join" : "\(firstFailures) joins"
+            warnings.append("\(ears[0].engine) couldn't listen at \(what), so \(rescued == firstFailures ? "they were" : "\(rescued) were") heard with \(ears[rescuer].engine): \(firstError)")
         }
         if let first = stillFailed.first {
             let what = stillFailed.count == 1 ? "1 join" : "\(stillFailed.count) joins"

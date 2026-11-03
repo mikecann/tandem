@@ -329,6 +329,19 @@ actor BarkRuntime {
             return try MLModel(contentsOf: folder.appendingPathComponent("\(name).mlmodelc"), configuration: configuration)
         }
 
+        /// The encoder on `units`, or on the CPU when that fails. The Neural
+        /// Engine compiles it first, which needs about 2 GB of temp files:
+        /// with the disk nearly full that fails, and CoreML reports it as
+        /// "`.functionName` must be nil unless the model type is ML
+        /// Program". The CPU is slower but needs no compile.
+        static func encoder<Model>(_ units: MLComputeUnits, _ load: (MLComputeUnits) throws -> Model) throws -> Model {
+            do {
+                return try load(units)
+            } catch where units != .cpuOnly {
+                return try load(.cpuOnly)
+            }
+        }
+
         /// One function loaded at a time: on the CPU each holds its own copy
         /// of the 1.2 GB of weights (2.6 GB at the peak with both, 1.4 with
         /// one), and only a short take switches.
@@ -337,7 +350,8 @@ actor BarkRuntime {
             managers.removeAll()
             let configuration = MLModelConfiguration()
             configuration.computeUnits = .cpuOnly
-            let models = AsrModels(encoder: try Self.load(folder, "Encoder", units, function: function), preprocessor: preprocessor,
+            let encoder = try Self.encoder(units) { try Self.load(folder, "Encoder", $0, function: function) }
+            let models = AsrModels(encoder: encoder, preprocessor: preprocessor,
                                    decoder: decoder, joint: joint, configuration: configuration, vocabulary: vocabulary, version: .ultra)
             let manager = AsrManager(models: models)
             managers[function] = manager
