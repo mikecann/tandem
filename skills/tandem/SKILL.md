@@ -301,7 +301,14 @@ transitions, media or markers.
   asides and pontificating included, even if it runs long. He trims for
   length himself: "you cut too much stuff out... If there's any section
   that I think that we should cut out, maybe I'll cut it out myself"
-  (2026-10-16).
+  (2026-10-16). When he asks you not to drop anything and to mark possible
+  cuts on screen instead, that's about the material too: still cut the
+  silences, retakes, false starts and asides to himself ("let me just stop
+  that"), and mark only points he makes (a line said twice, a tangent). On
+  the Threadbear launch video the first round labelled 47 retakes and false
+  starts as possible cuts, and he said: "You should definitely cut out false
+  starts and silences and things like that... I meant it's like content"
+  (2026-11-03).
 - **Live demos: when he leaves the desk,** go full screen on his camera
   from when he says he's going ("Cup of tea time") until he's back at the
   screen, and cover the time away with a time card meme, with its sound,
