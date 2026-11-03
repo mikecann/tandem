@@ -37,6 +37,10 @@ public struct RenderContext: Sendable {
     public var effects: EffectRegistry
     /// The viewer's drag previews, read by the player on every frame.
     public var liveOverrides: LiveVideoOverrides?
+    /// Plays zoomed screen recordings from their twice-the-size copies
+    /// where they've been made (`ZoomUpscaling`). Exports turn it on and
+    /// make the copies first.
+    public var upscalesZooms = false
     /// Plays every audio segment at 1 (no levelling, gain, keyframes or
     /// fades), so the gain check can divide the real render by it.
     var flatAudioGain = false

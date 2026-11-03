@@ -25,6 +25,9 @@ public enum AnalysisKind: String, Codable, Sendable, CaseIterable {
     /// Animation, PNG in a MOV), made with ffmpeg. The picture plays, and
     /// thumbnails, proxies and mattes are made, from this copy.
     case converted
+    /// Twice-the-size copy of a stretch of a screen recording, for zooms
+    /// (`UpscaleJob`). Made for exports, never by default.
+    case upscale
 }
 
 public struct TranscriptWord: Codable, Equatable, Sendable {

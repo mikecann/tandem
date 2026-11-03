@@ -23,11 +23,15 @@ public protocol RenderAssets: Sendable {
     func convertedURL(for item: MediaItem) -> URL?
     /// SAM Audio's stems of the file for a prompt, if `tandem separate` made them.
     func separation(for item: MediaItem, prompt: String) -> SeparationStems?
+    /// A screen recording's twice-the-size copy covering a stretch of its
+    /// media time, for a zoom (`ZoomUpscaling`).
+    func upscaledURL(for item: MediaItem, covering range: TimeRange) -> URL?
 }
 
 extension RenderAssets {
     public func convertedURL(for item: MediaItem) -> URL? { nil }
     public func separation(for item: MediaItem, prompt: String) -> SeparationStems? { nil }
+    public func upscaledURL(for item: MediaItem, covering range: TimeRange) -> URL? { nil }
 
     /// Providers without per-mode mattes have one matte for every mode.
     public func matteURL(for item: MediaItem, mode: CutoutMode) -> URL? {

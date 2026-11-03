@@ -5,8 +5,8 @@ import Foundation
 /// - Order: priority (`interactive`, `timeline`, `background`), then cheap
 ///   kinds before expensive ones (a waveform before a matte), then first
 ///   come first served.
-/// - Limits: per kind, a shared limit for the encoder-heavy kinds (proxy
-///   and matte), and a total, so the machine stays responsive.
+/// - Limits: per kind, a shared limit for the encoder-heavy kinds (proxy,
+///   matte and upscale), and a total, so the machine stays responsive.
 /// - Dedupe: a job ID names one piece of work (kind plus cache key), so
 ///   asking twice runs it once; asking again with a higher priority moves
 ///   it up.
@@ -18,12 +18,12 @@ import Foundation
 final class JobScheduler: @unchecked Sendable {
     struct Limits: Sendable {
         var perKind: [AnalysisKind: Int]
-        /// Proxy and matte builds together.
+        /// Proxy, matte and upscale builds together.
         var encoder: Int
         var total: Int
 
         static let standard = Limits(
-            perKind: [.thumbnails: 2, .waveform: 2, .loudness: 2, .transcript: 1, .proxy: 1, .matte: 1, .isolatedVoice: 1, .converted: 1],
+            perKind: [.thumbnails: 2, .waveform: 2, .loudness: 2, .transcript: 1, .proxy: 1, .matte: 1, .isolatedVoice: 1, .converted: 1, .upscale: 1],
             encoder: 1,
             total: 4
         )
@@ -43,10 +43,12 @@ final class JobScheduler: @unchecked Sendable {
     /// conversion goes before everything, since the file's thumbnails,
     /// proxy and matte wait for it.
     static let kindOrder: [AnalysisKind: Int] = [
-        .converted: -1, .waveform: 0, .loudness: 1, .thumbnails: 2, .transcript: 3, .proxy: 4, .isolatedVoice: 5, .matte: 6
+        .converted: -1, .waveform: 0, .loudness: 1, .thumbnails: 2, .transcript: 3, .proxy: 4, .isolatedVoice: 5, .matte: 6, .upscale: 7
     ]
 
-    static func usesEncoder(_ kind: AnalysisKind) -> Bool { kind == .proxy || kind == .matte }
+    /// Proxies, mattes and upscaled copies all encode HEVC on the shared
+    /// hardware encoder.
+    static func usesEncoder(_ kind: AnalysisKind) -> Bool { kind == .proxy || kind == .matte || kind == .upscale }
 
     private final class Entry {
         var job: Job

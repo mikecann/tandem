@@ -225,10 +225,10 @@ copies of a file share a job):
 
 - Order: priority (`interactive` > `timeline` > `background`), then kind
   (conversion, waveform, loudness, thumbnails, transcript, proxy, isolated
-  voice, matte), then first come. Conversions go first because a file's
+  voice, matte, upscale), then first come. Conversions go first because a file's
   other picture analyses wait for them.
 - Limits: two each of thumbnails, waveform and loudness, one of each other
-  kind, one encoder job (proxy or matte) at a time, four in total.
+  kind, one encoder job (proxy, matte or upscale) at a time, four in total.
 - Asking again with a higher priority moves a job up.
 - Long jobs call `checkpoint()` between frames: it throws on cancel, hands
   `EncoderLock.shared` to a waiting export (`.export` priority), and steps
@@ -251,6 +251,7 @@ copies of a file share a job):
 | transcript | `transcript.json` | `Transcript`, engine "Bark 3.0 Pro" (language "en") or "SpeechAnalyzer" (en-US), the engine's own word times in media time (aligned to the waveform when read). A SpeechAnalyzer transcript made because Bark couldn't has `fallback.json` beside it |
 | matte | `matte.mov` | 1080p box, HEVC, keyframe every 10 frames; luma of full-range (420f) frames is the alpha (0 background, 255 person), chroma neutral, BT.709 tags, source frame times and rotation |
 | isolatedVoice | `voice.caf` | 48 kHz ALAC, source channels (max 2), same length as the source, lined up to the sample |
+| upscale | `upscaled.mov` | Only for screen recordings a zoom draws at 1.3x their pixels or more in an export: a stretch of the file (`UpscaleSpan`, whole seconds) at twice the size, HEVC, keyframe every 30 frames, the source's colour tags and frame times, with a black frame held from zero to the stretch |
 | converted | `video.mov` | Only for `undecodableCodec` files: HEVC, with alpha when the source has it, BT.709 tags, the source's size and frame times, video only |
 
 Notes on each:
@@ -521,6 +522,19 @@ Notes on each:
   stops at the source's length (resampled sources are padded to it). Both
   layouts line up within a sample on the real footage. The render module mixes it with the original by
   `voiceIsolation`.
+- **Upscale.** Real-ESRGAN's realesr-animevideov3 (BSD-3-Clause) as Core
+  ML, its x4 network then a 2x2 average, run on 512 px tiles that each
+  read 24 px past the part they keep (so neighbouring inputs overlap by
+  48 px) and return 1024 px (`Resources/Upscaler`, with the conversion
+  script). A tile goes
+  through the model again only when a pixel has moved more than 6 steps
+  since it last did, so on a screen recording most of each frame is
+  reused. The key holds the stretch; a clip finds any copy that covers its
+  segment, so trims and splits keep using it. Exports make them
+  (`ZoomUpscaling`), never the defaults. On the M5 (debug build, background
+  priority) 6 s of the Threadbear launch screen recording (3200x1800, 176
+  frames) took 17.9 s, 0.1 s a frame with 1.7 of 28 tiles a frame through
+  the model, and made a 3.8 MB copy.
 - **Converted.** A 2 s 512x512 Animation or PNG sticker converts in about a
   quarter of a second; 10 s of 1080p30 Animation (118 MB) takes 3.9 s and
   makes an 11 MB copy. The ProRes intermediate sits in the job's folder and

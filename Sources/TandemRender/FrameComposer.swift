@@ -259,7 +259,12 @@ struct FrameComposer {
         let placement = LayerMath.placement(source: size, canvas: canvas, transform: video.transform, fitToCanvas: fitToCanvas)
         let transform = LayerMath.coreImage(placement, sourceHeight: size.height, canvasHeight: canvas.height)
         if !transform.isIdentity {
-            image = image.transformed(by: transform, highQualityDownsample: total < 0.75)
+            // Scaling up (a 3200 px screen recording on a 4K canvas, and
+            // more so zoomed in), Lanczos keeps small text crisp where
+            // Core Image's bilinear filter goes soft.
+            image = total > 1.001
+                ? image.tandemLanczos(transform)
+                : image.transformed(by: transform, highQualityDownsample: total < 0.75)
         }
 
         if let shadow = EffectRenderer.style("dropShadow", in: video.effects, scene.registry) {

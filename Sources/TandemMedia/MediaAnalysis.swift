@@ -24,6 +24,9 @@ public final class MediaAnalysis: @unchecked Sendable {
     /// Requests for the picture of a file that's still being converted,
     /// by media ID: submitted once its `converted` copy lands.
     private var afterConversion: [String: [(kind: AnalysisKind, item: MediaItem, priority: JobPriority, settings: AnalysisSettings?)]] = [:]
+    /// Exports waiting on each upscale job, so one stopping cancels the
+    /// job only when nobody else is waiting for it.
+    private var upscaleWaiters: [String: Int] = [:]
     /// Fingerprints computed for items that didn't carry one, by path.
     private var fingerprints: [String: (stat: FileStat, value: String)] = [:]
     /// Decoded transcripts and waveforms by cache key, and transcripts
@@ -212,7 +215,7 @@ public final class MediaAnalysis: @unchecked Sendable {
     /// ID, and queues the kind asked for once the copy lands.
     @discardableResult
     public func submit(_ kind: AnalysisKind, for item: MediaItem, priority: JobPriority = .background, settings requested: AnalysisSettings? = nil) -> String? {
-        guard kind.applies(to: item), let fingerprint = fingerprint(for: item) else { return nil }
+        guard kind.applies(to: item), kind != .upscale, let fingerprint = fingerprint(for: item) else { return nil }
         // A transcript is read aligned to the file's waveform, so asking for
         // one asks for that too (it's quick, and usually made already).
         if kind == .transcript { submit(.waveform, for: item, priority: priority) }
@@ -373,19 +376,20 @@ public final class MediaAnalysis: @unchecked Sendable {
     /// `input` is the file to read: the source, or for the picture of a
     /// file macOS can't decode, its converted copy.
     static func make(_ kind: AnalysisKind, item: MediaItem, source: URL, input: URL, fingerprint: String, key: String, settings: AnalysisSettings, cache: AnalysisCache,
-                     rvmStore: RVMModelStore = .standard, barkStore: BarkModelStore = .standard, ffmpeg: FFmpeg?, context: JobContext) async throws {
+                     rvmStore: RVMModelStore = .standard, barkStore: BarkModelStore = .standard, ffmpeg: FFmpeg?, context: JobContext,
+                     timeRange: CMTimeRange? = nil, canonical: String? = nil) async throws {
         guard let expected = Fingerprint(fingerprint), expected.matchesStat(of: source) else {
             throw MediaError.fileChanged(item.path)
         }
         let pending = try cache.begin(kind: kind, key: key)
         do {
-            try await AnalysisJobs.run(kind, source: input, item: item, settings: settings, into: pending.folder, context: context, rvmStore: rvmStore,
-                                       barkStore: barkStore, ffmpeg: ffmpeg)
+            try await AnalysisJobs.run(kind, source: input, item: item, settings: settings, into: pending.folder, context: context, timeRange: timeRange,
+                                       rvmStore: rvmStore, barkStore: barkStore, ffmpeg: ffmpeg)
             try context.checkCancellation()
             guard expected.matchesStat(of: source) else { throw MediaError.fileChanged(item.path) }
             // Only a fallback matte or transcript due for a rebuild is still there.
             if cache.contains(kind: kind, key: key) { cache.remove(kind: kind, key: key) }
-            try cache.commit(pending, fingerprint: fingerprint, algorithmVersion: kind.algorithmVersion, settings: settings.canonical(for: kind, item: item), source: item.path)
+            try cache.commit(pending, fingerprint: fingerprint, algorithmVersion: kind.algorithmVersion, settings: canonical ?? settings.canonical(for: kind, item: item), source: item.path)
         } catch {
             cache.discard(pending)
             throw error
@@ -423,6 +427,92 @@ public final class MediaAnalysis: @unchecked Sendable {
         guard let computed = try? Fingerprint.compute(for: url).description else { return nil }
         lock.withLock { fingerprints[item.path] = (stat, computed) }
         return computed
+    }
+}
+
+// MARK: - Upscaled copies
+
+extension MediaAnalysis {
+    /// The cache key of a screen recording's twice-the-size copy of `span`.
+    func upscaleKey(for item: MediaItem, span: UpscaleSpan) -> String? {
+        guard AnalysisKind.upscale.applies(to: item), let fingerprint = fingerprint(for: item) else { return nil }
+        return AnalysisCache.key(fingerprint: fingerprint, kind: .upscale, algorithmVersion: UpscaleJob.version, settings: span.canonical)
+    }
+
+    /// A twice-the-size copy (`UpscaleJob`) of the file covering `range`
+    /// of its media time, at the file's own frame times, if one's been
+    /// made: the shortest, when copies overlap. Any copy that covers it
+    /// will do, so a clip trimmed or split after its copy was made still
+    /// finds it.
+    public func upscaledURL(for item: MediaItem, covering range: TimeRange) -> URL? {
+        guard AnalysisKind.upscale.applies(to: item), let fingerprint = fingerprint(for: item) else { return nil }
+        let best = cache.manifests(kind: .upscale)
+            .filter { $0.fingerprint == fingerprint && $0.algorithmVersion == UpscaleJob.version }
+            .compactMap { manifest -> (key: String, span: UpscaleSpan)? in
+                guard let span = try? JSONDecoder().decode(UpscaleSpan.self, from: Data(manifest.settings.utf8)), span.contains(range) else { return nil }
+                return (manifest.key, span)
+            }
+            .min { $0.span.end - $0.span.start < $1.span.end - $1.span.start }
+        guard let best else { return nil }
+        return cache.lookup(kind: .upscale, key: best.key)?.appendingPathComponent(UpscaleJob.file)
+    }
+
+    /// Queues the copy of `span` and returns its job ID, or nil when there's
+    /// nothing to do (made already, or not a screen recording).
+    @discardableResult
+    public func submitUpscale(for item: MediaItem, span: UpscaleSpan, priority: JobPriority = .interactive) -> String? {
+        guard let key = upscaleKey(for: item, span: span), let fingerprint = fingerprint(for: item),
+              upscaledURL(for: item, covering: span.timeRange) == nil else { return nil }
+        let source = folder.url(for: item)
+        let cache = self.cache
+        let settings = self.settings
+        let range = CMTimeRange(start: CMTime(seconds: Double(span.start), preferredTimescale: 600), end: CMTime(seconds: Double(span.end), preferredTimescale: 600))
+        let job = JobScheduler.Job(id: Self.jobID(.upscale, key: key), kind: .upscale, mediaID: item.id, priority: priority) { context in
+            try await Self.make(.upscale, item: item, source: source, input: source, fingerprint: fingerprint, key: key, settings: settings, cache: cache,
+                                ffmpeg: nil, context: context, timeRange: range, canonical: span.canonical)
+        }
+        return scheduler.submit(job)
+    }
+
+    /// Makes the copy of `span` if need be and waits for it: ready, or why
+    /// not. `progress` hears the job's own progress, 0...1, as it runs.
+    /// When `cancelled` turns true (the export was stopped) the job is
+    /// cancelled and the answer is `.missing`.
+    public func waitForUpscale(of item: MediaItem, span: UpscaleSpan, priority: JobPriority = .interactive,
+                               cancelled: @escaping @Sendable () -> Bool = { false },
+                               progress: (@Sendable (Double, String?) -> Void)? = nil) async -> ResultState {
+        guard let key = upscaleKey(for: item, span: span) else { return AnalysisKind.upscale.applies(to: item) ? .unreadable : .notApplicable }
+        if let id = submitUpscale(for: item, span: span, priority: priority) {
+            var token: UUID?
+            if let progress {
+                token = observe { statuses in
+                    if let status = statuses.first(where: { $0.id == id }) { progress(status.progress, status.message) }
+                }
+            }
+            lock.withLock { upscaleWaiters[id, default: 0] += 1 }
+            // Polled rather than awaited, so a stopped export stops waiting,
+            // and stops the job unless another export is waiting on it.
+            var gaveUp = false
+            while let status = scheduler.status(id: id), status.state == .queued || status.state == .running {
+                if cancelled() {
+                    gaveUp = true
+                    break
+                }
+                try? await Task.sleep(nanoseconds: 200_000_000)
+            }
+            let others: Int = lock.withLock {
+                let left = (upscaleWaiters[id] ?? 1) - 1
+                upscaleWaiters[id] = left > 0 ? left : nil
+                return left
+            }
+            if gaveUp, others == 0 { scheduler.cancel(id: id) }
+            if let token { removeObserver(token) }
+        }
+        if upscaledURL(for: item, covering: span.timeRange) != nil { return .ready }
+        if let status = scheduler.status(id: Self.jobID(.upscale, key: key)), status.state == .failed {
+            return .failed(status.message ?? "failed")
+        }
+        return .missing
     }
 }
 
@@ -471,6 +561,11 @@ enum AnalysisJobs {
             try await IsolatedVoiceJob.run(source: source, model: settings.voiceModel, into: folder, context: context, timeRange: timeRange)
         case .converted:
             try await ConvertJob.run(source: source, item: item, ffmpeg: ffmpeg, into: folder, context: context)
+        case .upscale:
+            // Copies are of a stretch; `submitUpscale` makes them.
+            guard let timeRange else { throw MediaError.notApplicable("an upscaled copy needs a stretch of the file") }
+            let span = UpscaleSpan(covering: TimeRange(start: Time(seconds: timeRange.start.seconds), end: Time(seconds: timeRange.end.seconds)))
+            try await UpscaleJob.run(source: source, span: span, into: folder, context: context)
         }
     }
 }
