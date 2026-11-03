@@ -190,6 +190,49 @@ final class CutPlanTests: XCTestCase {
         XCTAssertLessThanOrEqual(try XCTUnwrap(played.from), 11.2)
     }
 
+    func testFaintTappingRoundTheWordsLeavesThePauseAPause() throws {
+        // The Threadbear launch video's editor's notes: "...as well. [9 s of
+        // a foot tapping] Editor's note, get rid of that. [more tapping] And
+        // we also...", the tapping low bumps at -62 dB in a quiet room. Each
+        // bump was sound no word claims, so there was no pause within 0.3 s
+        // of the note, and tandem cut left it in ("runs into it from before").
+        let take = Take(
+            length: 14, words: [(10.5, 11.0), (15.0, 16.5), (20.5, 21.0)], room: 0.04,
+            pulses: [(11.1, 14.95, 0.43, 0.18, -62.0), (16.6, 20.45, 0.43, 0.18, -62.0)]
+        )
+        let result = plan(take, removing: 15.0...16.5, cut: [15.0...16.5], kept: [10.5...11.0, 20.5...21.0], keep: 0.4)
+        XCTAssertTrue(result.cuts, "\(result)")
+        let from = try XCTUnwrap(result.from), to = try XCTUnwrap(result.to)
+        // The pauses run through the bumps, as far as the 3 s either side
+        // of each edge that's looked at, and the cut keeps a sentence's
+        // 0.4 s (at least) of them.
+        assertInside(try XCTUnwrap(result.startPause), 11.0...15.0)
+        XCTAssertLessThanOrEqual(try XCTUnwrap(result.startPause).lowerBound, 15.0 - CutAudit.around + 0.01)
+        XCTAssertGreaterThanOrEqual(try XCTUnwrap(result.endPause).upperBound, 16.5 + CutAudit.around - 0.01)
+        XCTAssertGreaterThanOrEqual(result.keptBefore + result.keptAfter, 0.4 - 1e-9)
+        XCTAssertLessThan(result.keptBefore + result.keptAfter, 0.4 + 0.5)
+        // Neither edge sits in a bump: each is in the quiet between them.
+        for edge in [from, to] {
+            let phase = (edge - (edge < 16 ? 11.1 : 16.6)).truncatingRemainder(dividingBy: 0.43)
+            XCTAssertGreaterThan(phase, 0.18, "\(edge) is in a bump")
+        }
+        XCTAssertEqual(result.start?.verdict, .clean)
+        XCTAssertEqual(result.end?.verdict, .clean)
+
+        // A low swell running straight into "Editor's", with no quiet
+        // between (43:10 on the Threadbear video), isn't the word: it made
+        // the note's sound start 0.6 s before the transcript has it.
+        let swell = Take(
+            length: 14, words: [(10.5, 11.0), (15.0, 16.5), (20.5, 21.0)], room: 0.04,
+            pulses: [(11.1, 14.0, 0.43, 0.18, -62.0), (14.4, 15.0, 1, 0.6, -60.0)]
+        )
+        let joined = plan(swell, removing: 15.0...16.5, cut: [15.0...16.5], kept: [10.5...11.0, 20.5...21.0], keep: 0.4)
+        XCTAssertTrue(joined.cuts, "\(joined)")
+        XCTAssertGreaterThan(try XCTUnwrap(joined.startPause).upperBound, 14.9, "the pause runs on to the word's voice")
+        XCTAssertEqual(joined.start?.verdict, .clean)
+        XCTAssertEqual(joined.end?.verdict, .clean)
+    }
+
     func testSoundNoWordClaimsGoesWithTheStretchItsIn() throws {
         // "So [um, the] right": two short removed words with a 0.15 s pause
         // between them, and the transcript 0.2 s late on every word. The

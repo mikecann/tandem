@@ -163,6 +163,70 @@ public enum SoundTightening {
         return Listening(sounds: sounds, layers: layers, unread: unread)
     }
 
+    // MARK: - Phantom words
+
+    /// The gap each side of a lone word that makes it worth listening to:
+    /// a word alone between two pauses tighten would cut.
+    static let phantomGap = Time(seconds: 0.5)
+    /// The longest lone word that can be a phantom: the ones on the
+    /// Threadbear launch video were "Yes." and "Yeah.", under half a second.
+    static let phantomLength = Time(seconds: 1)
+
+    /// The map without the transcript's phantom words, and those words.
+    ///
+    /// On the Threadbear launch video (November 2026) the transcript had
+    /// "Yes." and "Yeah." three times in long pauses where the mic had only
+    /// a foot tapping (-64 to -80 dB, and Whisper heard nothing there). Each
+    /// split a long pause in two, and tighten kept each half's keep round a
+    /// word that isn't there: about 1.6 s of silence. So a single short word
+    /// between two gaps of `phantomGap` or more is listened to, as if it
+    /// weren't in the transcript: when the gap from the word before to the
+    /// word after has no voice where it is (quiet, faint sound, or a
+    /// breath's hiss with nothing near the voice above 300 Hz: the third,
+    /// "Yeah.", was hiss at -69 dB), it's left out. Only lone words between
+    /// `from` and `to` are listened to.
+    public static func withoutPhantoms(
+        _ map: TranscriptTools.SpeechMap, from: Time? = nil, to: Time? = nil, project: Project, folder: ProjectFolder
+    ) async -> (map: TranscriptTools.SpeechMap, phantoms: [TranscriptTools.SpokenWord]) {
+        let words = map.words
+        var lone: [Int] = []
+        for index in words.indices.dropFirst().dropLast() {
+            let word = words[index], before = words[index - 1], after = words[index + 1]
+            guard word.end - word.start <= phantomLength, word.start - before.end >= phantomGap, after.start - word.end >= phantomGap else { continue }
+            if let from, after.start < from { continue }
+            if let to, before.end > to { continue }
+            lone.append(index)
+        }
+        guard !lone.isEmpty else { return (map, []) }
+        // Each lone word's gap, heard with it left out of the transcript.
+        var without = map
+        let loneSet = Set(lone)
+        without.words = words.indices.filter { !loneSet.contains($0) }.map { words[$0] }
+        let gaps = lone.map { index in
+            let gap = TimeRange(start: words[index - 1].end, end: words[index + 1].start)
+            return Pause(start: gap.start, end: gap.end, duration: gap.duration, before: words[index - 1].text, after: words[index + 1].text, clipIDs: [])
+        }
+        let heard = await listen(gaps, map: without, project: project, folder: folder)
+        var phantoms = Set<Int>()
+        for (number, index) in lone.enumerated() {
+            guard let sound = heard.sounds[number], !sound.runsThrough else { continue }
+            // Allowing for the transcript's word times being off the sound.
+            let word = (words[index].start.seconds - CutPlanner.slack)...(words[index].end.seconds + CutPlanner.slack)
+            if !sound.heard.contains(where: { $0.voiced && $0.range.overlaps(word) }) { phantoms.insert(index) }
+        }
+        guard !phantoms.isEmpty else { return (map, []) }
+        var result = map
+        result.words = words.indices.filter { !phantoms.contains($0) }.map { words[$0] }
+        return (result, phantoms.sorted().map { words[$0] })
+    }
+
+    /// What `withoutPhantoms` left out, for warnings.
+    public static func phantomWarning(_ phantoms: [TranscriptTools.SpokenWord]) -> [String] {
+        guard !phantoms.isEmpty else { return [] }
+        let list = phantoms.map { "\"\($0.text)\" at \($0.start)" }.joined(separator: ", ")
+        return ["Left out \(list): the transcript has \(phantoms.count == 1 ? "a word" : "words") there, but the sound has no voice there, so the pauses either side are one. Listen with tandem clip if one should stay."]
+    }
+
     /// A gap's sound as the service reports it.
     static func report(_ sound: GapSound) -> PauseSound {
         func time(_ seconds: Double) -> Time { Time(seconds: (seconds * 1000).rounded() / 1000) }

@@ -28,7 +28,9 @@ enum PauseTightening {
         for index in unlocked.audioTracks.indices where unlocked.audioTracks[index].locked {
             unlocked.audioTracks[index].clips = []
         }
-        let map = TranscriptTools.speechMap(unlocked, transcripts: transcript)
+        let map = await SoundTightening.withoutPhantoms(
+            TranscriptTools.speechMap(unlocked, transcripts: transcript), from: within?.start, to: within?.end, project: project, folder: folder
+        ).map
         let rules = TranscriptTools.PauseRules.uniform(keep: keep, minimum: minimum)
         let pauses = SoundTightening.candidates(in: map, rules: rules, from: within?.start, to: within?.end)
         return await SoundTightening.plan(

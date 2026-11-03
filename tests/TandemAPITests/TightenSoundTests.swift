@@ -221,6 +221,41 @@ final class TightenSoundTests: XCTestCase {
         XCTAssertTrue(text.contains(" on iPad"), text)
     }
 
+    func testAWordTheSoundHasNoVoiceForIsLeftOutAndThePauseIsOne() async throws {
+        // The Threadbear launch video: the transcript had "Yes." in a long
+        // pause where the mic had only the room, splitting it in two, and
+        // tighten kept a keep either side of a word that isn't there. Here
+        // "Yes." is at 19.0 between "Right." and "Next." with nothing said.
+        let h = try harness()
+        defer { h.close() }
+        try Self.write(
+            to: h.folder.file("source/take1-camera.wav"), length: 64, words: Self.voice + [(21.0, 21.5, 0)],
+            breaths: Self.breaths, room: true
+        )
+        var transcript = Self.transcript
+        transcript.words += [
+            TranscriptWord(text: "Yes.", start: t(19.0), end: t(19.3)),
+            TranscriptWord(text: "Next.", start: t(21.0), end: t(21.5))
+        ]
+        h.analysis.transcripts["med_camera"] = transcript
+
+        let pauses = try await PausesRequest(min: 0.5).run(on: h.service, context: h.context)
+        let merged = try XCTUnwrap(pauses.pauses.first { $0.before.hasSuffix("Right.") }, pauses.readableText)
+        XCTAssertEqual(merged.start, t(17.0))
+        XCTAssertEqual(merged.end, t(21.0))
+        XCTAssertTrue(merged.after.hasPrefix("Next."), merged.after)
+        XCTAssertTrue(pauses.warnings?.contains { $0.contains("\"Yes.\"") } == true, "\(pauses.warnings ?? [])")
+        // "Done." and "Okay." are lone words too, with their voice: they stay.
+        XCTAssertTrue(pauses.pauses.contains { $0.after.hasPrefix("Done.") })
+        XCTAssertTrue(pauses.pauses.contains { $0.after.hasPrefix("Okay.") })
+
+        // Tighten makes one cut of the pause, keeping a sentence's 0.4 s.
+        let plan = try await h.service.tighten(TightenRequest(mike: true), context: h.context)
+        let cuts = plan.cuts.filter { $0.cut.start >= t(17.0) && $0.cut.end <= t(21.0) }
+        XCTAssertEqual(cuts.count, 1, plan.readableText)
+        XCTAssertEqual(4.0 - (cuts.first?.cut.duration.seconds ?? 0), 0.4, accuracy: 0.05)
+    }
+
     func testWithoutSoundToListenToTheTranscriptsGapsAreCutAndItSaysSo() async throws {
         // The fixture's files aren't there.
         let h = try ServiceHarness()
