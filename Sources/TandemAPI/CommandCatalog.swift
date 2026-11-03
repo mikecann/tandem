@@ -9,7 +9,7 @@ public enum CommandCase: String, CaseIterable, Codable, Sendable {
     case updateProject, updateSettings, addTrack, removeTrack, moveTrack, updateTrack
     case addMedia, updateMedia, removeMedia
     case placeMedia, placeSynced, insertClip, removeClips, rippleDeleteRange, cutRanges, closeGap, insertTime, insertTemplate, addSectionCards, fitSectionCards
-    case blade, join, joinThroughEdits, showAngle, trim, roll, slip, slide, holdFrame, setSpeed
+    case blade, join, joinThroughEdits, showAngle, trim, roll, slip, slide, holdFrame, redact, setSpeed
     case moveClips, updateClip, link, unlink, applyLayout, zoomToRegion, setFormatLayout, adoptFormat, addMotion
     case addTransition, updateTransition, removeTransition
     case addEffect, updateEffect, removeEffect, moveEffect, setKeyframes
@@ -49,6 +49,7 @@ extension EditCommand {
         case .slip: return .slip
         case .slide: return .slide
         case .holdFrame: return .holdFrame
+        case .redact: return .redact
         case .setSpeed: return .setSpeed
         case .moveClips: return .moveClips
         case .updateClip: return .updateClip
@@ -116,6 +117,7 @@ public enum CommandText {
         case .slip: return "Slip clip"
         case .slide: return "Slide clip"
         case .holdFrame(_, let range): return "Hold the frame before \(range.start)"
+        case .redact(let range, _, _, _, let style, _, _): return "\((style ?? .pixelate) == .blur ? "Blur" : "Pixelate") part of the picture from \(range.start) to \(range.end)"
         case .setSpeed(_, let speed, _, _): return "Speed \(number(speed))x"
         case .moveClips(let ids, _, _, _, _): return "Move \(count(ids.count, "clip"))"
         case .updateClip: return "Update clip"

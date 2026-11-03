@@ -175,6 +175,24 @@ public enum EditCommand: Codable, Equatable, Sendable {
     /// just this clip is cut, the held piece is a freeze frame, and every
     /// piece stays linked to the take, whose sound plays on uncut.
     case holdFrame(clipID: String, range: TimeRange)
+    /// Hides `rect` of a picture (fractions of the source frame from the top
+    /// left, as `zoomToRegion` takes) over `range`: a QR code, an email
+    /// column, a phone's notifications. Every clip of `mediaID` there (or
+    /// every clip on `trackID`) gets a copy of itself on a `cut` track right
+    /// above its own, "Privacy (Screen)": the same file, times and placement,
+    /// cropped to the region with a pixelate (the default) or blur on,
+    /// `size` its block size or radius in px@1080. The take is cut at the
+    /// range's edges and each copy is linked to the piece it hides, so ripple
+    /// cuts, trims, slips and moves keep it there (`Editing.redact`).
+    case redact(
+        range: TimeRange,
+        rect: Rect,
+        mediaID: String? = nil,
+        trackID: String? = nil,
+        style: RedactStyle? = nil,
+        size: Double? = nil,
+        name: String? = nil
+    )
     /// Changes speed but keeps the same media, so the clip gets shorter or
     /// longer. Linked clips change with it.
     case setSpeed(clipID: String, speed: Double, ripple: Bool? = nil, includeLinked: Bool? = nil)

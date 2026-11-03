@@ -81,6 +81,8 @@ public enum Editing {
             try slide(&project, clipID, delta: delta, &context)
         case .holdFrame(let clipID, let range):
             try holdFrame(&project, clipID: clipID, range: range, &context)
+        case .redact(let range, let rect, let mediaID, let trackID, let style, let size, let name):
+            try redact(&project, range: range, rect: rect, trackID: trackID, mediaID: mediaID, style: style ?? .pixelate, size: size, name: name, &context)
         case .setSpeed(let clipID, let speed, let ripple, let includeLinked):
             try setSpeed(&project, clipID, speed: speed, ripple: ripple ?? false, includeLinked: includeLinked ?? true, &context)
         case .moveClips(let clipIDs, let delta, let toTrackID, let includeLinked, let mode):
@@ -173,6 +175,8 @@ public enum Editing {
             return .placeSynced(mediaID: mediaID, trackID: try optional(trackID))
         case .showAngle(let range, let trackID):
             return .showAngle(range: range, trackID: try one(trackID))
+        case .redact(let range, let rect, let mediaID, let trackID, let style, let size, let name):
+            return .redact(range: range, rect: rect, mediaID: mediaID, trackID: try optional(trackID), style: style, size: size, name: name)
         case .rippleDeleteRange(let range, let trackIDs):
             return .rippleDeleteRange(range: range, trackIDs: try many(trackIDs))
         case .cutRanges(let ranges, let trackIDs):
