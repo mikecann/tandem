@@ -1,3 +1,4 @@
+import CoreML
 import CryptoKit
 import Foundation
 import TandemCore
@@ -16,6 +17,36 @@ final class BarkTranscriptionTests: TempFolderTestCase {
     }
 
     // MARK: - Tokens into words
+
+    func testAnEncoderTheNeuralEngineCantCompileLoadsOnTheCPU() throws {
+        // With the disk nearly full, the Neural Engine compiler runs out of
+        // room for its 2 GB of temp files and CoreML says "functionName must
+        // be nil unless the model type is ML Program". The CPU needs none.
+        struct NoRoom: Error {}
+        var tried: [MLComputeUnits] = []
+        var fellBack: [Error] = []
+        let loaded = try BarkRuntime.Lease.encoder(.cpuAndNeuralEngine, fellBack: { fellBack.append($0) }) { units in
+            tried.append(units)
+            if units != .cpuOnly { throw NoRoom() }
+            return "encoder"
+        }
+        XCTAssertEqual(loaded, "encoder")
+        XCTAssertEqual(tried, [.cpuAndNeuralEngine, .cpuOnly])
+        XCTAssertTrue(fellBack.count == 1 && fellBack[0] is NoRoom, "the Neural Engine's error, for the check to say")
+
+        // Loaded where it was asked: nothing fell back.
+        fellBack = []
+        XCTAssertEqual(try BarkRuntime.Lease.encoder(.cpuAndNeuralEngine, fellBack: { fellBack.append($0) }) { _ in "encoder" }, "encoder")
+        XCTAssertTrue(fellBack.isEmpty)
+
+        // Already on the CPU: its failure is the one to see.
+        tried = []
+        XCTAssertThrowsError(try BarkRuntime.Lease.encoder(.cpuOnly) { units -> String in
+            tried.append(units)
+            throw NoRoom()
+        }) { XCTAssertTrue($0 is NoRoom) }
+        XCTAssertEqual(tried, [.cpuOnly])
+    }
 
     func testSubWordTokensBecomeWordsFromTheirFirstStartToTheirLastEnd() {
         // FluidAudio turns the SentencePiece marker into a leading space.

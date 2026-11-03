@@ -1088,8 +1088,10 @@ comments, changed these rules for a conversation like this:
   question handwritten big as he asks it, then parked small at the top
   only long enough to read, then off: "I don't think we need to show the
   question on the screen the whole time." Name tag at the bottom under
-  the captions, not above the head. Dramatic music, not chill lounge,
-  and a different bed per Short: "not every clip has the same music."
+  the captions, not above the head. No music: he turned down chill
+  lounge, seven dramatic beds and eight lighter styles (boom-bap, funk,
+  pizzicato, house, synthwave, swing, surf, chiptune), then "maybe we just
+  don't put music on the shorts" (3 Nov 2026).
 - **A cartoon of someone not in the room gets their name on it** ("JAMIE"
   on his jumper) so viewers know who it is. Once per beat: Mike deleted
   the copy that switched sides on the cut and the second smug pop, keeping

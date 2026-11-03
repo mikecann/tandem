@@ -418,6 +418,9 @@ final class CheckAPITests: XCTestCase {
         /// Throws for these joins (by render start), or every one when nil
         /// is in it.
         var failing: Set<Double?> = []
+        /// What the engine says about how it listened, as Bark says its
+        /// encoder fell back to the CPU.
+        var fellBack: String?
 
         init(_ script: [Double: [CutListen.Word]], engine: String = "fake", model: String = "1") {
             self.script = script
@@ -434,7 +437,7 @@ final class CheckAPITests: XCTestCase {
         }
 
         var ear: CutCheck.Ear {
-            CutCheck.Ear(engine: engine, model: model) { samples in
+            CutCheck.Ear(engine: engine, model: model, fellBack: { self.lock.withLock { self.fellBack } }) { samples in
                 self.lock.withLock { self.calls += 1 }
                 let from = (Double(samples[Int(CutListen.padding * CutListen.sampleRate)]) * 1000).rounded()
                 if self.failing.contains(nil) || self.failing.contains(from) { throw Failed() }
@@ -721,6 +724,67 @@ final class CheckAPITests: XCTestCase {
         XCTAssertEqual(listened.engine, "broken, then fallback")
         XCTAssertEqual(heardCutOff(result).map(\.start), [t(30)])
         XCTAssertTrue(result.warnings.contains { $0.contains("listening with fallback") }, "\(result.warnings)")
+    }
+
+    func testAJoinTheEngineCouldntHearIsHeardByTheNext() async throws {
+        // Bark failing at one join (the Neural Engine compile ran out of
+        // disk, say) isn't twice in a row, so it stays the engine, but that
+        // join is still heard with SpeechAnalyzer rather than left out.
+        let (h, script) = try listeningHarness()
+        defer { h.close() }
+        let flaky = FakeEar(script, engine: "flaky")
+        flaky.failing = [-3]
+        let fallback = FakeEar(script, engine: "fallback")
+        h.service.cutListening = ([flaky.ear, fallback.ear], flaky.mix)
+        let result = try await CheckRequest(cuts: true, listen: true).run(on: h.service, context: h.context)
+        let listened = try XCTUnwrap(result.listened)
+        XCTAssertEqual(listened.joins.map(\.skipped), [nil, nil, nil])
+        XCTAssertEqual(flaky.calls, 3, "still the engine for the rest")
+        XCTAssertEqual(fallback.calls, 1, "only for the join flaky missed")
+        XCTAssertEqual(listened.engine, "flaky, then fallback")
+        XCTAssertEqual(heardCutOff(result).map(\.start), [t(30)])
+        XCTAssertFalse(result.warnings.contains { $0.contains("weren't heard") }, "\(result.warnings)")
+        XCTAssertTrue(result.warnings.contains { $0.contains("flaky couldn't listen at 1 join, so it was heard with fallback") }, "\(result.warnings)")
+
+        // From the cache next time, still saying who heard it.
+        let again = try await CheckRequest(cuts: true, listen: true).run(on: h.service, context: h.context)
+        XCTAssertEqual(again.listened?.cached, 3)
+        XCTAssertEqual(again.listened?.engine, "flaky, then fallback")
+    }
+
+    func testAnEngineThatFellBackToTheCPUSaysSo() async throws {
+        // Bark's encoder loads on the CPU when the Neural Engine can't
+        // compile it (a nearly full disk). It still hears every join, but
+        // slower and not quite as the Neural Engine does, so the check says.
+        let (h, script) = try listeningHarness()
+        defer { h.close() }
+        let ear = FakeEar(script, engine: "bark")
+        ear.fellBack = "listened on the CPU: no room"
+        h.service.cutListening = ([ear.ear], ear.mix)
+        let result = try await CheckRequest(cuts: true, listen: true).run(on: h.service, context: h.context)
+        XCTAssertEqual(result.listened?.joins.map(\.skipped), [nil, nil, nil])
+        XCTAssertEqual(result.warnings.filter { $0 == "bark listened on the CPU: no room" }.count, 1, "\(result.warnings)")
+
+        // On the Neural Engine, nothing to say.
+        ear.fellBack = nil
+        h.service.cutListening = ([FakeEar(script, engine: "other").ear], ear.mix)
+        let quiet = try await CheckRequest(cuts: true, listen: true).run(on: h.service, context: h.context)
+        XCTAssertFalse(quiet.warnings.contains { $0.contains("CPU") }, "\(quiet.warnings)")
+    }
+
+    func testOneJoinAnEngineFailsAtIsHeardByTheNext() async throws {
+        // The run that found this: a 1-join check, Bark failing, no fallback.
+        let (h, script) = try listeningHarness()
+        defer { h.close() }
+        let broken = FakeEar(script, engine: "broken")
+        broken.failing = [nil]
+        let fallback = FakeEar(script, engine: "fallback")
+        h.service.cutListening = ([broken.ear, fallback.ear], broken.mix)
+        let result = try await CheckRequest(from: t(25), to: t(35), cuts: true, listen: true).run(on: h.service, context: h.context)
+        let listened = try XCTUnwrap(result.listened)
+        XCTAssertEqual(listened.joins.map(\.skipped), [nil])
+        XCTAssertEqual(fallback.calls, 1)
+        XCTAssertEqual(heardCutOff(result).map(\.start), [t(30)])
     }
 
     func testANewModelHearsAgain() async throws {
