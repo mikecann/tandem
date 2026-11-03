@@ -18,6 +18,13 @@ struct Take {
     var releases: [(Double, Double)] = []
     /// Breath: the same hiss as an "s", 10 dB under it.
     var breaths: [(Double, Double)] = []
+    /// How loud the room is against the usual (about -55 dB of rumble):
+    /// 0.04 is a quiet room, about -83 dB.
+    var room: Float = 1
+    /// A foot tapping or a fan: a low bump (90 Hz, a smooth swell) `length`
+    /// long every `every` seconds from `from` to `to`, at `dB` RMS over the
+    /// bump. (from, to, every, length, dB)
+    var pulses: [(Double, Double, Double, Double, Double)] = []
 
     var samples: [Float] {
         let count = Int(length * Self.rate)
@@ -32,7 +39,20 @@ struct Take {
         var rumble: Float = 0
         for i in 0..<count {
             rumble += (noise() - rumble) * 0.02
-            out[i] = rumble * 0.03 + noise() * 0.00009
+            out[i] = (rumble * 0.03 + noise() * 0.00009) * room
+        }
+        for (from, to, every, length, dB) in pulses {
+            // A Hann swell's RMS is 0.61 of its peak, a sine's 0.71 of its own.
+            let peak = pow(10, dB / 20) / (0.61 * 0.71)
+            var at = from
+            while at + length <= to {
+                for i in span((at, at + length)) {
+                    let t = Double(i) / Self.rate
+                    let phase = (t + start - at) / length
+                    out[i] += Float(peak * sin(2 * .pi * 90 * t) * sin(.pi * phase) * sin(.pi * phase))
+                }
+                at += every
+            }
         }
         func span(_ range: (Double, Double)) -> Range<Int> {
             let from = max(0, Int(((range.0 - start) * Self.rate).rounded()))

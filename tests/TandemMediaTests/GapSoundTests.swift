@@ -204,6 +204,44 @@ final class GapSoundTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(kept, 0.4)
     }
 
+    func testFaintTappingThroughALongPauseIsOneCut() throws {
+        // The Threadbear launch video: a quiet room (about -83 dB) and a
+        // foot tapping or a fan all through a 9 s pause, low bumps 0.18 s
+        // long every 0.43 s at -62 dB, about 40 dB under the words. Each
+        // bump is over the floor, so it was sound, and the pause was cut
+        // round every one of them: 20 cuts, the picture jumping every 0.2 s.
+        // Timed so a bump is where each edge would go (0.2 s from each word).
+        let pulses = (11.1, 19.95, 0.43, 0.18, -62.0)
+        let take = Take(length: 13, words: [(10.5, 11.0), (20.0, 20.5)], room: 0.04, pulses: [pulses])
+        let sound = try listen([layer(take)], gap: 11.0...20.0, before: 10.5...11.0, after: 20.0...20.5)
+        XCTAssertTrue(sound.heard.isEmpty, "\(sound.heard)")
+        XCTAssertGreaterThan(sound.faint.count, 15, "the bumps are heard, as faint")
+        XCTAssertEqual(sound.pauses.count, 1)
+
+        // One cut across it, its edges in the quiet between bumps, keeping
+        // a sentence's 0.4 s at least.
+        let cuts = try sound.place(keep: 0.4, minimum: 0.5, frame: frame).get()
+        XCTAssertEqual(cuts.count, 1, "\(cuts)")
+        let cut = try XCTUnwrap(cuts.first)
+        for edge in [cut.from, cut.to] {
+            XCTAssertFalse(sound.faint.contains { $0.contains(edge) }, "\(edge) is in a bump: \(sound.faint)")
+        }
+        let kept = (sound.span.upperBound - sound.span.lowerBound) - (cut.to - cut.from)
+        XCTAssertGreaterThan(kept, 0.4 + 0.1, "both edges moved on out of the bump they'd have been in")
+        XCTAssertLessThan(kept, 0.4 + 2 * 0.25, "each edge moves past one bump at most")
+        let joins = GapSound.judge([layer(take)], from: cut.from, to: cut.to)
+        XCTAssertEqual(joins.start.verdict, .clean)
+        XCTAssertEqual(joins.end.verdict, .clean)
+
+        // Bumps with a voice in them, 20 dB under the words like the quiet
+        // second voice, are sound the cuts go round.
+        let syllables = stride(from: 11.1, to: 19.8, by: 0.43).map { ($0, $0 + 0.18, 20.0) }
+        let voiced = Take(length: 13, words: [(10.5, 11.0), (20.0, 20.5)], softWords: syllables, room: 0.04)
+        let near = try listen([layer(voiced)], gap: 11.0...20.0, before: 10.5...11.0, after: 20.0...20.5)
+        XCTAssertTrue(near.faint.isEmpty, "\(near.faint)")
+        XCTAssertGreaterThan(near.heard.count, 15)
+    }
+
     func testSpeechRightThroughTheGapIsNoPause() throws {
         // The transcript has a gap in a word it timed badly: the voice runs
         // on from 10.5 to 12.0 without a break.

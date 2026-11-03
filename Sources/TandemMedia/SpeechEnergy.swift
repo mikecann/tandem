@@ -3,7 +3,7 @@ import AVFoundation
 import Foundation
 
 /// How loud a stretch of a file's sound is, in 5 ms frames: RMS in dB over
-/// the full band, and again above 4 kHz.
+/// the full band, again above 4 kHz, and above 300 Hz.
 ///
 /// The high band is there for the ends of words: a final "s" or "t" hardly
 /// registers below 4 kHz, so a cut that only looks at the full band (or at
@@ -17,6 +17,9 @@ public struct SpeechEnergy: Sendable {
     public static let frameSeconds = 0.005
     /// Where the high band starts.
     public static let highBand = 4000.0
+    /// Where the voice band starts: under it is a room's rumble, a fan or
+    /// a foot tapping, and little of a voice (`FaintSound`).
+    public static let voiceBand = 300.0
     /// What a file is read at: high enough to keep an "s" (up to 16 kHz).
     static let readRate = 32_000.0
 
@@ -25,11 +28,14 @@ public struct SpeechEnergy: Sendable {
     /// dB per frame, full band and above `highBand`.
     public var full: [Float]
     public var high: [Float]
+    /// Above `voiceBand`. The full band where it wasn't measured.
+    public var voice: [Float]
 
-    public init(start: Double, full: [Float], high: [Float]) {
+    public init(start: Double, full: [Float], high: [Float], voice: [Float]? = nil) {
         self.start = start
         self.full = full
         self.high = high
+        self.voice = voice ?? full
     }
 
     /// Frames of mono `samples` starting at media time `start`.
@@ -38,6 +44,8 @@ public struct SpeechEnergy: Sendable {
         let perFrame = max(1, Int((sampleRate * Self.frameSeconds).rounded()))
         let count = samples.count / perFrame
         let highPassed = Self.highBand < sampleRate * 0.45 ? Self.highPass(samples, sampleRate: sampleRate) : nil
+        // Nil (the full band) at a rate too low for the filter.
+        let voicePassed = Self.voiceBand < sampleRate * 0.45 ? Self.highPass(samples, sampleRate: sampleRate, from: Self.voiceBand) : nil
         func levels(_ values: [Float]) -> [Float] {
             values.withUnsafeBufferPointer { buffer in
                 (0..<count).map { frame in
@@ -49,6 +57,7 @@ public struct SpeechEnergy: Sendable {
         }
         full = levels(samples)
         high = highPassed.map(levels) ?? [Float](repeating: -120, count: count)
+        voice = voicePassed.map(levels) ?? full
     }
 
     /// Media time just past the last frame.
@@ -59,11 +68,12 @@ public struct SpeechEnergy: Sendable {
         Int(((time - start) / Self.frameSeconds + 1e-6).rounded(.down))
     }
 
-    /// Two second-order Butterworth high-passes at `highBand`, one after the
-    /// other (what `highpass=f=4000,highpass=f=4000` does in ffmpeg), so the
-    /// voice's harmonics under 4 kHz don't leak into the high band.
-    static func highPass(_ samples: [Float], sampleRate: Double) -> [Float] {
-        let w0 = 2 * Double.pi * highBand / sampleRate
+    /// Two second-order Butterworth high-passes at `cutoff` (`highBand`
+    /// unless said), one after the other (what
+    /// `highpass=f=4000,highpass=f=4000` does in ffmpeg), so the voice's
+    /// harmonics under 4 kHz don't leak into the high band.
+    static func highPass(_ samples: [Float], sampleRate: Double, from cutoff: Double = highBand) -> [Float] {
+        let w0 = 2 * Double.pi * cutoff / sampleRate
         let alpha = sin(w0) / (2 * 0.5.squareRoot())
         let a0 = 1 + alpha
         let b0 = (1 + cos(w0)) / 2 / a0

@@ -178,8 +178,9 @@ public enum CutPlanner {
     ) -> CutPlan {
         var plan = CutPlan()
         var missed: [CutPlan.Edge: [ClosedRange<Double>]] = [:]
-        var first = side(start, startBoundary, edge: .start, missed: &missed)
-        var last = side(end, endBoundary, edge: .end, missed: &missed)
+        var faint: [CutPlan.Edge: [ClosedRange<Double>]] = [:]
+        var first = side(start, startBoundary, edge: .start, missed: &missed, faint: &faint)
+        var last = side(end, endBoundary, edge: .end, missed: &missed, faint: &faint)
         if falseStart {
             // Pause to pause inside the false start, where there's none
             // round it: the words past that pause come back.
@@ -236,6 +237,17 @@ public enum CutPlanner {
         )
         var from = before.lowerBound + tail
         var to = after.upperBound - lead
+        // Out of faint sound in the pause, into the quiet beside it, keeping
+        // more of the pause: the join goes in the room's quiet rather than
+        // halfway through a bump of it.
+        if let sound = faint[.start]?.first(where: { $0.lowerBound < from && from < $0.upperBound }),
+           sound.upperBound + CutAudit.pad <= before.upperBound - min(CutAudit.pad, lengths.before / 2) {
+            from = sound.upperBound + CutAudit.pad
+        }
+        if let sound = faint[.end]?.first(where: { $0.lowerBound < to && to < $0.upperBound }),
+           sound.lowerBound - CutAudit.pad >= after.lowerBound + min(CutAudit.pad, lengths.after / 2) {
+            to = sound.lowerBound - CutAudit.pad
+        }
         if let snap {
             from = snap(from, .start, before)
             to = snap(to, .end, after)
@@ -337,10 +349,11 @@ public enum CutPlanner {
     /// Sound in the stretch asked for that the chosen pause leaves on the
     /// side that stays goes in `missed`.
     static func side(
-        _ placer: CutPlacer, _ boundary: Boundary, edge: CutPlan.Edge, missed: inout [CutPlan.Edge: [ClosedRange<Double>]]
+        _ placer: CutPlacer, _ boundary: Boundary, edge: CutPlan.Edge, missed: inout [CutPlan.Edge: [ClosedRange<Double>]],
+        faint: inout [CutPlan.Edge: [ClosedRange<Double>]]
     ) -> Result<ClosedRange<Double>, ProblemError> {
         let near = placer.around(boundary.time)
-        let islands = islands(placer, near)
+        var islands = islands(placer, near)
         let step = SpeechEnergy.frameSeconds
         func time(_ index: Int) -> Double { placer.energy.start + Double(index) * step }
         func span(_ island: Island) -> ClosedRange<Double> { time(island.start)...time(island.end) }
@@ -349,6 +362,42 @@ public enum CutPlanner {
         }
         func distance(_ a: ClosedRange<Double>, _ b: ClosedRange<Double>) -> Double {
             max(0, max(a.lowerBound, b.lowerBound) - min(a.upperBound, b.upperBound))
+        }
+
+        // Faint sound no word calls home (`FaintSound`) is part of the pause
+        // it's in: a foot tapping or a fan all through a pause left no pause
+        // within the slack of the words on the Threadbear launch video. Its
+        // islands go, and the edge is kept out of them when it's placed.
+        if boundary.heard {
+            let words = boundary.before + boundary.after
+            let homes = Set(words.compactMap { word in
+                islands.indices.filter { overlap(span(islands[$0]), word) > 0 }.max { overlap(span(islands[$0]), word) < overlap(span(islands[$1]), word) }
+            })
+            let line = near.highFloor + GapSound.highOverFloor
+            let voices = homes.map { islands[$0].start..<islands[$0].end }
+            let speech = FaintSound.speech(in: placer.energy, around: boundary.time)
+            let quiet = Set(islands.indices.filter { index in
+                !homes.contains(index)
+                    && FaintSound.isFaint(islands[index].start..<islands[index].end, beside: voices, in: placer.energy, highLine: line, speech: speech)
+            })
+            // And faint sound running straight into a word's island is
+            // trimmed off it (`FaintSound.faintEnds`), on the sides read whole.
+            // The edge isn't kept out of what's trimmed: it runs on to the
+            // word, and the edge's least before the word (`minimumLead`) is
+            // measured from where its voice starts.
+            for index in homes {
+                let ends = FaintSound.faintEnds(of: islands[index].start..<islands[index].end, beside: voices, in: placer.energy, highLine: line, speech: speech)
+                if !islands[index].openStart, ends.start > 0 {
+                    islands[index].start += ends.start
+                }
+                if !islands[index].openEnd, ends.end > 0 {
+                    islands[index].end -= ends.end
+                }
+            }
+            if !quiet.isEmpty {
+                faint[edge, default: []] += quiet.sorted().map { span(islands[$0]) }
+                islands = islands.indices.filter { !quiet.contains($0) }.map { islands[$0] }
+            }
         }
 
         // Which side of the edge each island is on: `false` before, `true`

@@ -6,14 +6,20 @@ The timeline view line by line, how transcripts, search and pauses treat words a
 
 Times in a clip's source range (`sourceStart`, the `[in-out]` of the
 timeline view, transcript word times) are the file's own timestamps, as
-AVFoundation reads them. `ffmpeg -ss` counts from the file's start
-instead, so when you analyse a source with ffmpeg, add the stream's
-`start_time` (`ffprobe -show_entries stream=start_time`). Record It's
-camera files start at 0.1 s and its screen files anywhere from 0.33 s to
-0.77 s: left out, that's enough to clip a word. A file's picture and sound
-can start apart (0.77 s and 0.72 s in the Threadbear launch's screen
-recording), so add the video stream's `start_time` to a time found by
-diffing frames, and the audio stream's to one found in the sound.
+AVFoundation reads them. ffmpeg counts every stream from the file's
+earliest one instead (`-ss`, `pts_time` in its output), so when you
+analyse a source with ffmpeg, add the file's `start_time` (`ffprobe
+-show_entries format=start_time`) to the times it gives, or pass
+`-copyts` to keep the file's own. A file's picture and sound can start
+apart: the Threadbear launch's screen recording had its video at 0.767 s
+and its audio at 0.725 s, so its start was 0.725. A time you work out by
+counting frames from the first one starts at the video stream's own
+`start_time` (`stream=start_time`), not the file's. Record It's camera
+files start at 0 to 0.1 s and its screen files anywhere from 0.33 s to
+0.77 s. Left out, frame scans of a screen recording (motion, page
+changes, contact sheets, a popup to blur) come out that much early in
+Tandem's time (an agent placed privacy pixelation 0.7 s short), and on a
+camera file it's enough to clip a word.
 
 ## The timeline view
 
@@ -97,9 +103,19 @@ clips in the range).
   the next's), its real pauses, and any sound in it no word accounts for
   (`heard`, with the tracks it's on): a breath, an "um" the transcript left
   out, someone off mic. `tighten` cuts the quiet either side of that sound,
-  never through it. Bark writes most "um"s and "uh"s as words
-  (SpeechAnalyzer leaves them out), so those split the pause and stay until
-  they're cut like any word.
+  never through it. Faint sound with no voice or breath in it (a foot
+  tapping, a fan, a mouse click) is part of the pause instead, so it isn't
+  listed, and tighten and `cut` go through it in one cut, with their edges
+  in the quiet beside it. Sound is faint when less than 40 ms of it above
+  300 Hz comes within 25 dB of the louder word either side (or the voice's
+  loud end round them), and less than 80 ms of it is hiss above 4 kHz near
+  the voice there: a breath's hiss lasts longer, so it stays. A lone short
+  word between two gaps of 0.5 s or more whose sound has no voice in it
+  (the transcript heard "Yes." in a foot tapping) is left out of `pauses`
+  and `tighten`, so the pause it split is one, and a warning names each
+  one: listen to them with `tandem clip`. Bark writes most "um"s and "uh"s
+  as words (SpeechAnalyzer leaves them out), so those split the pause and
+  stay until they're cut like any word.
 - `media` shows each file's analysis state. Transcripts, loudness, proxies
   and cutout mattes are made in the background; tools that need a
   transcript say which files don't have one yet. `tandem wait` waits for

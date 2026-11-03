@@ -432,20 +432,33 @@ public final class TandemService: @unchecked Sendable {
     /// Pauses with what the sound under each has (`tandem pauses`): the gap
     /// as it's heard, its real pauses, and sound in it no word accounts for.
     public func listenedPauses(minimum: Time, from: Time?, to: Time?) async throws -> PausesResult {
-        var result = try pauses(minimum: minimum, from: from, to: to)
-        let (project, _) = coordinator.snapshot()
-        let map = TranscriptTools.speechMap(project, analysis: analysis)
-        let heard = await SoundTightening.listened(result.pauses, map: map, project: project, folder: folder)
-        result.pauses = heard.pauses
-        result.warnings = heard.warnings
-        return result
+        guard minimum > .zero else { throw ServiceError(.badRequest, "`min` must be more than 0 seconds.") }
+        // One snapshot for everything, so the pauses are the revision's.
+        let (project, revision) = coordinator.snapshot()
+        // A word the transcript has where the sound has only the room
+        // splits a pause in two: left out, the pause is one.
+        let cleaned = await SoundTightening.withoutPhantoms(
+            TranscriptTools.speechMap(project, analysis: analysis), from: from, to: to, project: project, folder: folder
+        )
+        let map = cleaned.map
+        let found = TranscriptTools.pauses(in: map, minimum: minimum, from: from, to: to)
+        let heard = await SoundTightening.listened(found, map: map, project: project, folder: folder)
+        return PausesResult(
+            revision: revision, minimum: minimum, pauses: heard.pauses, total: found.reduce(Time.zero) { $0 + $1.duration }, missing: map.missing,
+            warnings: SoundTightening.phantomWarning(cleaned.phantoms) + heard.warnings
+        )
     }
 
     public func tighten(_ request: TightenRequest, context: CallContext) async throws -> TightenResult {
         let rules = try pauseRules(for: request)
         let (project, revision) = coordinator.snapshot()
         try checkExpected(request.expectedRevision, at: revision)
-        let map = TranscriptTools.speechMap(project, analysis: analysis)
+        // Words the transcript has where the sound has only the room are
+        // left out, so the pause they split is one (`withoutPhantoms`).
+        let cleaned = await SoundTightening.withoutPhantoms(
+            TranscriptTools.speechMap(project, analysis: analysis), from: request.from, to: request.to, project: project, folder: folder
+        )
+        let map = cleaned.map
         let protect = request.protect ?? []
         // Each cut placed in the sound under its pause, on every track the
         // take plays there (`SoundTightening`). The minimum, the range and
@@ -465,7 +478,7 @@ public final class TandemService: @unchecked Sendable {
         let removed = cuts.reduce(Time.zero) { $0 + $1.cut.duration }
         let added = widened.reduce(Time.zero) { $0 + $1.added }
 
-        var warnings = planned.warnings
+        var warnings = SoundTightening.phantomWarning(cleaned.phantoms) + planned.warnings
         if !map.missing.isEmpty {
             let names = map.missing.compactMap { project.media($0)?.path }.joined(separator: ", ")
             warnings.append("No transcript yet for \(names), so pauses there aren't included.")
