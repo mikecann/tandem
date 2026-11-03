@@ -323,9 +323,9 @@ Where a join wasn't compared, it says why (`skipped`, and "not compared"
 in the list): "no transcript" (the take's words there aren't known yet:
 it's heard, to read, and a warning names the files), "nothing heard" (the
 engine heard nothing where the take has words, twice: its failure, never
-cached) or "couldn't listen" (every engine failed there). An engine
-failing at one join still hears the rest, and SpeechAnalyzer hears the
-joins Bark missed; Bark failing two joins in a row hands the rest over to
+cached) or "couldn't listen" (the engines it tried failed there). An
+engine failing at one join still hears the rest, and on macOS 26
+SpeechAnalyzer hears the joins Bark missed; Bark failing two joins in a row hands the rest over to
 SpeechAnalyzer too. Bark's encoder loads on the CPU when the Neural Engine
 can't compile it (it needs about 2 GB free on disk), and a warning says so,
 since it's slower and can hear a little differently. "E5RT encountered an

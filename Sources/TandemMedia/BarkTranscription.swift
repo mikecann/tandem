@@ -364,11 +364,14 @@ public actor BarkRuntime {
             managers.removeAll()
             let configuration = MLModelConfiguration()
             configuration.computeUnits = .cpuOnly
-            var fallback: String?
-            let encoder = try Self.encoder(units, fellBack: { fallback = ($0 as? LocalizedError)?.errorDescription ?? "\($0)" }) {
+            // Once the Neural Engine couldn't compile the encoder, the other
+            // function goes straight to the CPU: trying again would only
+            // fill the disk with its temp files again.
+            let encoder = try Self.encoder(encoderFallback == nil ? units : .cpuOnly, fellBack: {
+                self.encoderFallback = ($0 as? LocalizedError)?.errorDescription ?? "\($0)"
+            }) {
                 try Self.load(folder, "Encoder", $0, function: function)
             }
-            encoderFallback = fallback
             let models = AsrModels(encoder: encoder, preprocessor: preprocessor,
                                    decoder: decoder, joint: joint, configuration: configuration, vocabulary: vocabulary, version: .ultra)
             let manager = AsrManager(models: models)

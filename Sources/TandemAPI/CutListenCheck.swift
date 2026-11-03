@@ -190,6 +190,10 @@ extension CutCheck {
         var seconds = 0.0
         var active = 0, failuresInARow = 0
         var engines = ears.isEmpty ? [] : [ears[0].engine]
+        /// Names an engine past the first that heard a join, once.
+        func heardBy(_ ear: Int) {
+            if ear < ears.count, !engines.contains(ears[ear].engine) { engines.append(ears[ear].engine) }
+        }
         var failed: [(index: Int, input: [Float], error: String)] = []
         var unheard: [Time] = []
         var reported = Set<String>()
@@ -276,15 +280,17 @@ extension CutCheck {
             if !known { untranscribed += 1 }
             let speech = known && said.words.contains { $0.end > window.lowerBound && $0.start < window.upperBound }
             var heard: [CutListen.Word]?
-            for ear in ears where heard == nil {
+            for (index, ear) in ears.enumerated() where heard == nil {
                 heard = cache.heard(CutListenCache.key(input, engine: ear.engine, model: ear.model))
+                if let heard, !heard.isEmpty || !speech { heardBy(index) }
             }
             // Nothing cached where there's speech came from an older check.
             if heard?.isEmpty == true, speech { heard = nil }
             let wasCached = heard != nil
             var skipped: String? = known ? nil : "no transcript"
             if heard == nil {
-                let (words, _, error) = await hear(input, speech: speech)
+                let (words, ear, error) = await hear(input, speech: speech)
+                if words != nil { heardBy(ear) }
                 heard = words
                 if words == nil {
                     if error != nil {
@@ -323,9 +329,9 @@ extension CutCheck {
             let known = !said.unknown.contains { $0.overlaps(window) }
             let speech = known && said.words.contains { $0.end > window.lowerBound && $0.start < window.upperBound }
             let (words, ear, error) = await hear(miss.input, speech: speech, from: active > 0 ? nil : rescuer)
-            if words != nil, active == 0 {
-                rescued += 1
-                if !engines.contains(ears[ear].engine) { engines.append(ears[ear].engine) }
+            if words != nil {
+                heardBy(ear)
+                if active == 0 { rescued += 1 }
             }
             if let words {
                 fresh += 1
@@ -346,7 +352,7 @@ extension CutCheck {
         }
         if rescued > 0, let rescuer, let firstError {
             let what = firstFailures == 1 ? "1 join" : "\(firstFailures) joins"
-            warnings.append("\(ears[0].engine) couldn't listen at \(what), so \(rescued == firstFailures ? "they were" : "\(rescued) were") heard with \(ears[rescuer].engine): \(firstError)")
+            warnings.append("\(ears[0].engine) couldn't listen at \(what), so \(rescued == firstFailures ? (rescued == 1 ? "it was" : "they were") : rescued == 1 ? "1 was" : "\(rescued) were") heard with \(ears[rescuer].engine): \(firstError)")
         }
         for index in listened.sorted() {
             if let how = await ears[index].fellBack() { warnings.append("\(ears[index].engine) \(how)") }
