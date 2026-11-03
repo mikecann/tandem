@@ -289,6 +289,18 @@ transitions, media or markers.
   gap of 0.2 s or more made 818 cuts in a 38-minute video, one every 2.8 s,
   and the picture jumped around (Mike, 2026-10-05). The 0.4 s is for
   between sentences. Leave live demo reactions alone.
+  On an unscripted screen demo, though, he wants the shorter mid-sentence
+  pauses gone too: "There's a heap of these like little micro pauses here
+  when I'm mid sentence. Can you get rid of them please?", applied to the
+  whole video (Threadbear launch, 2026-11-03, a screen demo with him in the
+  corner most of the time). What closed them: quiet gaps of about 0.25 s or
+  more mid-sentence down to about 0.13 s, and commas over 0.3 s to 0.15 s,
+  leaving breaths under that alone. Bark's full stops and capitals can't be
+  trusted in his fast runs ("some of the other really nice little. |
+  Productivity features" was the pause he flagged, and a 0.4 s sentence
+  keep had left it in), so read each long kept pause in context and decide
+  sentence or not yourself. Then let `check --cuts` move any edge that
+  clipped a word: edges from a level threshold cut soft word ends.
 - **Live demos: keep the playback.** When Mike plays the timeline back to
   show the viewer ("let's have a look", "let's listen"), keep that stretch
   even though he's silent: "When I'm explicitly telling the user I'm
