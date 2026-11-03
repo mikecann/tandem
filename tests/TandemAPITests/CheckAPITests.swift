@@ -744,7 +744,7 @@ final class CheckAPITests: XCTestCase {
         XCTAssertEqual(listened.engine, "flaky, then fallback")
         XCTAssertEqual(heardCutOff(result).map(\.start), [t(30)])
         XCTAssertFalse(result.warnings.contains { $0.contains("weren't heard") }, "\(result.warnings)")
-        XCTAssertTrue(result.warnings.contains { $0.contains("flaky couldn't listen at 1 join") && $0.contains("1 was heard with fallback") || $0.contains("it was heard with fallback") }, "\(result.warnings)")
+        XCTAssertTrue(result.warnings.contains { $0.contains("flaky couldn't listen at 1 join, so it was heard with fallback") }, "\(result.warnings)")
 
         // From the cache next time, still saying who heard it.
         let again = try await CheckRequest(cuts: true, listen: true).run(on: h.service, context: h.context)

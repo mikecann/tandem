@@ -305,7 +305,7 @@ public actor BarkRuntime {
     /// on the CPU, when the Neural Engine couldn't compile it. Nil on the
     /// Neural Engine, or with nothing loaded.
     public func encoderFallback() -> String? {
-        loaded?.lease.encoderFallback.map { "listened on the CPU (slower, and it can hear a little differently), as the Neural Engine couldn't load its encoder: \($0)" }
+        loaded?.lease.encoderFallback.map { "listened on the CPU (slower, and it can hear a little differently), as the \(Self.encoderUnits == .cpuAndGPU ? "GPU" : "Neural Engine") couldn't load its encoder: \($0)" }
     }
 
     /// The model, with the encoder function the last take needed: `full15`,
