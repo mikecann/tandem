@@ -25,8 +25,16 @@ struct TimelineDrawState {
     /// Agent changes waiting for review: the ruler's band and the marks
     /// over the lanes.
     var review: TimelineReview = .empty
+    /// The clip the inspector acts on, when several are selected, so the
+    /// timeline can pick it out of the rest.
+    var inspectedClipID: String?
 
     var frameRate: FrameRate { project.settings.frameRate }
+
+    /// Selected, but the inspector is on another selected clip.
+    func isBehindInspected(_ clipID: String) -> Bool {
+        selection.contains(clipID) && inspectedClipID != nil && inspectedClipID != clipID
+    }
 }
 
 @MainActor
@@ -38,7 +46,8 @@ extension TimelineDrawState {
             showTranscript: model.showTranscript, selection: model.selection,
             selectedTransitionID: model.selectedTransitionID, selectedKeyframe: model.selectedKeyframe,
             inPoint: model.inPoint, outPoint: model.outPoint, renamingTrackID: model.timeline.renamingTrackID,
-            artworkRevision: model.artworkRevision, review: model.review
+            artworkRevision: model.artworkRevision, review: model.review,
+            inspectedClipID: model.selection.count > 1 ? model.primaryClipIDUnobserved : nil
         )
     }
 }
@@ -117,7 +126,7 @@ struct TimelineDamage: Equatable {
     /// sounds (dashed too).
     static func selectionRects(from old: TimelineDrawState, to new: TimelineDrawState, layout: TimelineLayout) -> [CGRect] {
         guard old.selection != new.selection || old.selectedKeyframe != new.selectedKeyframe
-            || old.selectedTransitionID != new.selectedTransitionID else { return [] }
+            || old.selectedTransitionID != new.selectedTransitionID || old.inspectedClipID != new.inspectedClipID else { return [] }
         let project = new.project
         func linkGroups(_ selection: Set<String>) -> Set<String> {
             Set(selection.compactMap { project.clip($0)?.linkGroup })
@@ -140,7 +149,8 @@ struct TimelineDamage: Equatable {
                 let isLinked = !isSelected && clip.linkGroup.map(newGroups.contains) == true
                 let oldKeyframe = old.selectedKeyframe?.clipID == clip.id ? old.selectedKeyframe?.time : nil
                 let newKeyframe = new.selectedKeyframe?.clipID == clip.id ? new.selectedKeyframe?.time : nil
-                guard wasSelected != isSelected || wasLinked != isLinked || oldKeyframe != newKeyframe || sounds.contains(clip.id) else { continue }
+                // The inspected clip and the rest of the selection differ.
+                guard wasSelected != isSelected || wasLinked != isLinked || old.isBehindInspected(clip.id) != new.isBehindInspected(clip.id) || oldKeyframe != newKeyframe || sounds.contains(clip.id) else { continue }
                 let x0 = scale.x(clip.start)
                 let x1 = scale.x(clip.end)
                 // Keyframe diamonds reach a few points past the clip's ends.

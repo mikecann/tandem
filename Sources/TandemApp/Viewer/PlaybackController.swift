@@ -33,7 +33,12 @@ import TandemRender
 @Observable
 final class PlaybackController {
     /// Where the playhead is.
-    private(set) var time: Time = .zero
+    private(set) var time: Time = .zero {
+        didSet { timeUnobserved = time }
+    }
+    /// The same, for reads that mustn't make their reader follow the playhead
+    /// 60 times a second, like the timeline's draw state.
+    @ObservationIgnored private(set) var timeUnobserved: Time = .zero
     /// 0 when stopped. Negative plays backwards. J and L step through
     /// 1, 2, 4 and 8.
     private(set) var rate: Double = 0

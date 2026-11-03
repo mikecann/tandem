@@ -329,7 +329,7 @@ struct OtherColourEffects: View {
             var look = item.look
             guard let index = look.firstIndex(where: { $0.id == effectID }) else { return }
             look[index].enabled = enabled
-            editor.model.apply(InspectorEdits.look(item.id, look, label: "Turn \(enabled ? "on" : "off") \(name(look[index]).lowercased()) (whole take)"))
+            editor.model.apply(InspectorEdits.look(item.id, look, label: InspectorEdits.lookLabel("Turn \(enabled ? "on" : "off") \(name(look[index]).lowercased())", item)))
         } else if let effect = clip.video?.effects.first(where: { $0.id == effectID }) {
             editor.model.apply(InspectorEdits.effectEnabled(clip.id, effectID: effectID, enabled: enabled, name: name(effect)))
         }
@@ -338,7 +338,7 @@ struct OtherColourEffects: View {
     private func remove(_ effectID: String) {
         guard let (clip, item, _) = editor.current() else { return }
         if editor.isLook, let item, let effect = item.look.first(where: { $0.id == effectID }) {
-            editor.model.apply(InspectorEdits.look(item.id, item.look.filter { $0.id != effectID }, label: "Remove \(name(effect).lowercased()) (whole take)"))
+            editor.model.apply(InspectorEdits.look(item.id, item.look.filter { $0.id != effectID }, label: InspectorEdits.lookLabel("Remove \(name(effect).lowercased())", item)))
         } else if let effect = clip.video?.effects.first(where: { $0.id == effectID }) {
             editor.model.apply(EditBatch(label: "Remove \(name(effect).lowercased())", commands: [.removeEffect(clipID: clip.id, effectID: effectID)]))
         }
@@ -347,7 +347,7 @@ struct OtherColourEffects: View {
     private func commit(_ effectID: String, _ key: String, _ value: ParamValue, _ name: String) {
         guard let (clip, item, _) = editor.current() else { return }
         if editor.isLook, let item {
-            editor.model.apply(InspectorEdits.lookParam(item, effectID: effectID, key: key, value: value, label: "\(name) (whole take)"))
+            editor.model.apply(InspectorEdits.lookParam(item, effectID: effectID, key: key, value: value, label: InspectorEdits.lookLabel(name, item)))
         } else {
             editor.model.setParameter(ColourEdits.path(effectID, key), to: value, in: clip, label: name) {
                 InspectorEdits.effectParam(clip.id, effectID: effectID, key: key, value: value, label: name)

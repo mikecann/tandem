@@ -120,6 +120,7 @@ final class EditorModel {
     var selection: Set<String> = [] {
         didSet {
             guard selection != oldValue else { return }
+            if let chosenPictureID, !selection.contains(chosenPictureID) { self.chosenPictureID = nil }
             selectedTransitionID = selection.isEmpty ? selectedTransitionID : nil
             // A keyframe stays chosen only while its clip is selected.
             if let keyframe = selectedKeyframe, !selection.contains(keyframe.clipID) { selectedKeyframe = nil }
@@ -132,11 +133,18 @@ final class EditorModel {
     /// group is selected. The inspector turns to a tab that fits it.
     var focusedClipID: String? {
         didSet {
+            // Any click on a clip overrides the picture picked from the menu.
+            chosenPictureID = nil
             guard focusedClipID != oldValue, let focusedClipID else { return }
             let tab = InspectorTabs.fitting(inspectorTab, clip: focusedClipID, in: project)
             if tab != inspectorTab { inspectorTab = tab }
         }
     }
+
+    /// The picture picked from the inspector header's menu. That's asking for
+    /// this clip by name, so it wins even when it's a turned-off angle, where
+    /// clicking the group by that clip goes to the angle that's on.
+    var chosenPictureID: String?
 
     // Timeline settings
     var tool: TimelineTool = .select
@@ -592,20 +600,53 @@ final class EditorModel {
     var playhead: Time { playback.time }
     var frameRate: FrameRate { project.settings.frameRate }
 
-    /// The clip the inspector shows: the first selected clip in timeline
-    /// order, preferring picture over sound.
+    /// The clip the inspector shows: the one last clicked, unless that's a
+    /// turned-off angle of a linked group, or else the selected picture
+    /// that's on screen, preferring picture over sound.
     var primaryClipID: String? {
-        if let focused = focusedClipID, selection.contains(focused) { return focused }
-        let ordered = TimelineEdits.ordered(selection, in: project)
-        // What's under the playhead first, a camera clip over its screen
-        // clip, then any picture, then sound.
-        let video = ordered.filter { project.location(ofClip: $0)?.track.kind == .video }
-        let time = playback.time
-        let here = video.filter { id in project.clip(id).map { $0.start <= time && time < $0.end } ?? false }
-        func camera(_ ids: [String]) -> String? {
-            ids.first { id in project.clip(id).flatMap { media(for: $0) }?.role == .camera }
+        primaryClipID { playback.time }
+    }
+
+    /// The same without following the playhead. The timeline's draw state
+    /// uses it, since it redraws whatever it observes. Its mark only goes by
+    /// the playhead when no clip was clicked (a marquee, say), and catches up
+    /// at the next change to the timeline.
+    var primaryClipIDUnobserved: String? {
+        primaryClipID { playback.timeUnobserved }
+    }
+
+    private func primaryClipID(playhead: () -> Time) -> String? {
+        if let chosenPictureID, selection.contains(chosenPictureID) { return chosenPictureID }
+        if let focused = focusedClipID, selection.contains(focused) {
+            return PictureVisibility.onInstead(of: focused, among: selection, in: project) ?? focused
         }
-        return camera(here) ?? here.first ?? camera(video) ?? video.first ?? ordered.first
+        let ordered = TimelineEdits.ordered(selection, in: project)
+        let video = ordered.filter { project.location(ofClip: $0)?.track.kind == .video }
+        let time = playhead()
+        let clips = video.compactMap { project.clip($0) }
+        let here = clips.filter { $0.start <= time && time < $0.end }
+        let on = here.filter { PictureVisibility.isOn($0, in: project) }
+        let showing = on.filter { PictureVisibility.coveringClip(of: $0, at: time, in: project) == nil }
+        let onElsewhere = clips.filter { PictureVisibility.isOn($0, in: project) }
+        // What's showing at the playhead first, then what's merely on, then
+        // any picture, then sound. In each, a camera clip over its screen clip.
+        for candidates in [showing, on, here, onElsewhere, clips] {
+            if let clip = candidates.first(where: { media(for: $0)?.role == .camera }) ?? candidates.first { return clip.id }
+        }
+        return ordered.first
+    }
+
+    /// Moves the inspector to `clipID`: the Colour tab's "Edit that instead".
+    /// The playhead goes along when it's elsewhere, so the picture being
+    /// edited is the one in the viewer.
+    func editInstead(_ clipID: String, at time: Time) {
+        if !selection.contains(clipID) {
+            selection = SelectionRules.members(of: clipID, in: project, linkedSelection: linkedSelection, option: false)
+        }
+        focusedClipID = clipID
+        if playback.time != time, project.clip(clipID).map({ !($0.start <= playback.time && playback.time < $0.end) }) == true {
+            playback.seek(to: time)
+        }
     }
 
     var inOutRange: TimeRange? {

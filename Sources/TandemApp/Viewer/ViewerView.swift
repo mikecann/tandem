@@ -469,7 +469,11 @@ final class ViewerOverlayView: NSView {
                 drag = .scale(clipID: clip.id, corner: corner, start: point, centre: CGPoint(x: full.midX, y: full.midY), original: video)
                 return
             }
-            if frame.contains(point) {
+            // A press on the selected picture makes it the one the inspector
+            // shows, since a linked group can have another clip in focus. A
+            // clip under a full-frame one can't be what was clicked, though.
+            if frame.contains(point), PictureVisibility.coveringClip(of: clip, at: model.playback.time, in: model.project) == nil {
+                model.focusedClipID = clip.id
                 drag = .move(clipID: clip.id, start: point, original: video)
                 return
             }

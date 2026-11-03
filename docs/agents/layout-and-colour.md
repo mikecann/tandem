@@ -45,18 +45,23 @@ take. A clip's own colour effects go on top of it, for one shot that needs
 more, and they can animate like any effect parameter
 (`video.effects.<effectID>.<param>`). The look can't.
 
-The Colour tab shows a grade as fixed sections, each backed by one effect
-(`tandem effects` has each parameter's range and default):
+The Colour tab shows a grade as fixed sections in the order they apply, each
+backed by one effect (`tandem effects` has each parameter's range and default):
 
 | Section | Effect | Parameters |
 | --- | --- | --- |
+| LUT | `lut` | `path`, `intensity` |
 | Light | `colorAdjust` | `exposure` (stops), `contrast`, `highlights`, `shadows`, `blackLevel` |
 | Colour | `colorAdjust` | `temperature`, `tint`, `saturation`, `vibrance` |
 | Colour wheels | `colorWheels` | `shadows`, `midtones` and `highlights`, each with `Hue`, `Amount` and `Brightness` (`shadowsHue`...) |
 | Colour mixer | `hsl` | `red`, `orange`, `yellow`, `green`, `aqua`, `blue`, `purple` and `magenta`, each with `Hue`, `Saturation` and `Luminance` (`redSaturation`...) |
 | Vignette | `vignette` | `amount`, `size`, `feather` |
 | Sharpen | `sharpen` | `amount` |
-| LUT | `lut` | `path`, `intensity` |
+
+`look` applies in list order, so put a `lut` first: it turns log footage into
+a normal picture, and everything after it then works on what's on screen. The
+tab adds new effects that way. A grade with effects before its LUT (a Filmora
+import) keeps its order, and the LUT section says which ones.
 
 Write a grade the way the tab reads it: one effect of each type, with the
 Light and Colour values in the same `colorAdjust`, as Filmora imports have
@@ -87,6 +92,11 @@ usual grade:
   ]}}}
 ]}
 ```
+
+A look reaches every clip of its file, but only the ones on screen show it.
+Check what's showing before grading a shot: a clip marked `disabled` in
+`tandem timeline` isn't, however high its track, nor is one under a full-frame
+clip. With linked angles, grade the file of the angle that's on.
 
 `look` is replaced as a whole, so read it first (`tandem timeline --json`,
 under `media`) and send it back with your change. Check the result with

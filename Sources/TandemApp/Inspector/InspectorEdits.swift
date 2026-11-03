@@ -98,6 +98,12 @@ enum InspectorEdits {
         return EditBatch(label: "Add shadow", commands: [.addEffect(clipID: clip.id, effect: effect)])
     }
 
+    /// An edit's name when it changes a file's look: which file, since it
+    /// reaches every clip from it and the clip selected may not be showing.
+    static func lookLabel(_ label: String, _ item: MediaItem) -> String {
+        "\(label) (whole \(item.takeID == nil ? "file" : "take"): \(MediaCatalog.fileName(item)))"
+    }
+
     /// Replaces a file's look (the grade every clip of it gets).
     static func look(_ mediaID: String, _ effects: [Effect], label: String) -> EditBatch? {
         guard let value = try? JSONValue.from(effects) else { return nil }

@@ -46,7 +46,7 @@ enum AssetApplying {
                     "params": .object(["path": .string(path)])
                 ]))]
             }
-            return [.addEffect(clipID: clip.id, effect: Effect(id: effectID, type: "lut", params: ["path": .string(path), "intensity": .number(1)]))]
+            return [.addEffect(clipID: clip.id, effect: Effect(id: effectID, type: "lut", params: ["path": .string(path), "intensity": .number(1)]), index: 0)]
         case .font:
             let name = family ?? placement.asset.name
             return [.updateClip(clipID: clip.id, patch: .object(["content": .object(["text": .object(["style": .object(["font": .string(name)])])])]))]
