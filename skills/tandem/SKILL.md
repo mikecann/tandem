@@ -445,8 +445,10 @@ From his review comments on the Daytona and Build Your Own Convex videos
   short. "A touch shorter" means a modest change, not the number he floats.
   To lengthen or shorten a card, open or close time only in the take's gap
   under it (`insertTime` or `rippleDeleteRange`). The cards wipe over the
-  edges of speech. Then stretch the music bed that spans the card, because
-  clips that span an inserted point don't grow. Titles and subtitles have
+  edges of speech. On an unlocked Music track, a bed spanning the inserted
+  point stretches with it on its own (unlock it first if he's locked it,
+  and check it did: one near the end of its file warns), but
+  other clips that span it don't grow, so lengthen the card itself. Titles and subtitles have
   to make sense on their own: he swapped "Adding it" for "Setup", and
   "VIBES FIRST, THEN DATA" "doesn't really make any sense".
 - **A Convex wipe without a card.** For a section change that doesn't
@@ -491,7 +493,8 @@ From his review comments on the Daytona and Build Your Own Convex videos
   unlocking, laying the beds again or moving them, and locking it again
   (mikecann/tandem#33). On an unlocked music track a ripple cut inside a
   bed now moves its gain keyframes after the cut with the timeline, so
-  those swells stay on their cards (a swell inside the cut goes with it);
+  those swells stay on their cards (a swell inside the cut goes with it),
+  and time opened inside a bed stretches it so it still ends with its card;
   `tandem check` notes any swell that's off its card all the same (Threadbear launch video: his deletes left two swells 0.44 s and
   1.4 s late before Tandem did this).
 - **Linked sounds:** a card's whooshes are linked to it, so trim either with

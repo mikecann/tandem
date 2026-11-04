@@ -251,7 +251,7 @@ final class FreezeFrameEditTests: XCTestCase {
         let rest = Set(["Camera", "Screen", "Voice"].map { f.clips($0).last!.id })
         XCTAssertEqual(Set(f.project.linkedClipIDs(of: f.clip("Camera", 2).id)), rest, "the rest of the take stays linked")
         XCTAssertEqual(f.clip("B-roll").start, t(25), "later clips move five seconds")
-        XCTAssertEqual(f.clip("Music").range, TimeRange(start: t(0), end: t(60)), "the music bed plays on under it")
+        XCTAssertEqual(f.clip("Music").range, TimeRange(start: t(0), end: t(65)), "the music bed plays on under it, five seconds longer")
         XCTAssertEqual(f.project.markers.first?.time, t(35))
         assertValid(f.project)
 
@@ -295,7 +295,7 @@ final class FreezeFrameEditTests: XCTestCase {
         XCTAssertEqual(Set(f.project.linkedClipIDs(of: "clip_frz")), Set(["Screen", "Camera", "B-roll"].map { f.clip($0, 1).id }))
         XCTAssertTrue(f.clips("Graphics").isEmpty, "nothing there, nothing to hold")
         XCTAssertEqual(f.clip("Text").range, title.range, "the title plays on over it")
-        XCTAssertEqual(f.clip("Music").range, TimeRange(start: t(0), end: t(60)))
+        XCTAssertEqual(f.clip("Music").range, TimeRange(start: t(0), end: t(65)), "the bed stretches across the hold")
         assertValid(f.project)
     }
 
