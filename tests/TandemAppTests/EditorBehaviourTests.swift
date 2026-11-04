@@ -201,6 +201,7 @@ final class EditorBehaviourTests: XCTestCase {
         let bed = editor.clip("Music")
         XCTAssertEqual(bed.end.seconds, 65, accuracy: 1e-6)
         XCTAssertEqual(bed.keyframes["audio.gainDB"]?.map(\.time.seconds), [0, 55, 57, 60])
+        XCTAssertEqual(bed.keyframes["audio.gainDB"]?.compactMap(\.value.number), [-30, -30, -18, -30], "the swell's levels come with it")
     }
 
     func testOptionFFreezesThePictureAtThePlayheadAndPicksItOutToTrim() {

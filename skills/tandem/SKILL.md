@@ -445,8 +445,9 @@ From his review comments on the Daytona and Build Your Own Convex videos
   short. "A touch shorter" means a modest change, not the number he floats.
   To lengthen or shorten a card, open or close time only in the take's gap
   under it (`insertTime` or `rippleDeleteRange`). The cards wipe over the
-  edges of speech. A music bed spanning the inserted point stretches with
-  it on its own (check it did: one near the end of its file warns), but
+  edges of speech. On an unlocked Music track, a bed spanning the inserted
+  point stretches with it on its own (unlock it first if he's locked it,
+  and check it did: one near the end of its file warns), but
   other clips that span it don't grow, so lengthen the card itself. Titles and subtitles have
   to make sense on their own: he swapped "Adding it" for "Setup", and
   "VIBES FIRST, THEN DATA" "doesn't really make any sense".
