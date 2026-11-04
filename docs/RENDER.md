@@ -71,7 +71,7 @@ Project ──RenderPlanner──▶ RenderPlan (pure)
   decode path clamps to the first frame too) or goes quiet (audio). That's
   how a clip with `holdEdges` runs past its file, too.
 - Instructions split at every visible clip edge and transition edge.
-- Video clip edges and transition edges within a millisecond of a frame
+- Edges of clips on video tracks, and of transitions, within a millisecond of a frame
   boundary are moved onto it (`RenderPlanner.onFrames`): a start to the
   nearest frame, an end only later, so clips only grow. Frames are drawn at
   their start times, and at 29.97 fps those fall between 48 kHz samples,
