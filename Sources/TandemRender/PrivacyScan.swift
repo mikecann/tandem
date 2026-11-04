@@ -502,7 +502,7 @@ public enum PrivacyCheck {
                 // Read through a blur, it isn't readable; and the copy under
                 // it is the same file anyway. A privacy copy with its blur
                 // off isn't drawn.
-                guard !clip.isObscured, !track.isPrivacy, let item = project.media(mediaID), item.hasVideo,
+                guard !clip.isObscured, !track.isSwitchedOffRedaction(clip), let item = project.media(mediaID), item.hasVideo,
                       let width = item.width, let height = item.height, width > 0, height > 0 else { continue }
                 let video = clip.resolvedVideo(at: time - clip.start)
                 let display = CGSize(width: width, height: height)
@@ -537,8 +537,9 @@ public enum PrivacyCheck {
         project.media(mediaID).map { URL(fileURLWithPath: $0.path).lastPathComponent } ?? mediaID
     }
 
+    /// The clips of `mediaID` there, not the privacy copies over them.
     static func clipIDs(of mediaID: String, in range: TimeRange, project: Project) -> [String] {
-        project.videoTracks.flatMap(\.clips).filter { $0.mediaID == mediaID && !$0.isObscured && $0.range.overlaps(range) }.map(\.id)
+        project.videoTracks.filter { !$0.isPrivacy }.flatMap(\.clips).filter { $0.mediaID == mediaID && !$0.isObscured && $0.range.overlaps(range) }.map(\.id)
     }
 }
 

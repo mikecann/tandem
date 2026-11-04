@@ -74,7 +74,7 @@ final class RenderPlanTests: XCTestCase {
         var video = VideoProperties()
         video.crop = Crop(left: 0.2, top: 0.2, right: 0.2, bottom: 0.2)
         video.effects = [Effect(type: "blur", enabled: false, params: ["radius": .number(24)])]
-        let off = Clip(id: "clip_off", content: .media(mediaID: "med_scr"), start: t(0), duration: t(4), sourceStart: t(10), video: video)
+        let off = Clip(id: "clip_off", name: "Privacy: email", content: .media(mediaID: "med_scr"), start: t(0), duration: t(4), sourceStart: t(10), video: video)
         var on = off
         on.id = "clip_on"
         on.start = t(5)
@@ -83,10 +83,13 @@ final class RenderPlanTests: XCTestCase {
         removed.id = "clip_removed"
         removed.start = t(10)
         removed.video?.effects = []
-        let screen = Track(kind: .video, name: "Screen", clips: [mediaClip("clip_s", "med_scr", start: 0, duration: 15)])
-        let privacy = Track(kind: .video, name: "Privacy (Screen)", clips: [off, on, removed], rippleMode: .cut)
+        // A cover put on the privacy track by hand still draws.
+        var cover = mediaClip("clip_cover", "med_cam", start: 16, duration: 2)
+        cover.name = "Logo over the address"
+        let screen = Track(kind: .video, name: "Screen", clips: [mediaClip("clip_s", "med_scr", start: 0, duration: 20)])
+        let privacy = Track(kind: .video, name: "Privacy (Screen)", clips: [off, on, removed, cover], rippleMode: .cut)
         let plan = RenderPlanner.plan(project(video: [screen, privacy]), format: nil, assets: nil)
-        XCTAssertEqual(plan.videoSegments.map(\.clipID).sorted(), ["clip_on", "clip_s"], "a copy hides nothing without its blur, so it isn't drawn")
+        XCTAssertEqual(plan.videoSegments.map(\.clipID).sorted(), ["clip_cover", "clip_on", "clip_s"], "a copy hides nothing without its blur, so it isn't drawn")
     }
 
     func testInstructionsCoverTheWholeTimelineIncludingGaps() {
