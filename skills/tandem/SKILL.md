@@ -1169,7 +1169,16 @@ comments, changed these rules for a conversation like this:
   12 dB (`convex-videos/tools/voice-enhance/`, run it on RunPod). It
   softens quiet word edges, so re-run `check --cuts --listen` over every
   join after swapping a voice file in; DeepFilterNet's digital silence
-  can drop whole quiet words, so find and fix dropouts too.
+  can drop whole quiet words, so find and fix dropouts too. In the end he
+  used Adobe Enhance for that one-off, blended 0.8 Adobe + 0.2 original
+  ("too clean" alone; check Adobe's words, it changed 7).
+- **Hum in the blended-back original:** a mains buzz on one take was odd
+  harmonics of 60 Hz from 420 Hz to 11 kHz, and notching only the first
+  six and four near 3.8 kHz left it audible ("I'm hearing that background
+  buzz", on a Short, 4 Nov). Before shipping a blend, list every harmonic
+  over the pause floor (`tools/voice-enhance/src/blend/` has the
+  measuring and `dehum2.py`, which notches only the original's share:
+  blend minus 0.8 x Adobe), not just the low ones.
 
 ## Rules
 
