@@ -139,5 +139,7 @@ final class WaitingTests: XCTestCase {
         try FileManager.default.createDirectory(at: link, withIntermediateDirectories: true)
         try FileManager.default.createSymbolicLink(at: link.appendingPathComponent("Alias.tandem"), withDestinationURL: real)
         XCTAssertEqual(try ProjectLocator.all(["link/Alias.tandem"], in: folder).map(\.path), [real.resolvingSymlinksInPath().path])
+        XCTAssertEqual(try ProjectLocator.all(["link"], in: folder).map(\.path), [real.resolvingSymlinksInPath().path], "found by scanning its folder too")
+        XCTAssertEqual(try ProjectLocator.all([], in: link).map(\.path), [real.resolvingSymlinksInPath().path])
     }
 }

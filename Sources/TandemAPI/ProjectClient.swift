@@ -171,7 +171,7 @@ public enum ProjectLocator {
             var folder = directory.standardizedFileURL
             while true {
                 let found = projects(in: folder)
-                if !found.isEmpty { return found }
+                if !found.isEmpty { return found.map { $0.resolvingSymlinksInPath() } }
                 let parent = folder.deletingLastPathComponent()
                 if parent.path == folder.path { break }
                 folder = parent
@@ -187,7 +187,8 @@ public enum ProjectLocator {
             guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isFolder) else {
                 throw ServiceError(.notFound, "No project at \(url.path).")
             }
-            if isFolder.boolValue { return projects(in: url) }
+            // A project in the folder can be a symlink too.
+            if isFolder.boolValue { return projects(in: url).map { $0.resolvingSymlinksInPath() } }
             if isRenderSnapshot(url) {
                 throw ServiceError(.badRequest, "\(url.lastPathComponent) is the record an export left of the project it rendered, not a project.")
             }
