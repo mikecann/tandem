@@ -490,9 +490,9 @@ From his review comments on the Daytona and Build Your Own Convex videos
   swell sits under its card and the outro ends with the picture. Fix by
   unlocking, laying the beds again or moving them, and locking it again
   (mikecann/tandem#33). On an unlocked music track a ripple cut inside a
-  bed now moves its gain keyframes with the timeline, so swells stay on
-  their cards; `tandem check` notes any swell that's off its card all the
-  same (Threadbear launch video: his deletes left two swells 0.44 s and
+  bed now moves its gain keyframes after the cut with the timeline, so
+  those swells stay on their cards (a swell inside the cut goes with it);
+  `tandem check` notes any swell that's off its card all the same (Threadbear launch video: his deletes left two swells 0.44 s and
   1.4 s late before Tandem did this).
 - **Linked sounds:** a card's whooshes are linked to it, so trim either with
   `"includeLinked": false` or you drag the other along.

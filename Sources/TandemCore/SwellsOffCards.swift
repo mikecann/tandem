@@ -40,9 +40,12 @@ extension QualityCheck {
             let title = SectionCard.props(of: card)?.title ?? ""
             return title.isEmpty ? "the section card at \(card.start)" : "the \"\(title)\" card at \(card.start)"
         }
-        // Each card's swell: the first one overlapping it.
-        let under = cards.map { card in swells.first { $0.range.overlaps(card.range) } }
-        let offsets = zip(cards, under).compactMap { card, swell in swell.map { $0.range.start - card.start } }
+        // Each card's swell: one starting in it, or failing that one the
+        // card before it runs on into it.
+        let under = cards.map { card in
+            swells.first { card.range.contains($0.range.start) } ?? swells.first { $0.range.overlaps(card.range) }
+        }
+        let usual = usualOffset(zip(cards, under).compactMap { card, swell in swell.map { $0.range.start - card.start } })
         var found: [CheckProblem] = []
         for (index, card) in cards.enumerated() where ranges.contains(where: { $0.overlaps(card.range) }) {
             guard let swell = under[index] else {
@@ -62,12 +65,7 @@ extension QualityCheck {
                 continue
             }
             var problems: [String] = []
-            // Against the other cards' swells, so one card's own odd
-            // placement doesn't set the bar for itself.
-            var others = offsets
-            if let mine = others.firstIndex(of: swell.range.start - card.start) { others.remove(at: mine) }
-            if others.count >= 2 {
-                let usual = others.sorted()[others.count / 2]
+            if let usual {
                 let offset = swell.range.start - card.start
                 let drift = offset - usual
                 if abs(drift.flicks) > swellDrift.flicks {
@@ -86,6 +84,17 @@ extension QualityCheck {
             ))
         }
         return found
+    }
+
+    /// Where in their cards most cards' swells start: the middle of the
+    /// biggest group of offsets within `swellDrift` of each other, when
+    /// that's more than half of at least three. With fewer, or no clear
+    /// majority, there's no telling which swells are the odd ones out.
+    static func usualOffset(_ offsets: [Time]) -> Time? {
+        guard offsets.count >= 3 else { return nil }
+        let groups = offsets.map { centre in offsets.filter { abs(($0 - centre).flicks) <= swellDrift.flicks }.sorted() }
+        guard let biggest = groups.max(by: { $0.count < $1.count }), biggest.count * 2 > offsets.count else { return nil }
+        return biggest[biggest.count / 2]
     }
 
     /// The swells `swells(of:)` finds from a clip's gain keyframes, without

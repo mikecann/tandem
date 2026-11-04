@@ -260,7 +260,7 @@ extension Track {
             if newStart != clip.start || newEnd != clip.end {
                 // Before the tail trim prunes them, so a swell set under a
                 // card at the end of a music bed keeps its place.
-                clip.keyframes = KeyframeEditing.followingRemoval(clip.keyframes, of: range, oldStart: clip.start, newStart: newStart)
+                clip.keyframes = KeyframeEditing.followingRemoval(clip.keyframes, of: range, oldStart: clip.start, oldEnd: clip.end, newStart: newStart)
                 clip.start = newStart
                 clip.moveTail(to: newEnd)
             }

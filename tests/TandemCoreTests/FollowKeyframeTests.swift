@@ -40,18 +40,53 @@ final class FollowKeyframeTests: XCTestCase {
         XCTAssertEqual(gainTimes(c.clips("Music")[0]), [t(0), t(40), t(42), t(45)])
     }
 
-    func testGainKeyframesInsideTheCutCollapseToTheCutPoint() throws {
+    func testGainKeyframesInsideTheCutGoAndTheCurveEitherSideStays() throws {
         let (f, c) = try Fixture.edited()
         let music = f.clips("Music")[0].id
-        try c.run("Dip", .setKeyframes(clipID: music, parameter: "audio.gainDB", keyframes: gain([(0, -30), (11, -10), (20, -30)])))
+        let dip = [
+            Keyframe(time: t(0), value: .number(-30), interpolation: .linear),
+            Keyframe(time: t(11), value: .number(-10), interpolation: .easeIn),
+            Keyframe(time: t(20), value: .number(-30), interpolation: .linear)
+        ]
+        let before = dip.value(at: t(10))?.number
+        let after = dip.value(at: t(12))?.number
+        try c.run("Dip", .setKeyframes(clipID: music, parameter: "audio.gainDB", keyframes: dip))
         try c.run("Tighten", .rippleDeleteRange(range: TimeRange(start: t(10), end: t(12))))
         let bed = c.clips("Music")[0]
-        XCTAssertEqual(gainTimes(bed), [t(0), t(10), t(18)])
-        // 12 s was 1/9 of the way from -10 at 11 s to -30 at 20 s: what plays
-        // straight after the cut keeps playing there.
-        XCTAssertEqual(gainValues(bed)[1], -10 - 20.0 / 9, accuracy: 1e-6)
-        XCTAssertEqual(bed.keyframes["audio.gainDB"]?[1].interpolation, .linear)
+        // What played at 10 s holds up to the cut, then what played at 12 s
+        // carries on from it, easing as it was.
+        XCTAssertEqual(gainTimes(bed), [t(0), t(10), t(10), t(18)])
+        let curve = try XCTUnwrap(bed.keyframes["audio.gainDB"])
+        XCTAssertEqual(curve[1].value.number, before)
+        XCTAssertEqual(curve[2].value.number, after)
+        XCTAssertEqual(curve[2].interpolation, .easeIn)
+        XCTAssertEqual(curve.value(at: t(5))?.number ?? 0, dip.value(at: t(5))?.number ?? 1, accuracy: 1e-9, "before the cut it's unchanged")
+        XCTAssertEqual(curve.value(at: t(18))?.number, -30)
         assertValid(c.project)
+    }
+
+    func testARampTheCutCrossesKeepsItsLevelsEitherSide() throws {
+        // No keyframe inside the cut: a ramp from -30 at 0 s to -10 at 20 s.
+        let (f, c) = try Fixture.edited()
+        let music = f.clips("Music")[0].id
+        try c.run("Ramp", .setKeyframes(clipID: music, parameter: "audio.gainDB", keyframes: gain([(0, -30), (20, -10)])))
+        try c.run("Tighten", .rippleDeleteRange(range: TimeRange(start: t(10), end: t(12))))
+        let curve = try XCTUnwrap(c.clips("Music")[0].keyframes["audio.gainDB"])
+        XCTAssertEqual(curve.map(\.time), [t(0), t(10), t(10), t(18)])
+        XCTAssertEqual(curve.value(at: t(5))?.number ?? 0, -25, accuracy: 1e-9)
+        XCTAssertEqual(curve.value(at: t(10))?.number ?? 0, -18, accuracy: 1e-9, "what played at 12 s")
+        XCTAssertEqual(curve.value(at: t(14))?.number ?? 0, -14, accuracy: 1e-9, "what played at 16 s")
+    }
+
+    func testABedEndingInsideTheCutGetsNothingFromAfterIt() throws {
+        let (f, c) = try Fixture.edited()
+        let music = f.clips("Music")[0].id
+        try c.run("Trim", .updateClip(clipID: music, patch: .object(["duration": .number(30)])))
+        try c.run("Fade", .setKeyframes(clipID: music, parameter: "audio.gainDB", keyframes: gain([(0, -30), (20, -30), (40, 0)])))
+        try c.run("Tighten", .rippleDeleteRange(range: TimeRange(start: t(25), end: t(35))))
+        let bed = c.clips("Music")[0]
+        XCTAssertEqual(bed.range, TimeRange(start: t(0), end: t(25)))
+        XCTAssertEqual(bed.keyframes["audio.gainDB"]?.value(at: t(25))?.number ?? 0, -22.5, accuracy: 1e-9, "the ramp up to where it was cut, no further")
     }
 
     func testACutOverABedsHeadKeepsItsSwellOnTheSameMoment() throws {
@@ -64,8 +99,8 @@ final class FollowKeyframeTests: XCTestCase {
         XCTAssertEqual(music.range, TimeRange(start: t(15), end: t(50)), "the bed starts where the cut was and keeps its head")
         XCTAssertEqual(music.sourceStart, .zero)
         // On the timeline the swell was at 50-55 and is now at 40-45: 25-30 s into the clip.
-        XCTAssertEqual(gainTimes(music), [t(0), t(25), t(27), t(30)])
-        XCTAssertEqual(gainValues(music), [-30, -30, -18, -30])
+        XCTAssertEqual(gainTimes(music), [t(25), t(27), t(30)], "the bed's steady -30 before it holds from the first one")
+        XCTAssertEqual(gainValues(music), [-30, -18, -30])
         assertValid(c.project)
     }
 

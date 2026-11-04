@@ -11,13 +11,13 @@ final class SwellOffCardTests: XCTestCase {
 
     /// A bed ending with each card, swelling `late` seconds after the card
     /// starts (by card index), and running `over` seconds past its card.
-    private func project(late: [Int: Double] = [:], over: [Int: Double] = [:], bare: Set<Int> = []) -> Project {
+    private func project(late: [Int: Double] = [:], over: [Int: Double] = [:], bare: Set<Int> = [], cards count: Int = 4) -> Project {
         var project = Project.standard(name: "Swells")
         project.media = [Self.music]
         var cards: [Clip] = []
         var beds: [Clip] = []
         var bedStart = 0.0
-        for (index, start) in cardStarts.enumerated() {
+        for (index, start) in cardStarts.prefix(count).enumerated() {
             cards.append(Clip(id: "clip_card\(index)", content: SectionCard.content(SectionCard.Props(title: "Part \(index + 1)")), start: t(start), duration: t(3.2)))
             let end = start + 3.2 + (over[index] ?? 0)
             let rise = start - bedStart + (late[index] ?? 0)
@@ -53,6 +53,14 @@ final class SwellOffCardTests: XCTestCase {
         XCTAssertEqual(found.first?.clipIDs, ["clip_bed1", "clip_card1"])
         XCTAssertTrue(found.first?.message.contains("0.44 s later") ?? false, found.first?.message ?? "")
         XCTAssertTrue(CheckProblem.Kind.swellOffCard.isNote, "a swell can be off a card on purpose")
+    }
+
+    func testOnlyTheOddSwellOutIsNoted() {
+        // With three cards, two agreeing make the usual place.
+        let three = notes(project(late: [2: 0.44], cards: 3))
+        XCTAssertEqual(three.map(\.clipIDs), [["clip_bed2", "clip_card2"]])
+        // With two there's no telling which is off.
+        XCTAssertEqual(notes(project(late: [1: 0.44], cards: 2)), [])
     }
 
     func testASwellRunningPastItsCardIsNoted() {

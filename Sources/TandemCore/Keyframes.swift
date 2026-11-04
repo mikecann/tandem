@@ -127,47 +127,59 @@ enum KeyframeEditing {
     }
 
     /// Re-times a clip's timeline keyframes through the removal of `range`,
-    /// for a clip that started at `oldStart` and now starts at `newStart`
-    /// with its content unmoved from the head (`Track.followRemoval`).
-    /// Keyframes after the cut move left by its length; ones inside it are
-    /// dropped and one at the cut point carries on with the value that
-    /// played straight after it, so everything after the cut sounds as it
-    /// did.
+    /// for a clip that ran from `oldStart` to `oldEnd` and now starts at
+    /// `newStart` with its content unmoved from the head
+    /// (`Track.followRemoval`). Keyframes before the cut stay, ones after it
+    /// move left by its length and ones inside it go. Where the cut falls
+    /// inside the keyed curve, a keyframe either side of it pins what played
+    /// there, so the curve before the cut and after it are as they were
+    /// (exactly for linear and hold segments; an eased segment the cut
+    /// splits keeps its ends and its easing) and the value steps at the cut,
+    /// as the picture does.
     static func followingRemoval(
         _ keyframes: [String: [Keyframe]],
         of range: TimeRange,
         oldStart: Time,
+        oldEnd: Time,
         newStart: Time
     ) -> [String: [Keyframe]] {
         var result = keyframes
         for (path, list) in keyframes where followsTimeline(path) && !list.isEmpty {
             let sorted = list.sorted { $0.time < $1.time }
-            var moved: [Keyframe] = []
-            var droppedInside = false
-            for var k in sorted {
-                let at = oldStart + k.time
-                if at > range.start && at < range.end {
-                    droppedInside = true
-                    continue
+            let a = range.start - oldStart
+            let b = range.end - oldStart
+            // Each keyframe, and whether it's one pinned here.
+            var before = sorted.filter { $0.time <= a }.map { ($0, false) }
+            var after = sorted.filter { $0.time >= b }.map { ($0, false) }
+            if let first = sorted.first, let last = sorted.last, a < last.time, b > first.time {
+                // The clip has a piece before the cut only if it started
+                // before it, and one after only if it ran past it.
+                if oldStart < range.start, before.last?.0.time != a, let value = sorted.value(at: a) {
+                    before.append((Keyframe(time: a, value: value, interpolation: .hold), true))
                 }
-                k.time = (at >= range.end ? at - range.duration : at) - newStart
-                moved.append(k)
+                if oldEnd > range.end, after.first?.0.time != b, let value = sorted.value(at: b) {
+                    // The segment playing at the end of the cut carries on.
+                    let interpolation = sorted.last { $0.time <= b }?.interpolation ?? first.interpolation
+                    after.insert((Keyframe(time: b, value: value, interpolation: interpolation), true), at: 0)
+                }
             }
-            let cutPoint = range.start - newStart
-            if droppedInside, !moved.contains(where: { $0.time == cutPoint }),
-               let value = sorted.value(at: range.end - oldStart) {
-                // The segment playing at the end of the cut sets how the
-                // value moves on from the cut point.
-                let interpolation = sorted.last { oldStart + $0.time <= range.end }?.interpolation ?? sorted[0].interpolation
-                moved.append(Keyframe(time: cutPoint, value: value, interpolation: interpolation))
+            after = after.map { var k = $0.0; k.time -= range.duration; return (k, $0.1) }
+            var moved = before + after
+            // A pinned keyframe on a flat stretch (the same value either
+            // side of it) changes nothing, so a cut through a steady bed
+            // leaves its keyframes as they were.
+            var index = 0
+            while index < moved.count {
+                let value = moved[index].0.value
+                let flatBefore = index == 0 || moved[index - 1].0.value == value
+                let flatAfter = index == moved.count - 1 || moved[index + 1].0.value == value
+                if moved[index].1, flatBefore, flatAfter, moved.count > 1 {
+                    moved.remove(at: index)
+                } else {
+                    index += 1
+                }
             }
-            // A keyframe right at the end of the cut lands on one right at
-            // its start: the later one, what plays after the cut, wins.
-            var byTime: [Keyframe] = []
-            for k in moved.sorted(by: { $0.time < $1.time }) {
-                if let last = byTime.last, last.time == k.time { byTime[byTime.count - 1] = k } else { byTime.append(k) }
-            }
-            result[path] = byTime
+            result[path] = moved.map { var k = $0.0; k.time += oldStart - newStart; return k }
         }
         return result
     }

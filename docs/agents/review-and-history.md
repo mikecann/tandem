@@ -104,10 +104,11 @@ their own beside it, and reports, with the clips on screen there:
     it: Mike went full screen on his camera over it; B-roll works too, or
     cut it.
   - swells off their cards: a music swell (`audio.gainDB` keyframes
-    rising) that starts more than 0.15 s later or earlier in its section
-    card than the other cards' swells do, runs over a quarter second past
-    the card, or sits within 5 s of a card that has music but no swell
-    under it. Mike gives every card the same swell, so one that's off is
+    rising) that runs over a quarter second past its section card, or sits
+    within 5 s of a card that has music but no swell under it. With three
+    or more swelling cards, most of them starting their swells at the same
+    point in the card, one that starts more than 0.15 s later or earlier
+    than that is noted too. Mike gives every card the same swell, so one that's off is
     usually left behind by an edit (a locked music track, or hand-timed
     keyframes). Move its keyframes back under the card. Read from the
     timeline, so it's in a quick check.
