@@ -26,6 +26,21 @@ extension Clip {
     }
 }
 
+extension Track {
+    /// Whether this is a track `redact` puts its copies on, "Privacy
+    /// (Screen)" (`Editing.isPrivacyTrack`).
+    public var isPrivacy: Bool { Editing.isPrivacyTrack(self) }
+
+    /// Whether `clip`, on this track, is a `redact` copy hiding nothing:
+    /// its blur or pixelate turned off or removed. Named "Privacy..." by
+    /// `redact`, so a solid, a title or anything else put on a privacy
+    /// track by hand is never taken for one.
+    public func isSwitchedOffRedaction(_ clip: Clip) -> Bool {
+        guard isPrivacy, case .media = clip.content, !clip.isObscured else { return false }
+        return clip.name?.hasPrefix("Privacy") == true
+    }
+}
+
 extension Editing {
     /// The tracks `redact` puts its copies on are named "Privacy (Screen)"
     /// after the track they hide part of; this is how they're recognised,

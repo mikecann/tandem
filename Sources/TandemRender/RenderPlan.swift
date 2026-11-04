@@ -158,6 +158,11 @@ enum RenderPlanner {
             let (heads, tails) = extensions(track, trackWindows)
 
             for clip in track.clips where clip.enabled && !clip.isHidden(inFormat: format) {
+                // A privacy copy with its blur turned off or removed hides
+                // nothing, and drawn it's the same footage over itself
+                // with a faint seam along its crop (the launch video: up
+                // to 30 levels off along a 4K row). So it isn't drawn.
+                if track.isSwitchedOffRedaction(clip) { continue }
                 var item: MediaItem?
                 switch clip.content {
                 case .graphic(let graphic):

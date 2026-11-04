@@ -1329,6 +1329,38 @@ final class EditorBehaviourTests: XCTestCase {
         XCTAssertEqual(editor.model.primaryClipID, camera.id)
     }
 
+    /// The Threadbear launch video: Mike turned off privacy blurs in the
+    /// inspector while he reviewed them, and each copy went on drawing the
+    /// same footage over itself with a faint seam along its crop. Turned
+    /// off, a copy isn't drawn; turned back on, it hides the region again.
+    /// The blur's switch sits under the timeline at the harness's window
+    /// size, so this applies the edit that switch makes
+    /// (`InspectorEdits.effectEnabled`) to the selected copy.
+    func testTurningAPrivacyBlurOffInTheInspectorStopsDrawingItsCopy() throws {
+        let editor = try EditorHarness()
+        defer { editor.close() }
+        let screen = editor.clip("Screen")
+        let mediaID = try XCTUnwrap(screen.mediaID)
+        editor.model.apply(EditBatch(label: "Blur the email", commands: [
+            .redact(range: TimeRange(start: t(2), end: t(6)), rect: Rect(x: 0.1, y: 0.1, width: 0.3, height: 0.1), mediaID: mediaID, style: .blur)
+        ]))
+        editor.settle()
+        let copy = try XCTUnwrap(editor.clips("Privacy (Screen)").first)
+        func drawn() -> Bool { RenderPlanner.plan(editor.project, format: nil, assets: nil).videoSegments.contains { $0.clipID == copy.id } }
+        XCTAssertTrue(drawn())
+
+        editor.click(editor.point(of: copy.id, at: 4))
+        XCTAssertEqual(editor.model.primaryClipID, copy.id, "the copy, picked on the timeline")
+        let blur = try XCTUnwrap(copy.video?.effects.last)
+        editor.model.apply(InspectorEdits.effectEnabled(copy.id, effectID: blur.id, enabled: false, name: "Blur"))
+        editor.settle()
+        XCTAssertEqual(editor.model.undoLabel, "Turn off blur")
+        XCTAssertFalse(drawn(), "a copy that hides nothing isn't drawn")
+
+        XCTAssertTrue(editor.press("cmd+z"), "undo")
+        XCTAssertTrue(drawn(), "on again, it hides the region again")
+    }
+
     /// The close-up turned off above the wide: clicking the group by the
     /// turned-off clip opens the Colour tab on the one that's showing.
     func testClickingATurnedOffAngleOnTheTimelineGradesTheOneShowing() throws {

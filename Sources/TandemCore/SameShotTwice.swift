@@ -23,7 +23,9 @@ extension QualityCheck {
         for track in project.videoTracks where !track.hidden {
             for clip in track.clips where clip.enabled && clip.duration > .zero {
                 guard let mediaID = clip.mediaID, let item = project.media(mediaID), item.hasVideo, !clip.freezeFrame else { continue }
-                if clip.isObscured { continue }
+                // A privacy copy too, with its blur on or off: off, it isn't
+                // drawn (189 of them on the launch video were all reported).
+                if clip.isObscured || track.isPrivacy { continue }
                 if (clip.video?.opacity ?? 1) <= 0.01 { continue }
                 byMedia[mediaID, default: []].append(Shown(clip: clip, track: track.name))
             }
