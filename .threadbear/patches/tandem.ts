@@ -19,24 +19,23 @@ type Project = { name: string; path: string; comments: Comment[]; handback: Look
 
 const quote = (s: string) => `'${s.replaceAll("'", `'\\''`)}'`;
 
-// Every .tandem project in the folder, read with --project so a folder with
-// two (a long cut and a short) works. Threadbear runs a command once per
-// read however many functions ask, so these are cheap to call from each.
+// Every .tandem project in the folder, from one `tandem waiting`. A folder
+// can hold dozens (a long interview and the Shorts cut from it), and
+// opening each with `tandem status` and `tandem comments` started two
+// processes per project on every refresh, each loading the whole timeline,
+// which kept Mike's Mac loaded. `waiting` reads only the comments and
+// review log of every project in one light process. Threadbear runs a
+// command once per read however many functions ask, so this is cheap to
+// call from each.
 async function projects({ matched, sh }: Ctx): Promise<Project[]> {
-  return Promise.all(
-    matched.map(async (file) => {
-      const flag = `--project ${quote(file)}`;
-      const [status, comments] = await Promise.all([sh(`tandem status --json ${flag}`), sh(`tandem comments --json ${flag}`)]);
-      const s = JSON.parse(status);
-      return {
-        name: s.name ?? file.split('/').pop()!.replace(/\.tandem$/, ''),
-        path: file,
-        comments: JSON.parse(comments).comments ?? [],
-        handback: s.handback ?? [],
-        reviews: s.reviewPending ?? [],
-      };
-    }),
-  );
+  const out = JSON.parse(await sh(`tandem waiting --json ${matched.map(quote).join(' ')}`));
+  return (out.projects ?? []).map((p: Record<string, any>) => ({
+    name: p.name,
+    path: p.path,
+    comments: p.comments ?? [],
+    handback: p.handback ?? [],
+    reviews: p.reviewPending ?? [],
+  }));
 }
 
 const sum = (list: Project[], key: 'comments' | 'handback' | 'reviews') => list.reduce((n, p) => n + p[key].length, 0);

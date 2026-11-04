@@ -161,10 +161,43 @@ public enum ProjectLocator {
         ["mp4", "mov", "m4v"].contains(url.deletingPathExtension().pathExtension.lowercased())
     }
 
-    private static func single(in folder: URL, explicit: Bool) throws -> URL? {
+    /// Every project in the folders and files named, in name order within
+    /// a folder; with none named, every one in the current folder or the
+    /// nearest parent that has any. For commands about a whole folder of
+    /// projects (`tandem waiting`), where a long cut and its Shorts sit
+    /// side by side.
+    public static func all(_ paths: [String], in directory: URL) throws -> [URL] {
+        guard !paths.isEmpty else {
+            var folder = directory.standardizedFileURL
+            while true {
+                let found = projects(in: folder)
+                if !found.isEmpty { return found }
+                let parent = folder.deletingLastPathComponent()
+                if parent.path == folder.path { break }
+                folder = parent
+            }
+            throw ServiceError(.notFound, "No .tandem project in \(directory.path) or its parents.")
+        }
+        return try paths.flatMap { path -> [URL] in
+            let expanded = NSString(string: path).expandingTildeInPath
+            let url = (expanded.hasPrefix("/") ? URL(fileURLWithPath: expanded) : directory.appendingPathComponent(expanded)).standardizedFileURL
+            var isFolder: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isFolder) else {
+                throw ServiceError(.notFound, "No project at \(url.path).")
+            }
+            return isFolder.boolValue ? projects(in: url) : [url]
+        }
+    }
+
+    private static func projects(in folder: URL) -> [URL] {
         let files = (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? []
-        let projects = files.filter { $0.pathExtension == ProjectFile.fileExtension && !isRenderSnapshot($0) }.sorted { $0.lastPathComponent < $1.lastPathComponent }
-        if projects.count == 1 { return projects[0].standardizedFileURL }
+        return files.filter { $0.pathExtension == ProjectFile.fileExtension && !isRenderSnapshot($0) }
+            .map(\.standardizedFileURL).sorted { $0.lastPathComponent < $1.lastPathComponent }
+    }
+
+    private static func single(in folder: URL, explicit: Bool) throws -> URL? {
+        let projects = projects(in: folder)
+        if projects.count == 1 { return projects[0] }
         if projects.count > 1 {
             let names = projects.map(\.lastPathComponent).joined(separator: ", ")
             throw ServiceError(.badRequest, "\(folder.path) has \(projects.count) projects (\(names)). Pick one with --project.")

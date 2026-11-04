@@ -108,6 +108,11 @@ enum Help {
                     Mike adds comments in Tandem at the playhead (Add comment, Shift-C) while he reviews: notes like "cut the umm here" for the next round. Each shows its ID, time and words, what's said a few seconds either side (| marks the comment) and the clips playing there.
                     Do what each asks and label the edit with what you did. Then remove the comment: in the same apply batch with {"removeMarker": {"markerID": "<id>"}}, or afterwards with tandem comments resolve <id>. Comments move with ripple edits, so list them again after one.
                     """),
+        CommandHelp(name: "waiting", usage: "tandem waiting [<project or folder>...] [--json]", summary: "What waits in every project in this folder: Mike's comments for the agent, places handed back for him to look at, and agent edits he hasn't reviewed.", options: [],
+                    details: """
+                    For tools that watch a whole folder (Threadbear's Tandem panel), where a long cut and its Shorts sit side by side. One process reads them all, and it's light: it reads only the comments in each project file and the review log beside it, without opening the project, so it's quick for a folder of dozens and never holds one the app is opening. A project open in the app is asked instead, so its newest edits count.
+                    Without a project or folder it reads every project in this folder, or the nearest parent that has any. tandem comments has what's said and playing at each comment.
+                    """),
         CommandHelp(name: "transcript", usage: "tandem transcript [<clip or media id>] [--from <time>] [--to <time>] [--make]", summary: "Word timings for a clip (timeline times), a file (file times) or the whole timeline.", options: ["from", "to", "make", "timeout"],
                     details: "--make makes the file's transcript first if it has none, as `tandem transcribe <id> --wait` does, so it works for any file with sound."),
         CommandHelp(name: "search", usage: "tandem search \"<phrase>\" [--limit <n>]", summary: "Find where a phrase is said, as timeline times and clip IDs.", options: ["limit"]),
