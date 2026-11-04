@@ -576,6 +576,29 @@ final class EditorBehaviourTests: XCTestCase {
         XCTAssertNil(lanes.gap)
     }
 
+    func testDeletingAndClosingTheGapKeepsTheMusicSwellOnItsMoment() throws {
+        // Mike's Delete then Close gap in the Threadbear launch video left a
+        // card's swell 0.44 s late: the bed got shorter but its gain
+        // keyframes kept their times from its start.
+        let music = editor.clip("Music").id
+        let swell = [(0.0, -30.0), (50, -30), (52, -18), (55, -30)].map { Keyframe(time: t($0.0), value: .number($0.1), interpolation: .linear) }
+        editor.model.apply(EditBatch(label: "Swell", commands: [.setKeyframes(clipID: music, parameter: "audio.gainDB", keyframes: swell)]))
+        let camera = editor.clip("Camera").id
+        editor.model.apply(EditBatch(label: "Cuts", commands: [.blade(at: t(20), clipIDs: [camera]), .blade(at: t(10), clipIDs: [camera])]))
+        editor.settle()
+        editor.click(editor.point(of: editor.clip("Camera", 1).id))
+        editor.press("delete")
+        editor.settle()
+        let lanes = try XCTUnwrap(editor.view(TimelineLanesView.self))
+        editor.hover(editor.point(onTrack: "Screen", at: 15))
+        let button = try XCTUnwrap(lanes.gapView.buttons.max { $0.midY < $1.midY })
+        editor.click(editor.windowPoint(CGPoint(x: button.midX, y: button.midY), in: lanes))
+        XCTAssertEqual(editor.model.undoLabel, "Close gap")
+        let bed = editor.clip("Music")
+        XCTAssertEqual(bed.end.seconds, 50, accuracy: 1e-6, "the bed got ten seconds shorter")
+        XCTAssertEqual(bed.keyframes["audio.gainDB"]?.map(\.time.seconds), [0, 40, 42, 45], "the swell moved up with everything else")
+    }
+
     func testPlayingThroughAnAgentChangeReviewsIt() throws {
         editor.model.apply(EditBatch(label: "B-roll over the demo", author: "claude", commands: [.placeMedia(mediaIDs: [editor.clip("B-roll").mediaID!], at: t(40), duration: t(3))]))
         editor.settle()

@@ -28,6 +28,18 @@ final class FollowKeyframeTests: XCTestCase {
         assertValid(c.project)
     }
 
+    func testClosingAGapMovesTheSwellToo() throws {
+        // Mike's way: delete a piece of the take, then close the gap.
+        let (f, c) = try Fixture.edited()
+        let music = f.clips("Music")[0].id
+        try c.run("Swell", .setKeyframes(clipID: music, parameter: "audio.gainDB", keyframes: gain([(0, -30), (50, -30), (52, -18), (55, -30)])))
+        let camera = f.track("Camera").id
+        try c.run("Cut", .blade(at: t(20), trackIDs: [camera]), .blade(at: t(10), trackIDs: [camera]))
+        try c.run("Lift", .removeClips(clipIDs: [c.clips("Camera")[1].id], ripple: false, includeLinked: true))
+        try c.run("Close gap", .closeGap(trackID: f.track("Voice").id, at: t(15)))
+        XCTAssertEqual(gainTimes(c.clips("Music")[0]), [t(0), t(40), t(42), t(45)])
+    }
+
     func testGainKeyframesInsideTheCutCollapseToTheCutPoint() throws {
         let (f, c) = try Fixture.edited()
         let music = f.clips("Music")[0].id
