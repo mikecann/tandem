@@ -30,19 +30,24 @@ public enum ProjectsWaiting {
 
     static func read(_ url: URL, author: String) async -> WaitingProject {
         do {
-            if let lock = ProjectSession.liveLock(for: url), let port = lock.port, let token = lock.token {
-                let client = TandemHTTPClient(port: port, token: token, author: author)
-                return WaitingProject(status: try await client.call(StatusRequest()), comments: try await client.call(CommentsRequest()), path: url.path)
+            if let lock = ProjectSession.liveLock(for: url) {
+                if let port = lock.port, let token = lock.token {
+                    let client = TandemHTTPClient(port: port, token: token, author: author)
+                    return WaitingProject(status: try await client.call(StatusRequest()), comments: try await client.call(CommentsRequest()), path: url.path)
+                }
+                // Held but not serving yet (the app opening it, a CLI
+                // command mid-edit): the saved file may be behind, so wait
+                // for its owner the way every command does.
+                return try await full(url, author: author)
             }
             let file = try LightProject.load(url)
             if journalHasEdits(after: file.revision, for: url) {
-                let client = ProjectClient(projectURL: url, author: author)
-                return WaitingProject(status: try await client.call(StatusRequest()), comments: try await client.call(CommentsRequest()), path: url.path)
+                return try await full(url, author: author)
             }
             let log = ReviewLog.load(from: ProjectFile.reviewURL(for: url))
             let comments = file.project.markers.filter { $0.kind == .comment }.sorted { $0.time < $1.time }
             return WaitingProject(
-                name: file.project.name ?? url.deletingPathExtension().lastPathComponent,
+                name: file.project.name,
                 path: url.path,
                 revision: file.revision,
                 comments: comments.map { NoteComment(id: $0.id, time: $0.time, text: $0.name) },
@@ -56,6 +61,12 @@ public enum ProjectsWaiting {
                 comments: [], handback: [], reviewPending: [], error: ServiceError.wrap(error).message
             )
         }
+    }
+
+    /// The usual `status` and `comments`, opening the project if no one has it.
+    static func full(_ url: URL, author: String) async throws -> WaitingProject {
+        let client = ProjectClient(projectURL: url, author: author)
+        return WaitingProject(status: try await client.call(StatusRequest()), comments: try await client.call(CommentsRequest()), path: url.path)
     }
 
     /// True when the journal holds an edit newer than the saved file: a
@@ -75,16 +86,20 @@ public enum ProjectsWaiting {
     /// never built into a model.
     struct LightProject: Decodable {
         struct Body: Decodable {
-            var name: String?
+            var schemaVersion: Int
+            var name: String
             var markers: [Marker]
 
+            // The same defaults as Project's own decoder, so `waiting` and
+            // `status` agree about a file missing a key.
             init(from decoder: Decoder) throws {
                 let c = try decoder.container(keyedBy: CodingKeys.self)
-                name = try c.decodeIfPresent(String.self, forKey: .name)
+                schemaVersion = try c.decodeIfPresent(Int.self, forKey: .schemaVersion) ?? Project.currentSchemaVersion
+                name = try c.decodeIfPresent(String.self, forKey: .name) ?? "Untitled"
                 markers = try c.decodeIfPresent([Marker].self, forKey: .markers) ?? []
             }
 
-            enum CodingKeys: String, CodingKey { case name, markers }
+            enum CodingKeys: String, CodingKey { case schemaVersion, name, markers }
         }
 
         var revision: Int
@@ -92,7 +107,13 @@ public enum ProjectsWaiting {
 
         static func load(_ url: URL) throws -> LightProject {
             do {
-                return try JSONDecoder().decode(LightProject.self, from: try Data(contentsOf: url))
+                let file = try JSONDecoder().decode(LightProject.self, from: try Data(contentsOf: url))
+                // A newer Tandem's file may keep comments somewhere this
+                // one doesn't know; say so, as opening it would.
+                guard file.project.schemaVersion <= Project.currentSchemaVersion else {
+                    throw ServiceError(.invalid, "\(url.lastPathComponent) was saved by a newer Tandem (schema \(file.project.schemaVersion)).")
+                }
+                return file
             } catch let error as DecodingError {
                 throw ServiceError(.invalid, "\(url.lastPathComponent) couldn't be read: \(DecodingErrorText.describe(error))")
             }

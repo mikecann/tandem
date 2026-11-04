@@ -180,12 +180,18 @@ public enum ProjectLocator {
         }
         return try paths.flatMap { path -> [URL] in
             let expanded = NSString(string: path).expandingTildeInPath
-            let url = (expanded.hasPrefix("/") ? URL(fileURLWithPath: expanded) : directory.appendingPathComponent(expanded)).standardizedFileURL
+            // Symlinks resolved, as ProjectClient does, so the lock, journal
+            // and review log are the real project's.
+            let url = (expanded.hasPrefix("/") ? URL(fileURLWithPath: expanded) : directory.appendingPathComponent(expanded)).standardizedFileURL.resolvingSymlinksInPath()
             var isFolder: ObjCBool = false
             guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isFolder) else {
                 throw ServiceError(.notFound, "No project at \(url.path).")
             }
-            return isFolder.boolValue ? projects(in: url) : [url]
+            if isFolder.boolValue { return projects(in: url) }
+            if isRenderSnapshot(url) {
+                throw ServiceError(.badRequest, "\(url.lastPathComponent) is the record an export left of the project it rendered, not a project.")
+            }
+            return [url]
         }
     }
 

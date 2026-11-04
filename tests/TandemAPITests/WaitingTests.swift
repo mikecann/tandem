@@ -110,4 +110,34 @@ final class WaitingTests: XCTestCase {
 
         XCTAssertEqual(try ProjectLocator.all([], in: inside).map(\.lastPathComponent), ["Interview.tandem", "Short 01.tandem"])
     }
+
+    func testANewerTandemsProjectIsAnErrorNotEmpty() async throws {
+        let url = folder.appendingPathComponent("Future.tandem")
+        try Data(#"{"revision": 1, "project": {"schemaVersion": 999, "name": "Future", "markers": []}}"#.utf8).write(to: url)
+
+        let result = await ProjectsWaiting.read([url], author: "test").projects[0]
+
+        XCTAssertEqual(result.error?.contains("newer Tandem"), true)
+    }
+
+    func testANamelessProjectIsUntitledAsInStatus() async throws {
+        let url = folder.appendingPathComponent("Plain.tandem")
+        try Data(#"{"revision": 1, "project": {}}"#.utf8).write(to: url)
+        let light = await ProjectsWaiting.read([url], author: "test").projects[0]
+        let status = try await ProjectClient(projectURL: url, author: "test").call(StatusRequest())
+        XCTAssertEqual(light.name, status.name)
+    }
+
+    func testAnExportsRecordNamedOutrightIsRefused() throws {
+        try Data("{}".utf8).write(to: folder.appendingPathComponent("review.mp4.tandem"))
+        XCTAssertThrowsError(try ProjectLocator.all(["review.mp4.tandem"], in: folder))
+    }
+
+    func testASymlinkReadsTheRealProject() throws {
+        let real = try project("Interview")
+        let link = folder.appendingPathComponent("link", isDirectory: true)
+        try FileManager.default.createDirectory(at: link, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(at: link.appendingPathComponent("Alias.tandem"), withDestinationURL: real)
+        XCTAssertEqual(try ProjectLocator.all(["link/Alias.tandem"], in: folder).map(\.path), [real.resolvingSymlinksInPath().path])
+    }
 }
