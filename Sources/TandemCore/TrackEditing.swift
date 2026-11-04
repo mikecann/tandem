@@ -238,6 +238,8 @@ extension Track {
     /// Follows a removal on another track: clips keep their content from the
     /// head and move with the time around them. A clip spanning the removed
     /// time loses that much from its tail; one entirely inside it is removed.
+    /// Sound keyframes move with the timeline, picture ones with the content
+    /// (`KeyframeEditing.followsTimeline`).
     mutating func followRemoval(of range: TimeRange, context: inout EditContext) {
         guard !range.isEmpty else { return }
         let a = range.start
@@ -256,6 +258,9 @@ extension Track {
                 continue
             }
             if newStart != clip.start || newEnd != clip.end {
+                // Before the tail trim prunes them, so a swell set under a
+                // card at the end of a music bed keeps its place.
+                clip.keyframes = KeyframeEditing.followingRemoval(clip.keyframes, of: range, oldStart: clip.start, newStart: newStart)
                 clip.start = newStart
                 clip.moveTail(to: newEnd)
             }

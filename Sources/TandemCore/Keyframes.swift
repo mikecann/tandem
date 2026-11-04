@@ -118,6 +118,60 @@ enum KeyframeEditing {
         }
     }
 
+    /// Keyframes that sit on the timeline rather than on a clip's content:
+    /// sound ones are mixing (a music swell set under a section card), so
+    /// when a ripple cut shortens a following clip they move with the
+    /// timeline. Picture ones (a push across a still) stay with the content.
+    static func followsTimeline(_ path: String) -> Bool {
+        path.hasPrefix("audio.")
+    }
+
+    /// Re-times a clip's timeline keyframes through the removal of `range`,
+    /// for a clip that started at `oldStart` and now starts at `newStart`
+    /// with its content unmoved from the head (`Track.followRemoval`).
+    /// Keyframes after the cut move left by its length; ones inside it are
+    /// dropped and one at the cut point carries on with the value that
+    /// played straight after it, so everything after the cut sounds as it
+    /// did.
+    static func followingRemoval(
+        _ keyframes: [String: [Keyframe]],
+        of range: TimeRange,
+        oldStart: Time,
+        newStart: Time
+    ) -> [String: [Keyframe]] {
+        var result = keyframes
+        for (path, list) in keyframes where followsTimeline(path) && !list.isEmpty {
+            let sorted = list.sorted { $0.time < $1.time }
+            var moved: [Keyframe] = []
+            var droppedInside = false
+            for var k in sorted {
+                let at = oldStart + k.time
+                if at > range.start && at < range.end {
+                    droppedInside = true
+                    continue
+                }
+                k.time = (at >= range.end ? at - range.duration : at) - newStart
+                moved.append(k)
+            }
+            let cutPoint = range.start - newStart
+            if droppedInside, !moved.contains(where: { $0.time == cutPoint }),
+               let value = sorted.value(at: range.end - oldStart) {
+                // The segment playing at the end of the cut sets how the
+                // value moves on from the cut point.
+                let interpolation = sorted.last { oldStart + $0.time <= range.end }?.interpolation ?? sorted[0].interpolation
+                moved.append(Keyframe(time: cutPoint, value: value, interpolation: interpolation))
+            }
+            // A keyframe right at the end of the cut lands on one right at
+            // its start: the later one, what plays after the cut, wins.
+            var byTime: [Keyframe] = []
+            for k in moved.sorted(by: { $0.time < $1.time }) {
+                if let last = byTime.last, last.time == k.time { byTime[byTime.count - 1] = k } else { byTime.append(k) }
+            }
+            result[path] = byTime
+        }
+        return result
+    }
+
     /// Drops keyframes that can't affect `0...duration`, keeping the nearest
     /// one on each side so the curve inside the clip is unchanged.
     static func pruned(_ keyframes: [String: [Keyframe]], duration: Time) -> [String: [Keyframe]] {

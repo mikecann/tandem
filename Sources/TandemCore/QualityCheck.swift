@@ -56,6 +56,12 @@ public struct CheckProblem: Codable, Equatable, Sendable {
         /// crop in a Short's top window over the same shot below
         /// (`sameShotTwice`): one person on screen twice.
         case sameShotTwice
+        /// A music swell that doesn't sit under the section card it was set
+        /// for: it starts later or earlier in its card than the other cards'
+        /// swells do, runs on past the card, or sits just beside a card with
+        /// none under it (`swellsOffCards`). Usually a cut or a locked
+        /// music track left it behind.
+        case swellOffCard
 
         /// Worth knowing rather than wrong: Mike signed off softer zooms on
         /// cartoon B-roll than on screen recordings, a pause can let a point
@@ -63,7 +69,7 @@ public struct CheckProblem: Codable, Equatable, Sendable {
         /// push. So these don't fail a check.
         public var isNote: Bool {
             self == .soft || self == .deadAir || self == .pageChange || self == .sliver || self == .lowFrameRate || self == .marginalJoin
-                || self == .heardDifferently || self == .heardWhole
+                || self == .heardDifferently || self == .heardWhole || self == .swellOffCard
         }
     }
 
@@ -277,6 +283,7 @@ public enum QualityCheck {
         let gapProblems = gaps(in: project, ranges: ranges)
         let jumps = doubleJumps(in: project, ranges: ranges)
         var found = gapProblems + softPictures(in: project, ranges: ranges) + slivers(in: project, ranges: ranges) + jumps + sameShotTwice(in: project, ranges: ranges)
+            + swellsOffCards(in: project, ranges: ranges)
         if let frames {
             let rendered = holdFixes(frameProblems(frames, in: project, skipping: gapProblems.map { TimeRange(start: $0.start, end: $0.end) }), in: project, screenFrames: screenFrames)
             found += withoutFlickersUnderFixedJumps(rendered, jumps: jumps, frame: project.settings.frameRate.frameDuration)
