@@ -296,7 +296,8 @@ public enum QualityCheck {
     static let greenShare = 0.01
 
     /// Every problem and note in `ranges`, by time. Without `frames` only
-    /// the model checks run. Dead air needs `speech` as well, and page
+    /// the model checks run, plus how a Short opens when there's `speech`
+    /// (it only reads the transcript). Dead air needs `speech` as well, and page
     /// changes need `screenFrames`, the screen recordings scanned on their
     /// own (`screenOnly`), and low frame rates those and `frameTimes`, the
     /// recordings' own frame times by media ID.

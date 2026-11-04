@@ -81,6 +81,20 @@ final class ShortOpeningTests: XCTestCase {
         XCTAssertEqual(notes(short("A few months ago, you tweeted that very few people are builders and so what if we develop all these new abstractions")), [])
     }
 
+    func testAnUnpunctuatedQuestionWithAnyVerbCounts() {
+        XCTAssertEqual(notes(short("What changed in the API this year and who should care")), [])
+    }
+
+    func testAPunctuationOnlyFirstWordStillQuotesTheBackReference() {
+        let found = notes(short("- And then it broke.", media: Self.tip, name: "Tip"))
+        XCTAssertTrue(found.first?.message.contains("It starts on \"And\"") ?? false, found.first?.message ?? "")
+    }
+
+    func testAChangeJustPastTheOpeningIsQuiet() {
+        // A change at 12.2 s, padded half a second by `check --changed`.
+        XCTAssertEqual(notes(short("And it's not to say that this isn't expanding the market."), ranges: [TimeRange(start: t(11.7), end: t(13))]), [])
+    }
+
     func testATipShortCanOpenOnAClaim() {
         // No interview in the name or the files: no question needed.
         XCTAssertEqual(notes(short("The biggest mistake I see with Convex is reading in a loop.", media: Self.tip, name: "Tip 3 Queries")), [])
@@ -114,6 +128,7 @@ final class ShortOpeningTests: XCTestCase {
         let found = notes(short("And " + words))
         // One word every 0.3 s: 40 of them start inside 12 s.
         XCTAssertTrue(found.first?.message.contains("w38") ?? false, found.first?.message ?? "")
-        XCTAssertFalse(found.first?.message.contains("w40") ?? true, found.first?.message ?? "")
+        // w39 starts at exactly 12 s, so it's the first word left out.
+        XCTAssertFalse(found.first?.message.contains("w39") ?? true, found.first?.message ?? "")
     }
 }

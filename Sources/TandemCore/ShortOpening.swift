@@ -37,7 +37,9 @@ extension QualityCheck {
 
     /// Words in a Short's name, or the files it plays, that make it a
     /// conversation: one that should open on the question it answers.
-    static let conversationWords: Set<String> = ["fireside", "interview", "interviews", "podcast", "q&a", "qa", "qna", "panel", "ama"]
+    /// Not "panel": it's in too many file names that aren't one ("solar
+    /// panel", "settings panel").
+    static let conversationWords: Set<String> = ["fireside", "interview", "interviews", "podcast", "q&a", "qa", "qna", "ama"]
 
     /// A note on a Short's opening (a project taller than it's wide) when it
     /// starts on a back-reference, or when it's a Q&A with no question in
@@ -45,7 +47,9 @@ extension QualityCheck {
     /// says it again only when the opening changed.
     public static func shortOpening(in project: Project, ranges: [TimeRange], speech: Speech) -> [CheckProblem] {
         guard project.settings.height > project.settings.width else { return [] }
-        let opening = TimeRange(start: .zero, end: shortOpeningLength)
+        // `check --changed` pads each change by `checkMargin` (0.5 s), so a
+        // change just past the opening shouldn't count as reaching into it.
+        let opening = TimeRange(start: .zero, end: shortOpeningLength - Time(seconds: 0.5))
         guard ranges.contains(where: { $0.overlaps(opening) }) else { return [] }
         let words = speech.words.filter { $0.start < shortOpeningLength }
         guard !words.isEmpty else { return [] }
@@ -67,7 +71,10 @@ extension QualityCheck {
         var message = "How this Short opens (the first \(Int(shortOpeningLength.seconds)) s): \"\(quoted)\""
         if let backReference {
             // Quote it as said, so the agent can find it.
-            let shown = said.split(separator: " ").drop { openingFillers.contains(openingTokens(String($0)).first ?? "") }
+            // Words that are only punctuation (a stray "-") aren't tokens, so
+            // they're skipped here too, to line up with the phrase matched.
+            let shown = said.split(separator: " ").filter { !openingTokens(String($0)).isEmpty }
+                .drop { openingFillers.contains(openingTokens(String($0)).first ?? "") }
                 .prefix(backReference.split(separator: " ").count).joined(separator: " ")
             message += " It starts on \"\(shown.trimmingCharacters(in: .punctuationCharacters))\", which refers back to something a viewer who hasn't seen the rest didn't hear. Start where the thought starts."
         }
@@ -106,6 +113,11 @@ extension QualityCheck {
     /// as a question mark.
     static func asksAQuestion(_ said: String, tokens: [String]) -> Bool {
         if said.contains("?") { return true }
+        // Opening on a question word is asking, whatever verb follows it
+        // ("What changed in the API").
+        var leading = tokens[...]
+        while let first = leading.first, openingFillers.contains(first) { leading = leading.dropFirst() }
+        if let first = leading.first, ["what", "how", "why", "who", "where", "when", "which"].contains(first) { return true }
         let asking: Set<String> = ["what", "how", "why", "who", "where", "when", "which"]
         let then: Set<String> = ["do", "does", "did", "is", "are", "was", "were", "would", "could", "should", "can", "will", "if", "about", "happens", "happened"]
         let helpers: Set<String> = ["do", "does", "did", "would", "could", "can", "should", "are", "have", "will"]

@@ -120,7 +120,7 @@ their own beside it, and reports, with the clips on screen there:
     back-reference ("And...", "So...", "The other area...", "The biggest
     one...", "Like I said...", a host's "Shifting gears...") or when it's
     a Q&A Short with no question in them. A Short is a Q&A when its name or
-    a file it plays says fireside, interview, podcast, Q&A, panel or AMA;
+    a file it plays says fireside, interview, podcast, Q&A or AMA;
     a question is a question mark or a question's words ("what does",
     "how do", "do you"), since a transcript doesn't always punctuate. A
     tip Short can open on a claim, so this never fails a check, and a good
@@ -128,7 +128,8 @@ their own beside it, and reports, with the clips on screen there:
     it starts" (4 Nov 2026). Fix it by opening on the question, from
     earlier or later in the talk, or where the thought starts. Read from
     the transcript, so it's in a quick check, and `--changed` only says it
-    again when the opening changed.
+    again when the opening changed. It needs the take's transcript, so
+    until that's ready there's no note.
 
 Run `tandem check --changed` before handing an edit back: it checks only
 what agents changed that's waiting for Mike's review, half a second either

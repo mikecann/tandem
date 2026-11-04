@@ -763,9 +763,9 @@ scripts and the speaker tracker are in
   "last ninety seconds"), and give a talk's running gag or number its setup
   (Seth's camp story before "the spreadsheet that became...", a hook saying the
   audience made the number). `tandem check` quotes the first 12 s of a
-  Q&A Short (fireside, interview, podcast, Q&A, panel or AMA in its name
-  or files) with no question in them, or starting on a back-reference. It
-  can't tell a running gag is missing its setup, so read the opening as a
+  Q&A Short (fireside, interview, podcast, Q&A or AMA in its name or
+  files) with no question in them, and of any Short starting on a
+  back-reference (see "Every Short stands alone"). It can't tell a running gag is missing its setup, so read the opening as a
   stranger anyway. Once the question is asked on camera, no hook title
   repeating it: "we don't need to
   show the question on the screen... because it should get asked at the start

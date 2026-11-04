@@ -264,8 +264,8 @@ follows.
   double jumps (B-roll a few frames off a camera cut, with the fix), the
   same shot on two tracks at once (one person on screen twice),
   with notes on dead air, page changes, low frame rate screen
-  recordings and a Short that opens on a back-reference or, as a Q&A,
-  with no question; `--cuts` finds clipped words at cuts, and `--listen` hears
+  recordings and a Short that opens on a back-reference, or a Q&A Short
+  that never asks its question; `--cuts` finds clipped words at cuts, and `--listen` hears
   each join and prints what's heard there.
 - `tandem check --privacy` before every export: private text a viewer
   could read (emails, phone numbers, addresses, references, ID, money,
