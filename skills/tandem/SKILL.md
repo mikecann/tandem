@@ -753,7 +753,11 @@ scripts and the speaker tracker are in
   when he's the joke.
 - **Titles over the chest on seated close-ups.** A fireside close-up puts the
   face at the top of the 9:16 frame, so the names (y 0.61) go just above
-  the captions, not at the top.
+  the captions, not at the top. One name per person, only while they first
+  talk: the host's as he asks, then the guest's from her first word, each
+  for about 4.5 s, then neither (Mike, 4 Nov 2026: "only put the names on
+  the screen for each person when they're talking"). `.work/tools/names.py`
+  in abstract-talk-clips does it.
 - **Fix captions by whole caption, not by word.** A word map (`fixCaptionWords`
   with `"you": "you."`) hit every caption with that word and the SDK run can't
   be undone; replace exact captions instead (`.work/tools/setcaps.ts` in that
