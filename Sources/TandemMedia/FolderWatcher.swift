@@ -154,10 +154,13 @@ public final class FolderWatcher: @unchecked Sendable {
             }
             guard let relative = relativePath(path), !MediaScanner.isSkippedPath(relative) else { continue }
             if flag & kFSEventStreamEventFlagItemIsDir != 0 {
+                let name = (relative as NSString).lastPathComponent
+                // A folder in a code project's public/ or src/ holds nothing
+                // to rescan for; one in its out/ (or out/ itself) does.
+                if name.lowercased() != MediaScanner.renderFolderName, MediaScanner.isInsideCodeProject(relative, in: folder) { continue }
                 // A folder moved or vanished: look at everything under it.
                 // Tandem's own cache and exports churn constantly and hold no
                 // media, so they never trigger that.
-                let name = (relative as NSString).lastPathComponent
                 if !MediaScanner.isSkippedFolder(name: name),
                    flag & (kFSEventStreamEventFlagItemRenamed | kFSEventStreamEventFlagItemRemoved | kFSEventStreamEventFlagItemCreated) != 0 {
                     rescan = true
@@ -166,6 +169,9 @@ public final class FolderWatcher: @unchecked Sendable {
                 continue
             }
             guard MediaScanner.mediaKind(forPath: relative) != nil else { continue }
+            // A Remotion project's public/ churns as its tools work; only
+            // its renders in out/ are media (`MediaScanner.isCodeProject`).
+            guard !MediaScanner.isInsideCodeProject(relative, in: folder) else { continue }
             pending.insert(relative)
             relevant = true
         }

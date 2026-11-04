@@ -580,7 +580,10 @@ result, and left pointing where they did; everything else is archived.
 When a project opens in the app with media missing, files moved within its
 folder, and files that are in this Mac's shared library (a project from
 another Mac that used stickers or sounds from its library), are relinked
-straight away, and Mike is asked for a folder to search for the rest.
+straight away, and Mike is asked for a folder to search for the rest that
+clips use. A missing file no clip uses isn't worth stopping him for: one
+inside the folder leaves with the next scan, and one outside it (maybe on
+an unplugged drive) stays listed by `tandem media` and `tandem validate`.
 `MediaRelinker` takes a file with the same name and, when the item has a
 fingerprint, the same content, and a Live Photo's movie from beside the
 still it found; `tandem relink --search <folder>` does the same for

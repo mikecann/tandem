@@ -31,6 +31,16 @@ anything worth telling Mike).
 - Skips hidden files and folders, `.tandem`, `exports`, `node_modules`,
   `.build`, `.git`, `*.wfp.dir` and package contents. Follows symlinks to
   files, never to folders.
+- A subfolder with a `package.json` is a code project (a Remotion
+  `motion-graphics/`, an example app's `demo/`): only its `out/` folder is
+  scanned, where its renders go. Its `public/` and `src/` are the code's
+  own assets, which tools write and delete as they work. The project folder
+  itself is never treated as one. `FolderWatcher` ignores the same files
+  (`MediaScanner.isInsideCodeProject`).
+- A known file that's gone, inside the folder, and used by no clip is
+  dropped by `refreshMedia` (`ProjectSession.refreshCommands`) rather than
+  left for Mike to be asked about. One a clip uses, or one outside the
+  folder (maybe on an unplugged drive), stays and is reported missing.
 - Media extensions: video `mov mp4 m4v`, audio `m4a mp3 wav aif aiff caf`,
   images `png jpg jpeg heic gif webp`.
 - A known item keeps its ID when its path (relative to the folder) still

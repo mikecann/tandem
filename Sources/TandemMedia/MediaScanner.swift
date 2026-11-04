@@ -16,7 +16,8 @@ public enum MediaScanner {
     static let probeConcurrency = 6
 
     /// Scans the folder for media, skipping `.tandem`, `exports`,
-    /// `node_modules` and hidden folders. Known paths keep their IDs; new
+    /// `node_modules`, hidden folders and code projects but for their
+    /// `out/` (`isCodeProject`). Known paths keep their IDs; new
     /// files get new items. record-it takes (`<base>-camera.mov` and
     /// `<base>-screen.mov`) share a take ID and carry take offsets. A Live
     /// Photo is one item, its still, with the movie in `livePhotoVideo`
@@ -198,13 +199,22 @@ public enum MediaScanner {
             options: [.skipsHiddenFiles, .skipsPackageDescendants]
         ) else { return [] }
         var found: [URL] = []
+        // Code projects met so far (`isCodeProject`). The walk visits a
+        // folder before what's in it, so a parent is always known first.
+        var codeProjects = Set<String>()
         for case let url as URL in enumerator {
             let values = try? url.resourceValues(forKeys: Set(keys))
+            let parent = url.deletingLastPathComponent().standardizedFileURL.path
+            let inCodeProject = codeProjects.contains(parent)
             if values?.isDirectory == true {
-                if isSkippedFolder(name: url.lastPathComponent) { enumerator.skipDescendants() }
+                if isSkippedFolder(name: url.lastPathComponent) || (inCodeProject && url.lastPathComponent.lowercased() != renderFolderName) {
+                    enumerator.skipDescendants()
+                } else if isCodeProject(url) {
+                    codeProjects.insert(url.standardizedFileURL.path)
+                }
                 continue
             }
-            guard mediaKind(forPath: url.path) != nil else { continue }
+            guard !inCodeProject, mediaKind(forPath: url.path) != nil else { continue }
             if values?.isSymbolicLink == true {
                 // Follow links to files, never to folders (no loops).
                 let target = url.resolvingSymlinksInPath()
@@ -215,6 +225,37 @@ public enum MediaScanner {
             found.append(url.standardizedFileURL)
         }
         return found.sorted { $0.path < $1.path }
+    }
+
+    /// The one folder of a code project the scan looks in: where Remotion
+    /// (and the motion-graphics skill) renders clips.
+    public static let renderFolderName = "out"
+
+    /// True for a folder below the project folder with a `package.json`: a
+    /// Remotion project or an example app sitting in the video folder. Its
+    /// `public/` and `src/` are the code's own assets, which tools write and
+    /// delete as they work, so only its `out/` counts as media. The project
+    /// folder itself is never one, so a video folder with a package.json is
+    /// still scanned whole.
+    static func isCodeProject(_ directory: URL) -> Bool {
+        FileManager.default.fileExists(atPath: directory.appendingPathComponent("package.json").path)
+    }
+
+    /// True when a path relative to the project folder is inside a code
+    /// project (`isCodeProject`) but not in its `out/` folder.
+    public static func isInsideCodeProject(_ relativePath: String, in folder: ProjectFolder) -> Bool {
+        let parts = relativePath.split(separator: "/").map(String.init)
+        guard parts.count > 1 else { return false }
+        var directory = folder.root
+        for index in 0..<(parts.count - 1) {
+            directory = directory.appendingPathComponent(parts[index])
+            guard isCodeProject(directory) else { continue }
+            // Its out/ folder holds renders. A code project nested in there
+            // is checked in turn.
+            if index + 2 < parts.count, parts[index + 1].lowercased() == renderFolderName { continue }
+            return true
+        }
+        return false
     }
 
     /// True for folders the scanner and watcher ignore.

@@ -1169,7 +1169,16 @@ comments, changed these rules for a conversation like this:
   12 dB (`convex-videos/tools/voice-enhance/`, run it on RunPod). It
   softens quiet word edges, so re-run `check --cuts --listen` over every
   join after swapping a voice file in; DeepFilterNet's digital silence
-  can drop whole quiet words, so find and fix dropouts too.
+  can drop whole quiet words, so find and fix dropouts too. In the end he
+  used Adobe Enhance for that one-off, blended 0.8 Adobe + 0.2 original
+  ("too clean" alone; check Adobe's words, it changed 7).
+- **Hum in the blended-back original:** a mains buzz on one take was odd
+  harmonics of 60 Hz from 420 Hz to 11 kHz, and notching only the first
+  six and four near 3.8 kHz left it audible ("I'm hearing that background
+  buzz", on a Short, 4 Nov). Before shipping a blend, list every harmonic
+  over the pause floor (`tools/voice-enhance/src/blend/` has the
+  measuring and `dehum2.py`, which notches only the original's share:
+  blend minus 0.8 x Adobe), not just the low ones.
 
 ## Rules
 
@@ -1240,9 +1249,10 @@ comments, changed these rules for a conversation like this:
   folder, then `tandem media --refresh` adds them. Temporary files
   (ProRes masters before converting to HEVC with alpha, test renders) go
   in `$TMPDIR` or the scratchpad, never the video folder: Tandem adds
-  anything that appears there, and deleting 10 converted intermediates on
-  the Ian video gave Mike a "10 media files are missing" dialog. If one
-  gets registered anyway, `removeMedia` it before deleting the file.
+  anything that appears there. A file no clip uses leaves the project
+  quietly when it's deleted, but it churns the media list meanwhile. A
+  subfolder with a `package.json` (`motion-graphics/`) only counts its
+  `out/`, so a Remotion project's `public/` and `src/` are safe to write.
 - Find music, sound effects, stickers and icons with `tandem assets search`
   and add them with `tandem assets use <id> --at <time>`. Mike's shared
   library is `~/Movies/Tandem Library`.

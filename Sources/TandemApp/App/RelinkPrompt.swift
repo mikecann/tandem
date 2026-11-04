@@ -8,8 +8,8 @@ import TandemMedia
 /// or its folder was tidied by hand) gets them looked for: files moved
 /// within the project folder, or in this Mac's shared library (a sticker
 /// or sound the project used from the library on another Mac), are
-/// relinked straight away, and for the rest Mike is asked for a folder to
-/// search. A file is only taken when it's the same file (`MediaRelinker`,
+/// relinked straight away, and for the rest that clips use Mike is asked
+/// for a folder to search. A file is only taken when it's the same file (`MediaRelinker`,
 /// the same as `tandem relink`).
 ///
 /// The question waits until the window is in front: a project opened in
@@ -34,7 +34,11 @@ enum RelinkPrompt {
             if relinked > 0 {
                 controller.model.show(.info, "Found \(files(relinked)) that had moved in the project folder or are in the shared library, and relinked \(relinked == 1 ? "it" : "them").")
             }
-            let still = MediaRelinker.missing(in: session.coordinator.project, folder: folder)
+            // Only files a clip uses are worth stopping Mike for. An unused
+            // one inside the folder leaves with the next scan
+            // (`ProjectSession.refreshCommands`); `tandem validate` still
+            // lists any that are left.
+            let still = MediaRelinker.missing(in: session.coordinator.project, folder: folder, usedOnly: true)
             guard !still.isEmpty else { return }
             if NSApp.isActive, controller.window?.isKeyWindow == true {
                 ask(about: still, controller: controller)
@@ -47,7 +51,7 @@ enum RelinkPrompt {
     /// Asks about missing media held back until the window came forward.
     static func windowBecameKey(_ controller: ProjectWindowController) {
         guard waiting.remove(ObjectIdentifier(controller)) != nil else { return }
-        let still = MediaRelinker.missing(in: controller.model.session.coordinator.project, folder: controller.model.session.folder)
+        let still = MediaRelinker.missing(in: controller.model.session.coordinator.project, folder: controller.model.session.folder, usedOnly: true)
         if !still.isEmpty { ask(about: still, controller: controller) }
     }
 
@@ -97,7 +101,7 @@ enum RelinkPrompt {
                     } else {
                         controller.model.show(.warning, "None of the missing files were in \(url.lastPathComponent).")
                     }
-                    let still = MediaRelinker.missing(in: session.coordinator.project, folder: session.folder)
+                    let still = MediaRelinker.missing(in: session.coordinator.project, folder: session.folder, usedOnly: true)
                     // Found some: offer another folder for the rest.
                     if !still.isEmpty, relinked > 0 { ask(about: still, controller: controller) }
                 }

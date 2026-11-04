@@ -41,7 +41,11 @@ the last program's exit code.
 `.jpeg`, `.heic`, `.gif` and `.webp` pictures; anything else is left out.
 The scan skips hidden files and folders, `.tandem`, `exports`,
 `node_modules`, `.build`, `.git` and Filmora's `*.wfp.dir` folders, and a
-file it can't read is skipped with the reason.
+file it can't read is skipped with the reason. A subfolder with a
+`package.json` (a Remotion `motion-graphics/`, an example app) is code, so
+only its `out/` is scanned: render clips there or into `broll/`, and its
+`public/` and `src/` never become media. When a file no clip uses
+disappears from the folder, it leaves the project quietly on the next scan.
 
 Each file gets a role from its name and folder: record-it's `-camera` and
 `-screen` files (and its audio-only `-audio` take, a camera take with no
