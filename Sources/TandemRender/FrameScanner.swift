@@ -73,8 +73,6 @@ public enum FrameScanner {
         }
     }
 
-    /// Reads one stretch on a thread of its own: the reader blocks. `from`
-    /// overrides where reading starts, for a test to make a reader stall.
     /// Readers run at utility priority, like the compositor they read
     /// through (`TandemScanCompositor`).
     static let readerQoS: DispatchQoS.QoSClass = .utility
@@ -87,6 +85,8 @@ public enum FrameScanner {
         return composition
     }
 
+    /// Reads one stretch on a thread of its own: the reader blocks. `from`
+    /// overrides where reading starts, for a test to make a reader stall.
     static func read(_ built: BuiltComposition, tracks: [AVAssetTrack], range: TimeRange, scanlines: Bool, stallLimit: TimeInterval = FrameScanner.stallLimit, from: Time? = nil) async throws -> [FrameStats] {
         let source = Unchecked((built: built, tracks: tracks))
         return try await withCheckedThrowingContinuation { continuation in
