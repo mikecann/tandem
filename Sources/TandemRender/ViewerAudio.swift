@@ -502,6 +502,9 @@ struct ViewerMix: @unchecked Sendable {
     /// does.
     let end: Int
 
+    /// Every viewer reader opens and closes through this.
+    static let readers = ReaderGate()
+
     init(_ built: BuiltComposition) {
         composition = built.composition
         tracks = zip(built.audioMix.inputParameters.map(\.trackID), built.audioGains).map { (id: $0, gain: $1) }
@@ -522,7 +525,23 @@ struct ViewerMix: @unchecked Sendable {
     /// A reader of frames `from` to `to` through new gain taps, read the
     /// way export reads the mix, or nil when there's no sound to read.
     func reader(from: Int, to: Int) -> (AVAssetReader, AVAssetReaderAudioMixOutput)? {
-        guard let composition, !tracks.isEmpty, to > from else { return nil }
+        guard composition != nil, !tracks.isEmpty, to > from else { return nil }
+        return Self.readers.open { openReader(from: from, to: to) }
+    }
+
+    /// Closes the reader in `reader`, cancelling it if it's still reading,
+    /// and lets go of it there too, since its queues may go when it does.
+    static func close(_ reader: inout AVAssetReader?, _ output: inout AVAssetReaderAudioMixOutput?) {
+        guard reader != nil || output != nil else { return }
+        readers.close {
+            if let reader, reader.status == .reading { reader.cancelReading() }
+            reader = nil
+            output = nil
+        }
+    }
+
+    private func openReader(from: Int, to: Int) -> (AVAssetReader, AVAssetReaderAudioMixOutput)? {
+        guard let composition else { return nil }
         let byID = Dictionary(composition.tracks(withMediaType: .audio).map { ($0.trackID, $0) }, uniquingKeysWith: { a, _ in a })
         let used = tracks.compactMap { byID[$0.id] }
         guard !used.isEmpty else { return nil }
@@ -558,8 +577,10 @@ struct ViewerMix: @unchecked Sendable {
     func read(from: Int, to: Int) -> [Float] {
         var samples = [Float](repeating: 0, count: max(to - from, 0) * AudioBuffers.channels)
         guard let opened = reader(from: from, to: to) else { return samples }
-        let (reader, output) = opened
-        while let buffer = output.copyNextSampleBuffer() {
+        var reader: AVAssetReader? = opened.0
+        var output: AVAssetReaderAudioMixOutput? = opened.1
+        defer { Self.close(&reader, &output) }
+        while let buffer = output?.copyNextSampleBuffer() {
             let frame = ViewerMix.frame(of: buffer) - from
             let read = AudioBuffers.samples(in: buffer)
             let skip = max(0, -frame)
@@ -568,7 +589,7 @@ struct ViewerMix: @unchecked Sendable {
             let at = max(frame, 0) * AudioBuffers.channels
             samples.replaceSubrange(at..<(at + count * AudioBuffers.channels), with: read[(skip * AudioBuffers.channels)..<((skip + count) * AudioBuffers.channels)])
         }
-        if reader.status == .failed {
+        if let reader, reader.status == .failed {
             NSLog("TandemRender: reading the viewer's sound failed: \(String(describing: reader.error))")
         }
         return samples
@@ -577,6 +598,54 @@ struct ViewerMix: @unchecked Sendable {
     /// The 48 kHz frame a buffer from the reader starts on.
     static func frame(of buffer: CMSampleBuffer) -> Int {
         Int(CMTimeConvertScale(CMSampleBufferGetPresentationTimeStamp(buffer), timescale: 48_000, method: .roundHalfAwayFromZero).value)
+    }
+}
+
+/// Where the viewer's readers of the mix are opened and closed (TANDEM-2).
+/// Behind each reader is an offline mixer with an audio queue for every
+/// track, all served by one audio-queue server in the app. Each prime
+/// opens a reader on its own feed's queue while the last feed closes its
+/// reader on another, so readers were set up and torn down at the same
+/// moment, and the app once crashed inside that server jumping through a
+/// freed pointer, with the viewer pumping sound and a reader mixing. Only
+/// the opening and closing come here, one at a time; reading stays on each
+/// feed's queue, so a reader that stalls still holds up only itself.
+final class ReaderGate: @unchecked Sendable {
+    /// Held while a reader opens or closes. Not recursive: nothing that
+    /// opens or closes a reader does either again inside.
+    private let turn = NSLock()
+    private let lock = NSLock()
+    private var busy = 0
+    /// Tests: the most opens and closes seen under way at once, and how
+    /// many readers were opened, since the last `reset`.
+    private(set) var mostAtOnce = 0
+    private(set) var opened = 0
+
+    func open<T>(_ body: () -> T) -> T {
+        counted(opening: true, body)
+    }
+
+    func close(_ body: () -> Void) {
+        counted(opening: false, body)
+    }
+
+    private func counted<T>(opening: Bool, _ body: () -> T) -> T {
+        turn.lock()
+        defer { turn.unlock() }
+        lock.withLock {
+            busy += 1
+            mostAtOnce = max(mostAtOnce, busy)
+            if opening { opened += 1 }
+        }
+        defer { lock.withLock { busy -= 1 } }
+        return body()
+    }
+
+    func reset() {
+        lock.withLock {
+            mostAtOnce = 0
+            opened = 0
+        }
     }
 }
 
@@ -617,8 +686,7 @@ final class ForwardSound: ViewerSound {
                     if let reader, reader.status == .failed {
                         NSLog("TandemRender: reading the viewer's sound failed: \(String(describing: reader.error))")
                     }
-                    self.output = nil
-                    reader = nil
+                    ViewerMix.close(&reader, &self.output)
                 }
             }
             guard let pending = waiting else {
@@ -651,9 +719,11 @@ final class ForwardSound: ViewerSound {
     }
 
     func cancel() {
-        reader?.cancelReading()
-        reader = nil
-        output = nil
+        ViewerMix.close(&reader, &output)
+    }
+
+    deinit {
+        ViewerMix.close(&reader, &output)
     }
 }
 

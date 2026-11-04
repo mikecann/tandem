@@ -528,4 +528,45 @@ final class ViewerAudioTests: XCTestCase {
         }
         XCTAssertGreaterThan(rig.audio.time.seconds, at.seconds + 4, "it played on")
     }
+
+    // MARK: - Priming over and over
+
+    /// Seeking, editing and pausing while you review a cut each prime
+    /// again, and every prime opens a reader of the mix (one audio queue
+    /// per track behind it) and closes the last one. Done a few hundred
+    /// times in quick succession, with plays and stops between, it keeps
+    /// working: the crash in TANDEM-2 was inside the audio queues behind
+    /// those readers. `TANDEM_STRESS_SECONDS` runs it for longer.
+    func testPrimingOverAndOverKeepsWorking() async throws {
+        try XCTSkipUnless(hasAudioOutput(), "no audio output device")
+        let media = try TestMedia()
+        let built = try await threeTracks(media, seconds: 20)
+        let audio = ViewerAudio(muted: true)
+        defer { audio.invalidate() }
+        audio.load(built)
+        ViewerMix.readers.reset()
+        let seconds = Double(ProcessInfo.processInfo.environment["TANDEM_STRESS_SECONDS"] ?? "") ?? 3
+        let until = ProcessInfo.processInfo.systemUptime + seconds
+        var generator = SystemRandomNumberGenerator()
+        var round = 0
+        while ProcessInfo.processInfo.systemUptime < until {
+            round += 1
+            let at = Double.random(in: 0..<19, using: &generator)
+            switch round % 7 {
+            case 0: audio.start(rate: 1, at: t(at)) { _ in }
+            case 3: audio.stop()
+            case 5: audio.load(built)
+            default: audio.prime(at: t(at), reverse: round % 11 == 0)
+            }
+            try await Task.sleep(nanoseconds: UInt64.random(in: 2_000_000...25_000_000, using: &generator))
+        }
+        // Still plays from where it's asked to.
+        await prime(audio, at: 4)
+        XCTAssertTrue(audio.isReady(at: t(4), reverse: false))
+        audio.invalidate()
+        // Let the last retired readers close.
+        try await Task.sleep(nanoseconds: 300_000_000)
+        XCTAssertGreaterThan(ViewerMix.readers.opened, 20, "it opened a reader again and again")
+        XCTAssertEqual(ViewerMix.readers.mostAtOnce, 1, "one reader opened or closed at a time, never one closing while the next opens")
+    }
 }
