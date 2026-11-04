@@ -1329,8 +1329,6 @@ final class EditorBehaviourTests: XCTestCase {
         XCTAssertEqual(editor.model.primaryClipID, camera.id)
     }
 
-    /// The close-up turned off above the wide: clicking the group by the
-    /// turned-off clip opens the Colour tab on the one that's showing.
     /// The Threadbear launch video: Mike turned off privacy blurs in the
     /// inspector while he reviewed them, and each copy went on drawing the
     /// same footage over itself with a faint seam along its crop. Turned
@@ -1363,6 +1361,8 @@ final class EditorBehaviourTests: XCTestCase {
         XCTAssertTrue(drawn(), "on again, it hides the region again")
     }
 
+    /// The close-up turned off above the wide: clicking the group by the
+    /// turned-off clip opens the Colour tab on the one that's showing.
     func testClickingATurnedOffAngleOnTheTimelineGradesTheOneShowing() throws {
         let editor = try EditorHarness()
         defer { editor.close() }
