@@ -568,5 +568,6 @@ final class ViewerAudioTests: XCTestCase {
         try await Task.sleep(nanoseconds: 300_000_000)
         XCTAssertGreaterThan(ViewerMix.readers.opened, 20, "it opened a reader again and again")
         XCTAssertEqual(ViewerMix.readers.mostAtOnce, 1, "one reader opened or closed at a time, never one closing while the next opens")
+        XCTAssertEqual(ViewerMix.readers.closed, ViewerMix.readers.opened, "every reader closed through the gate too")
     }
 }

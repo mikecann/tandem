@@ -576,9 +576,16 @@ struct ViewerMix: @unchecked Sendable {
     /// composition has no sound.
     func read(from: Int, to: Int) -> [Float] {
         var samples = [Float](repeating: 0, count: max(to - from, 0) * AudioBuffers.channels)
-        guard let opened = reader(from: from, to: to) else { return samples }
-        var reader: AVAssetReader? = opened.0
-        var output: AVAssetReaderAudioMixOutput? = opened.1
+        var reader: AVAssetReader?
+        var output: AVAssetReaderAudioMixOutput?
+        // Copied into the two optionals in a scope of its own, so nothing
+        // else holds them when the close below lets go inside the gate.
+        if let opened = self.reader(from: from, to: to) {
+            reader = opened.0
+            output = opened.1
+        } else {
+            return samples
+        }
         defer { Self.close(&reader, &output) }
         while let buffer = output?.copyNextSampleBuffer() {
             let frame = ViewerMix.frame(of: buffer) - from
@@ -616,10 +623,15 @@ final class ReaderGate: @unchecked Sendable {
     private let turn = NSLock()
     private let lock = NSLock()
     private var busy = 0
+    private var most = 0
+    private var opens = 0
+    private var closes = 0
+
     /// Tests: the most opens and closes seen under way at once, and how
-    /// many readers were opened, since the last `reset`.
-    private(set) var mostAtOnce = 0
-    private(set) var opened = 0
+    /// many readers were opened and closed, since the last `reset`.
+    var mostAtOnce: Int { lock.withLock { most } }
+    var opened: Int { lock.withLock { opens } }
+    var closed: Int { lock.withLock { closes } }
 
     func open<T>(_ body: () -> T) -> T {
         counted(opening: true, body)
@@ -634,8 +646,8 @@ final class ReaderGate: @unchecked Sendable {
         defer { turn.unlock() }
         lock.withLock {
             busy += 1
-            mostAtOnce = max(mostAtOnce, busy)
-            if opening { opened += 1 }
+            most = max(most, busy)
+            if opening { opens += 1 } else { closes += 1 }
         }
         defer { lock.withLock { busy -= 1 } }
         return body()
@@ -643,8 +655,9 @@ final class ReaderGate: @unchecked Sendable {
 
     func reset() {
         lock.withLock {
-            mostAtOnce = 0
-            opened = 0
+            most = 0
+            opens = 0
+            closes = 0
         }
     }
 }
@@ -679,14 +692,16 @@ final class ForwardSound: ViewerSound {
 
     func next() -> (frame: Int, samples: [Float])? {
         while position < end {
-            if waiting == nil, let output {
-                if let buffer = output.copyNextSampleBuffer() {
+            if waiting == nil, output != nil {
+                // Through the stored property, so no other reference to
+                // the output is left when it closes.
+                if let buffer = output?.copyNextSampleBuffer() {
                     waiting = (ViewerMix.frame(of: buffer), AudioBuffers.samples(in: buffer))
                 } else {
-                    if let reader, reader.status == .failed {
-                        NSLog("TandemRender: reading the viewer's sound failed: \(String(describing: reader.error))")
+                    if reader?.status == .failed {
+                        NSLog("TandemRender: reading the viewer's sound failed: \(String(describing: reader?.error))")
                     }
-                    ViewerMix.close(&reader, &self.output)
+                    ViewerMix.close(&reader, &output)
                 }
             }
             guard let pending = waiting else {
