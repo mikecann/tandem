@@ -47,9 +47,11 @@ extension Editing {
     /// is linked one clip a track with the piece it hides, and ripple cuts,
     /// trims, slips and moves keep it on it.
     ///
-    /// An edge less than half a second inside a clip goes out to the clip's
-    /// edge, so hiding a little more is preferred to leaving a sliver of a
-    /// cut. The copies are new IDs in `createdIDs`.
+    /// The edges are where asked (to the frame): one less than a frame from
+    /// a clip's edge goes to it, so no sliver of take is cut off, and a
+    /// clip the range overlaps by less than a frame gets no copy. Past
+    /// that, the take's cut where asked, and the through-edit plays
+    /// straight on. The copies are new IDs in `createdIDs`.
     static func redact(
         _ p: inout Project, range requested: TimeRange, rect: Rect, trackID: String?, mediaID: String?,
         style: RedactStyle, size: Double?, name: String?, _ context: inout EditContext
@@ -66,6 +68,7 @@ extension Editing {
         if let mediaID, p.media(mediaID) == nil { throw EditError.notFound("media \(mediaID)") }
         let rate = p.settings.frameRate
         let range = TimeRange(start: requested.start.roundedToFrame(rate), end: requested.end.roundedToFrame(rate))
+        let frame = rate.frameDuration
         guard range.duration > .zero else { throw EditError.invalid("the range is shorter than a frame") }
 
         var sources: [TrackLocation]
@@ -87,8 +90,21 @@ extension Editing {
             for clip in track.clips where clip.range.overlaps(range) && !clip.isObscured {
                 guard let id = clip.mediaID, mediaID == nil || id == mediaID,
                       let item = p.media(id), item.hasVideo, var span = clip.range.intersection(range) else { continue }
-                if span.start - clip.start < SyncedPlacement.minimumPiece { span = TimeRange(start: clip.start, end: span.end) }
-                if clip.end - span.end < SyncedPlacement.minimumPiece { span = TimeRange(start: span.start, end: clip.end) }
+                // Never past the time asked for, except to a clip edge
+                // less than a frame away: that's rounding (a take tightened
+                // off the frame grid), and cutting there would leave a
+                // sliver of take. Snapping half a second out, as this once
+                // did, blurred the next window in the launch video for
+                // 0.35 s as it opened.
+                if span.start - clip.start < frame { span = TimeRange(start: clip.start, end: span.end) }
+                if clip.end - span.end < frame { span = TimeRange(start: span.start, end: clip.end) }
+                // A copy under a frame long is a clip the range only grazes
+                // through rounding: it would show, at most, one blurred
+                // frame over the wrong picture.
+                guard span.duration >= frame else {
+                    context.warn("Left \(clip.name ?? clip.id) on \"\(track.name)\" alone: the range only takes \(String(format: "%.3f", span.duration.seconds)) s of it, under a frame. Widen the range if that clip shows what needs hiding.")
+                    continue
+                }
                 // A format's own crop replaces the main one there, so the
                 // region's only already hidden when every layout crops it out.
                 let mainCrop = clip.video?.crop ?? Crop()

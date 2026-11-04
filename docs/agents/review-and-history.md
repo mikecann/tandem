@@ -364,6 +364,17 @@ Heard across 3 joins with Bark 3.0 Pro (3 heard, 0.9 s a join, 0 unchanged since
     heard: Now. |
 ```
 
+### Private text (`--privacy`)
+
+`tandem check --privacy` is a check of its own, for before every export:
+it reads the frames for private text and readable stretches, and nothing
+else. Its problems are
+`privateText`, each with a `redact` fix to look at and widen before
+applying it on its own (`commands` stays empty, so there's no batch to
+apply blind), and its notes are `readableText`, stretches to look through.
+[layout-and-colour.md](layout-and-colour.md#find-private-text-before-export)
+has the recipe.
+
 ## What changed, and putting it back
 
 `tandem diff --since <revision>` (MCP `diff`) says what changed on the

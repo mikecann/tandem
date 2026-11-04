@@ -62,6 +62,15 @@ public struct CheckProblem: Codable, Equatable, Sendable {
         /// none under it (`swellsOffCards`). Usually a cut or a locked
         /// music track left it behind.
         case swellOffCard
+        /// Text a viewer could read that looks private: an email, a phone
+        /// number, an address, a booking reference, a key, money, crypto,
+        /// ID or travel plans, a note marked private or awaiting approval,
+        /// family or health, a list of people's names, a QR code (`tandem
+        /// check --privacy`). The fix is a `redact` to look at.
+        case privateText
+        /// A stretch of readable text, flagged or not, for a person to look
+        /// through before export (`--privacy`).
+        case readableText
 
         /// Worth knowing rather than wrong: Mike signed off softer zooms on
         /// cartoon B-roll than on screen recordings, a pause can let a point
@@ -69,7 +78,7 @@ public struct CheckProblem: Codable, Equatable, Sendable {
         /// push. So these don't fail a check.
         public var isNote: Bool {
             self == .soft || self == .deadAir || self == .pageChange || self == .sliver || self == .lowFrameRate || self == .marginalJoin
-                || self == .heardDifferently || self == .heardWhole || self == .swellOffCard
+                || self == .heardDifferently || self == .heardWhole || self == .swellOffCard || self == .readableText
         }
     }
 

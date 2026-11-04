@@ -261,6 +261,11 @@ follows.
   with notes on dead air, page changes and low frame rate screen
   recordings; `--cuts` finds clipped words at cuts, and `--listen` hears
   each join and prints what's heard there.
+- `tandem check --privacy` before every export: private text a viewer
+  could read (emails, phone numbers, addresses, references, ID, money,
+  crypto, travel, keys, notes marked private, family, lists of names, QR
+  codes), each with a `redact` to look at and widen, and every stretch
+  of readable text to look through ([recipe](agents/layout-and-colour.md#find-private-text-before-export)).
 - `tandem handback` before your final message: the two to five places
   Mike should look at first, which the app walks him through before the
   rest of your highlighted changes.
@@ -310,7 +315,7 @@ One line each; `tandem help <command>` has the options and what they do.
 | `tandem diff --since <ref>` | what changed since a revision, backup or export |
 | `tandem restore --from <ref>` | put clips back as they were (dry run without `--apply`) |
 | `tandem validate` | check the project for problems |
-| `tandem check` | what Mike would catch in review (`--changed`, `--quick`, `--cuts`, `--listen`) |
+| `tandem check` | what Mike would catch in review (`--changed`, `--quick`, `--cuts`, `--listen`), or private text a viewer could read (`--privacy`, before every export) |
 | `tandem sync [<seconds> \| --check \| <file>...]` | how late each camera's picture is, or set it; measure voice against lips on each file; or line another angle or mic up with the camera by sound |
 | `tandem comments` | Mike's timeline comments (`resolve <id>`) |
 | `tandem handback` | hand a round back: the two to five places Mike should look at first (alone, what he hasn't watched) |
@@ -348,7 +353,7 @@ maps every command to its HTTP endpoint and MCP tool.
 | [agents/edit-commands.md](agents/edit-commands.md) | batches, an index of every edit command, and what help doesn't say: levels, stickers, keyframe values, gain keyframes, crop units, `insertTime`, transitions and sounds, templates, section cards, joins |
 | [agents/cutting.md](agents/cutting.md) | Tighten pauses; Take out fillers; Cut a phrase; Rough cuts and false starts; Join through-edits; Keep the camera in sync; Add another angle or an external mic |
 | [agents/broll-and-titles.md](agents/broll-and-titles.md) | Put B-roll over a sentence; Add a title (presets, animations, style); Add a section card |
-| [agents/layout-and-colour.md](agents/layout-and-colour.md) | Set the PiP layout; Zoom into the screen recording; Hide part of the picture (`redact`); Grade the camera take |
+| [agents/layout-and-colour.md](agents/layout-and-colour.md) | Set the PiP layout; Zoom into the screen recording; Hide part of the picture (`redact`); Find private text before export (`check --privacy`); Grade the camera take |
 | [agents/sound.md](agents/sound.md) | Level the voice; Tame the peaks on a quiet mic; Clean up a roomy mic; Check the sound; Put a swoosh on every push |
 | [agents/shorts.md](agents/shorts.md) | Make a short; Caption a short |
 | [agents/assets.md](agents/assets.md) | the asset library and shared library; Credits for the description; Reuse an intro, an outro or a call to action (segments) |

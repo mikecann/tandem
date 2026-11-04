@@ -83,14 +83,68 @@ part of whatever's on a track. Two regions at once stack on "Privacy
 linked to the take, so the default takes the screen, camera and voice
 with them.
 
-Pad the range a few frames either side: the copy is cut on whole frames,
-and hiding a moment too long is better than showing one frame. Find when
-the thing appears with `tandem frame` at the clip's times. If you time it
+The edges are where you ask, to the frame: `redact` never runs a copy
+past them to a clip's edge (once it ran on by up to half a second, and
+blurred the next window as it opened). An edge less than a frame from a
+clip's edge goes to it, and a clip the range only grazes by less than a
+frame gets no copy (with a warning naming it), so no sliver is left on
+either track. Elsewhere the
+take is cut where asked; that's a through-edit, which plays straight on,
+and `check` doesn't count a privacy copy's edges as cuts in the take.
+
+Pad the range a frame or two where the picture under it carries on: the
+copy is cut on whole frames, and hiding a moment too long is better than
+showing one frame. Where the picture changes (a new window opens), end it
+on the frame the new one shows, not past it. Find when the thing appears
+with `tandem frame` at the clip's times, or let `tandem check --privacy`
+find it (below). If you time it
 by diffing the file's frames with ffmpeg instead, add the video stream's
 `start_time` ([reading.md](reading.md#source-times-and-ffmpeg)): Record It's
 screen files have started as late as 0.77 s, and a time 0.77 s early puts
 the redaction on before the QR code shows and takes it off while it's
 still there.
+
+## Find private text before export
+
+A sweep by eye misses things. On the Threadbear launch video it missed a
+thread's answer listing Mike's projects (personal errands, travel, an
+internal plan) at three places, another person's quotes
+waiting for his OK, and lines scrolling through a strip above a fixed
+blur. `tandem check --privacy` reads the video as export renders it, a
+frame every half second, with Vision on the Mac, and flags what looks
+private. Run it on the whole video before every export:
+
+```
+tandem check --privacy
+```
+
+Each `privateText` problem has its edges to the frame, the file the text
+is in, what was read (`crypto ("wallet"); travel plans ("flights")`)
+and a `redact` blurring what was flagged, in that file's frame:
+
+```
+04:58.700-05:04.067  Private text on screen.mov: crypto ("wallet"); travel plans ("flights") ...
+    hide it: tandem apply --label "Blur private text" '{"redact": {...}}'
+```
+
+Look at a frame of each before applying it. The rectangle covers only the
+lines that matched, and the lines round them are often as private (the
+rest of the answer, the whole card), so widen it to the block. Apply them
+one at a time, never as a batch: a false alarm (a price in a tutorial, a
+name that's public) should stay sharp.
+
+`readableText` notes are every stretch with 40 or more words readable a
+frame, flagged or not. Look through each (`tandem frames` across it): the
+rules can't know that a plan is internal, a quote is someone else's, or a
+list of projects is private. Titles and captions are left out, and so is
+text under a blur. It reads the main layout: a Short or other format
+with its own crops can show text the main one hides, so look through
+that format's export too.
+
+It reads from proxies (1080p) where they're ready, about 3 s of video a
+second, so a 25 minute video takes about 7 minutes. Re-run it after blurring until every flag left is one you've
+looked at. An earlier "leave the blurs off for now" isn't a sign-off on
+what shows.
 
 ## Grade the camera take
 
