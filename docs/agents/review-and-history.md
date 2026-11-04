@@ -103,12 +103,21 @@ their own beside it, and reports, with the clips on screen there:
     file) at the clip's speed, so a slowed-down clip can be low too. Cover
     it: Mike went full screen on his camera over it; B-roll works too, or
     cut it.
+  - swells off their cards: a music swell (`audio.gainDB` keyframes
+    rising) that runs over a quarter second past its section card, or sits
+    within 5 s of a card that has music but no swell under it. With three
+    or more swelling cards, most of them starting their swells at the same
+    point in the card, one that starts more than 0.15 s later or earlier
+    than that is noted too. Mike gives every card the same swell, so one that's off is
+    usually left behind by an edit (a locked music track, or hand-timed
+    keyframes). Move its keyframes back under the card. Read from the
+    timeline, so it's in a quick check.
 
 Run `tandem check --changed` before handing an edit back: it checks only
 what agents changed that's waiting for Mike's review, half a second either
 side. It exits 1 when it finds a problem; notes never fail it. `--quick`
-skips rendering, so it only finds gaps, soft pictures, slivers and double
-jumps, and nothing that needs the screen recordings scanned (page changes,
+skips rendering, so it only finds gaps, soft pictures, slivers, double
+jumps and swells off their cards, and nothing that needs the screen recordings scanned (page changes,
 low frame rates).
 
 It renders the timeline in 10 s pieces, several at once, and keeps what it

@@ -202,8 +202,14 @@ so use one of those.
 - **follow** tracks (B-roll, graphics, text, music, SFX) aren't cut. Their
   clips slide along with the take. A music bed or B-roll shot that spans the
   removed time keeps playing from where it started and simply ends that much
-  sooner. A clip that sat entirely inside the removed time is removed, with a
-  warning. When time is opened up instead (`insertTime`), a follow clip
+  sooner. Its sound keyframes (`audio.gainDB`, sound effect settings) move
+  with the timeline, so a swell after the cut stays under its section card.
+  Ones inside the removed time go: the curve holds what played just before
+  the cut up to it, then steps to what played just after it and carries on
+  (exactly for linear and hold segments; an eased one the cut splits keeps
+  its values and easing but not quite its shape). A swell that sat inside the removed time goes with it. Its
+  picture keyframes (a push across a still) stay with its content. A clip that sat entirely inside the removed time is
+  removed, with a warning. When time is opened up instead (`insertTime`), a follow clip
   spanning that point stays put and plays on across it.
 - **off** tracks stay where they are whatever happens elsewhere.
 - A ripple edit made on a follow or off track only moves that track, so
