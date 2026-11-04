@@ -1,6 +1,7 @@
 import XCTest
 @testable import TandemAPI
 @testable import TandemCore
+import TandemMedia
 
 final class ProjectSessionTests: XCTestCase {
     var folder: URL!
@@ -232,6 +233,22 @@ extension MediaRefreshTests {
         try await session.refreshMedia()
         XCTAssertEqual(session.coordinator.project.media.map(\.path).sorted(), [outside.path, "sfx/used.wav"].sorted())
         XCTAssertEqual(MediaRelinker.missing(in: session.coordinator.project, folder: session.folder, usedOnly: true).map(\.path), ["sfx/used.wav"])
+    }
+
+    func testAStaleScanOrAnUnreadableFolderDropsNothing() throws {
+        let folder = TempFolder()
+        let gone = MediaItem(id: "med_gone", path: "sfx/gone.wav", kind: .audio, role: .sfx, duration: t(0.1), hasAudio: true)
+        var project = Project.standard(name: "V")
+        project.media = [gone]
+        let projectFolder = ProjectFolder(root: folder.url)
+        XCTAssertEqual(ProjectSession.refreshCommands([], scannedFrom: project, into: project, folder: projectFolder, missing: [gone]).commands, [.removeMedia(mediaID: "med_gone")])
+        // Relinked while the scan ran: the scan's missing path is old news.
+        var relinked = project
+        relinked.media[0].path = "sfx/found.wav"
+        XCTAssertEqual(ProjectSession.refreshCommands([], scannedFrom: project, into: relinked, folder: projectFolder, missing: [gone]).commands, [])
+        // The whole folder went (an unplugged drive): nothing is dropped.
+        let away = ProjectFolder(root: folder.url.appendingPathComponent("unplugged"))
+        XCTAssertEqual(ProjectSession.refreshCommands([], scannedFrom: project, into: project, folder: away, missing: [gone]).commands, [])
     }
 }
 

@@ -414,8 +414,13 @@ public final class ProjectSession: @unchecked Sendable {
             }
         }
         let used = Set(current.allTracks.flatMap(\.clips).compactMap(\.mediaID))
-        for item in missing where current.media(item.id) != nil && !used.contains(item.id) {
-            let url = folder.url(for: item)
+        // A folder that can't be read (its drive went, it moved while open)
+        // makes everything look missing, and none of it is.
+        let readable = FileManager.default.fileExists(atPath: folder.root.path)
+        for item in missing where readable && !used.contains(item.id) {
+            // Relinked or replaced while the scan ran: it's somewhere else now.
+            guard let now = current.media(item.id), now.path == item.path else { continue }
+            let url = folder.url(for: now)
             guard !folder.path(for: url).hasPrefix("/"), FileCopier.fileInfo(url) == nil else { continue }
             commands.append(.removeMedia(mediaID: item.id))
         }
