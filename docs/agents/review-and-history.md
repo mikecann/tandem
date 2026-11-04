@@ -535,6 +535,14 @@ resolution class and keeps the canvas's shape, so `--preset youtube1080`
 of a 4K project is 1920x1080 and of a 9:16 one 1080x1920 (`tandem help
 export` lists the presets).
 
+A final export (every preset but `review`) waits for Mike to review agent
+edits: while `tandem status` lists edits waiting for his review, it
+refuses and names them, so hand back and let him look first. `--preset
+review` exports anyway with a warning that says what he hasn't seen, and
+`--unreviewed` (MCP and HTTP `unreviewed: true`) makes a check export of
+any preset, with a warning that it isn't one to publish. Mike's own
+exports from the app aren't held.
+
 `clip` defaults to `exports/review <start>-<end>.mp4` in the project folder
 and `export` to `exports/<name> r<revision>.mp4`. In MCP, `frame` returns
 the picture directly, so you can look at the result of an edit.

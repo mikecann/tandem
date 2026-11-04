@@ -323,7 +323,7 @@ One line each; `tandem help <command>` has the options and what they do.
 | `tandem frames <time>...` | a labelled contact sheet |
 | `tandem screenshot` | the app window (app open only) |
 | `tandem clip <start> <end>` | a review MP4, some tracks, or the sound alone |
-| `tandem export` | the video, loudness matched (`--preset`) |
+| `tandem export` | the video, loudness matched (`--preset`); refuses while agent edits wait for Mike's review, unless `--preset review` or `--unreviewed` |
 | `tandem loudness` | file levels, or the mix over time (`--gains`) |
 | `tandem separate <file> "<prompt>"...` | SAM Audio stems on a rented GPU, for `audio.separation` (costs money) |
 | `tandem effects` | effects, transitions, layouts, animatable parameters |

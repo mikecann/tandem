@@ -32,7 +32,7 @@ Every operation with its CLI command, HTTP endpoint and MCP tool, archiving a fi
 | frames | `tandem frames <time>... [--every] [--from] [--to] -o sheet.png` | `POST /v1/frames {"times", "every", "from", "to", "width", "output"}` | `frames` (image) |
 | screenshot | | `POST /v1/screenshot` | `screenshot` (app only) |
 | clip | `tandem clip <start> <end> -o out.mp4 [--tracks] [--audio-only]` | `POST /v1/clip {"start", "end", "tracks", "audioOnly"}` | `clip` |
-| export | `tandem export [--preset] -o out.mp4` | `POST /v1/export {"preset", "output"}` | `export` |
+| export | `tandem export [--preset] -o out.mp4 [--unreviewed]` | `POST /v1/export {"preset", "output", "unreviewed"}` | `export` |
 | archive | `tandem archive [<project>] [--to <folder>] [--with-cache] [--dry-run]` | `POST /v1/archive {"to", "withCache", "dryRun"}` | `archive` |
 | relink | `tandem relink [--search <folder>]... [--dry-run]` | `POST /v1/relink {"search": [...], "dryRun"}` | `relink` |
 | loudness | `tandem loudness [--from] [--to] [--step] [--tracks] [--gains]` | `POST /v1/loudness {"mediaID", "from", "to", "step", "tracks", "gains"}` | `loudness` |
@@ -172,6 +172,10 @@ still when it's beside it. It's one undo step.
   portrait`) on a project that isn't 9:16 and has no portrait format yet.
   `tandem short --apply` lays one out; the landscape video exports with
   plain `tandem export`.
+- **"Not exported: ... wait for Mike's review"**: agent edits are still
+  waiting for Mike (`tandem status`). Hand back and let him review them in
+  Tandem, then export. `--preset review` exports a copy to watch anyway,
+  and `--unreviewed` a check export that isn't for publishing.
 - **No pauses or search results**: check `tandem media`; transcripts are
   made in the background after files are added. `tandem wait transcript`
   waits for them (and makes them, with the app closed).

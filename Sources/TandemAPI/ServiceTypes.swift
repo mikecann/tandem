@@ -1056,13 +1056,17 @@ public struct ExportRequest: ServiceCall {
     public var to: Time?
     /// An alternate output format ID, like `portrait`.
     public var format: String?
+    /// Export anyway while agent edits wait for Mike's review: a check
+    /// export, never one to publish. A final export refuses without it.
+    public var unreviewed: Bool?
 
-    public init(preset: String? = nil, output: String? = nil, from: Time? = nil, to: Time? = nil, format: String? = nil) {
+    public init(preset: String? = nil, output: String? = nil, from: Time? = nil, to: Time? = nil, format: String? = nil, unreviewed: Bool? = nil) {
         self.preset = preset
         self.output = output
         self.from = from
         self.to = to
         self.format = format
+        self.unreviewed = unreviewed
     }
 
     public init(from decoder: Decoder) throws {
@@ -1072,6 +1076,7 @@ public struct ExportRequest: ServiceCall {
         from = try c.decodeTime(.from)
         to = try c.decodeTime(.to)
         format = try c.decodeIfPresent(String.self, forKey: .format)
+        unreviewed = try c.decodeIfPresent(Bool.self, forKey: .unreviewed)
     }
 
     public func run(on service: TandemService, context: CallContext) async throws -> ExportOutcome {

@@ -403,7 +403,8 @@ struct CLI {
             try args.expectPositionals(atMost: 0, command: name)
             let request = ExportRequest(
                 preset: args.options["preset"], output: args.options["output"].map(absolute),
-                from: try time(args, "from"), to: try time(args, "to"), format: args.options["format"]
+                from: try time(args, "from"), to: try time(args, "to"), format: args.options["format"],
+                unreviewed: args.has("unreviewed") ? true : nil
             )
             return show(try await client().call(request), json: json)
         case "loudness":
