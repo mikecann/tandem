@@ -120,7 +120,7 @@ their own beside it, and reports, with the clips on screen there:
     back-reference ("And...", "So...", "The other area...", "The biggest
     one...", "Like I said...", a host's "Shifting gears...") or when it's
     a Q&A Short with no question in them. A Short is a Q&A when its name or
-    a file it plays says fireside, interview, podcast, Q&A or AMA;
+    a file it plays says fireside, interview(s), podcast, Q&A (or QA, QnA) or AMA;
     a question is a question mark or a question's words ("what does",
     "how do", "do you"), since a transcript doesn't always punctuate. A
     tip Short can open on a claim, so this never fails a check, and a good
