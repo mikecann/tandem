@@ -206,7 +206,8 @@ so use one of those.
   with the timeline, so a swell after the cut stays under its section card.
   Ones inside the removed time go: the curve holds what played just before
   the cut up to it, then steps to what played just after it and carries on
-  as it did. A swell that sat inside the removed time goes with it. Its
+  (exactly for linear and hold segments; an eased one the cut splits keeps
+  its values and easing but not quite its shape). A swell that sat inside the removed time goes with it. Its
   picture keyframes (a push across a still) stay with its content. A clip that sat entirely inside the removed time is
   removed, with a warning. When time is opened up instead (`insertTime`), a follow clip
   spanning that point stays put and plays on across it.
