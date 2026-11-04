@@ -190,6 +190,28 @@ public final class FrameRenderer: @unchecked Sendable {
         return image
     }
 
+    /// The frames at `times`, in order, from one generator, so frames near
+    /// each other share their decoding (`tandem check --privacy` reads one
+    /// every half second of the video). A frame that fails throws, as
+    /// `image(at:)` does: a privacy scan mustn't take it for a clean frame.
+    public func images(at times: [Time], maxSize: CGSize? = nil) async throws -> [(time: Time, image: CGImage)] {
+        let prepared = try await composition()
+        let built = prepared.built
+        let generator = AVAssetImageGenerator(asset: built.composition)
+        generator.videoComposition = prepared.rgb
+        generator.requestedTimeToleranceBefore = .zero
+        generator.requestedTimeToleranceAfter = .zero
+        generator.appliesPreferredTrackTransform = false
+        if let maxSize { generator.maximumSize = maxSize }
+        let last = max(.zero, built.duration - context.project.settings.frameRate.frameDuration)
+        let clamped = times.map { min(max($0, .zero), last) }
+        var byTime: [Int64: CGImage] = [:]
+        for await result in generator.images(for: clamped.map(\.cmTime)) {
+            byTime[Time(cmTime: result.requestedTime).flicks] = try result.image
+        }
+        return zip(times, clamped).compactMap { time, at in byTime[at.flicks].map { (time, $0) } }
+    }
+
     public func pngData(at time: Time, maxSize: CGSize? = nil) async throws -> Data {
         let image = try await image(at: time, maxSize: maxSize)
         let data = NSMutableData()

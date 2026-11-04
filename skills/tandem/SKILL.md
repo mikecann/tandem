@@ -574,6 +574,23 @@ From his review comments on the Daytona and Build Your Own Convex videos
   overlap at all, and close them up (remove the sliver, pull the next
   clip's start back to it; mikecann/tandem#48 and #49). Fill tiny picture
   gaps, and drop fades on joins that became continuous: they dip mid-word.
+- **Sweep for private text before every export.** Run `tandem check
+  --privacy` over the whole video, as the last edit before exporting. It
+  reads a frame every half second as export renders it (blurs in place,
+  so text scrolling past a fixed blur shows up) and flags emails, phone
+  numbers, addresses, booking references, ID, money, crypto, travel, keys,
+  "before they go public" notes, lists of names and QR codes, each with a
+  `redact` to look at, widen to everything private round it, and apply on
+  its own. Then look through every readableText note too, with `tandem
+  frames` across it: the rules can't know a plan is internal or a quote is
+  someone else's. Don't treat an earlier "leave the blurs off for now" or
+  "unblur everything" as a sign-off on what shows, and don't sweep from
+  your own markers alone: on the Threadbear launch video four spots from
+  earlier markers missed a thread's answer listing Mike's personal and
+  work projects, readable at three places, and he caught it himself ("We show the
+  projects that I'm working on as well, don't we?"). Re-run it after
+  blurring, until it's clean or every flag left is a false alarm you've
+  looked at.
 - **Before uploading,** watch the start of the export, where sync problems
   show first. The limiter takes about 8 dB off his voice's peaks to reach
   -14 LUFS, and he hears that as artificial, so he asked for -16 after
@@ -1281,7 +1298,8 @@ comments, changed these rules for a conversation like this:
   - `zoomToRegion` for zooms, keeping 1080p shots at or under 150% on a 4K
     frame;
   - `redact` to hide a QR code, an email or a phone's notifications over a
-    stretch, never copies of the clip cropped and linked by hand;
+    stretch, never copies of the clip cropped and linked by hand, and
+    `tandem check --privacy` to find what needs it;
   - `placeMedia` with `anchor` (or `tandem assets use --anchor`) for
     stickers;
   - `tandem segments` for Mike's saved intro, outro and like-and-subscribe

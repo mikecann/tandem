@@ -20,10 +20,17 @@ public struct CheckRequest: ServiceCall {
     /// With `cuts`: also render the voice across each join, transcribe it
     /// and compare what's heard with the take's words (`CutListen`).
     public var listen: Bool?
-    /// How wide frames are rendered for the scan. Default 384.
+    /// How wide frames are rendered for the scan. Default 384, or 1920
+    /// for `privacy`.
     public var width: Int?
+    /// Only private text a viewer could read (`PrivacyCheck`): reads a frame
+    /// every half second, as export renders it, with Vision on this Mac.
+    public var privacy: Bool?
 
-    public init(from: Time? = nil, to: Time? = nil, changed: Bool? = nil, quick: Bool? = nil, cuts: Bool? = nil, listen: Bool? = nil, width: Int? = nil) {
+    public init(
+        from: Time? = nil, to: Time? = nil, changed: Bool? = nil, quick: Bool? = nil, cuts: Bool? = nil, listen: Bool? = nil, width: Int? = nil,
+        privacy: Bool? = nil
+    ) {
         self.from = from
         self.to = to
         self.changed = changed
@@ -31,6 +38,7 @@ public struct CheckRequest: ServiceCall {
         self.cuts = cuts
         self.listen = listen
         self.width = width
+        self.privacy = privacy
     }
 
     public init(from decoder: Decoder) throws {
@@ -42,6 +50,7 @@ public struct CheckRequest: ServiceCall {
         cuts = try c.decodeIfPresent(Bool.self, forKey: .cuts)
         listen = try c.decodeIfPresent(Bool.self, forKey: .listen)
         width = try c.decodeIfPresent(Int.self, forKey: .width)
+        privacy = try c.decodeIfPresent(Bool.self, forKey: .privacy)
     }
 
     public func run(on service: TandemService, context: CallContext) async throws -> CheckResult {
@@ -85,17 +94,20 @@ public struct CheckResult: Codable, Sendable {
     public var revision: Int?
     /// With `listen`: what was heard across each join.
     public var listened: ListenSummary?
+    /// A privacy check: `frames` counts the frames read (a still screen is
+    /// read once), and each problem's `fix` is a redact to look at first.
+    public var privacy: Bool?
 
     public var ok: Bool { problems.isEmpty }
 
     enum CodingKeys: String, CodingKey {
-        case ranges, frames, seconds, problems, notes, clipNames, note, warnings, cuts, commands, revision, listened, ok
+        case ranges, frames, seconds, problems, notes, clipNames, note, warnings, cuts, commands, revision, listened, privacy, ok
     }
 
     public init(
         ranges: [TimeRange], frames: Int, seconds: Double, problems: [CheckProblem], notes: [CheckProblem] = [], clipNames: [String: String],
         note: String? = nil, warnings: [String] = [], cuts: Int? = nil, commands: [EditCommand] = [], revision: Int? = nil,
-        listened: ListenSummary? = nil
+        listened: ListenSummary? = nil, privacy: Bool? = nil
     ) {
         self.ranges = ranges
         self.frames = frames
@@ -109,6 +121,7 @@ public struct CheckResult: Codable, Sendable {
         self.commands = commands
         self.revision = revision
         self.listened = listened
+        self.privacy = privacy
     }
 
     public init(from decoder: Decoder) throws {
@@ -125,6 +138,7 @@ public struct CheckResult: Codable, Sendable {
         commands = try c.decodeIfPresent([EditCommand].self, forKey: .commands) ?? []
         revision = try c.decodeIfPresent(Int.self, forKey: .revision)
         listened = try c.decodeIfPresent(ListenSummary.self, forKey: .listened)
+        privacy = try c.decodeIfPresent(Bool.self, forKey: .privacy)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -141,6 +155,7 @@ public struct CheckResult: Codable, Sendable {
         if cuts != nil || !commands.isEmpty { try c.encode(commands, forKey: .commands) }
         try c.encodeIfPresent(revision, forKey: .revision)
         try c.encodeIfPresent(listened, forKey: .listened)
+        try c.encodeIfPresent(privacy, forKey: .privacy)
         try c.encode(ok, forKey: .ok)
     }
 }
@@ -151,7 +166,8 @@ extension CheckResult: ReadableResult {
     public var readableText: String {
         if ranges.isEmpty { return note ?? "Nothing to check." }
         let stretches = ranges.map { "\($0.start)-\($0.end)" }.joined(separator: ", ")
-        let scanned = cuts.map { "\($0) cut edge\($0 == 1 ? "" : "s")" } ?? (frames > 0 ? "\(frames) frames" : "quick: no frames rendered")
+        let scanned = cuts.map { "\($0) cut edge\($0 == 1 ? "" : "s")" }
+            ?? (privacy == true ? "\(frames) frames read" : frames > 0 ? "\(frames) frames" : "quick: no frames rendered")
         let verdict = problems.isEmpty ? "no problems." : "\(problems.count) problem\(problems.count == 1 ? "" : "s"):"
         var lines = ["Checked \(stretches) (\(scanned)) in \(String(format: "%.1f", seconds)) s: \(verdict)"]
         func line(_ problem: CheckProblem) -> String {
@@ -160,6 +176,15 @@ extension CheckResult: ReadableResult {
             if !problem.clipIDs.isEmpty {
                 let clips = problem.clipIDs.prefix(3).map { id in clipNames[id].map { "\(id) \($0)" } ?? id }
                 line += "  On: " + clips.joined(separator: ", ")
+            }
+            // A privacy problem's redact, on its own: each is looked at
+            // (and often widened) before it's applied, never all at once.
+            if problem.kind == .privateText, let fix = problem.fix {
+                let encoder = JSONEncoder()
+                encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+                let json = (try? encoder.encode(fix)).map { String(decoding: $0, as: UTF8.self) } ?? "{}"
+                let expect = revision.map { " --expect \($0)" } ?? ""
+                line += "\n    hide it: tandem apply\(expect) --label \"Blur private text\" '\(json)'"
             }
             return line
         }
@@ -222,6 +247,12 @@ extension TandemService {
             ranges = [TimeRange(start: start, end: end)]
         }
         ranges = QualityCheck.merge(ranges)
+        if request.privacy == true {
+            if request.quick == true || request.cuts == true || request.listen == true {
+                throw ServiceError(.badRequest, "A privacy check is a check of its own: it doesn't go with quick, cuts or listen.")
+            }
+            return try privacyCheck(project: project, ranges: ranges, width: request.width ?? 1920, note: note)
+        }
         if request.cuts == true || request.listen == true {
             if request.quick == true { throw ServiceError(.badRequest, "A cuts check renders nothing already, so it doesn't take quick.") }
             let folder = self.folder
@@ -362,6 +393,39 @@ extension TandemService {
                 ranges: toCheck, frames: frames?.count ?? 0, seconds: Date().timeIntervalSince(started),
                 problems: found.filter { !$0.kind.isNote }, notes: found.filter(\.kind.isNote), clipNames: names, note: why,
                 warnings: notices, commands: fixes, revision: fixes.isEmpty ? nil : revision
+            )
+        }
+    }
+
+    /// `check --privacy`: reads the frames as export renders them, and finds
+    /// private text. From proxies where they're ready: they're 1080p, as
+    /// sharp as a 1920 wide read, and decode several times faster than a 4K
+    /// screen recording, which is most of a scan's time (Vision reads a
+    /// frame in a tenth of a second).
+    func privacyCheck(project: Project, ranges: [TimeRange], width: Int, note: String?) throws -> @Sendable () async throws -> CheckResult {
+        guard (640...3840).contains(width) else { throw ServiceError(.badRequest, "width is 640 to 3840 pixels for a privacy check.") }
+        // Wider than the proxies, the files themselves: a 4K read of 1080p
+        // proxies would only upscale away the small text it's for.
+        let context = RenderContext(project: project, folder: folder, analysis: session.analysis, useProxies: width <= 1920)
+        let revision = coordinator.revision
+        let projectFolder = folder
+        return {
+            let started = Date()
+            guard !ranges.isEmpty else {
+                return CheckResult(ranges: [], frames: 0, seconds: 0, problems: [], clipNames: [:], note: note, privacy: true)
+            }
+            let reader = FrameTextReader(context: context, width: width)
+            let found = try await PrivacyCheck.run(project: project, ranges: ranges, folder: projectFolder) { times, sequential in try await reader.read(times, sequential: sequential) }
+            var names: [String: String] = [:]
+            for id in Set((found.problems + found.notes).flatMap(\.clipIDs)) {
+                guard let clip = project.clip(id) else { continue }
+                names[id] = Self.checkName(clip, in: project)
+            }
+            // No batch of fixes: each redact is for a person to look at
+            // first, and widen, before applying it.
+            return CheckResult(
+                ranges: ranges, frames: reader.framesRead, seconds: Date().timeIntervalSince(started), problems: found.problems, notes: found.notes,
+                clipNames: names, note: note, revision: found.problems.isEmpty ? nil : revision, privacy: true
             )
         }
     }
