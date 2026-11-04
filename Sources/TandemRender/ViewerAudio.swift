@@ -633,21 +633,24 @@ final class ReaderGate: @unchecked Sendable {
     var opened: Int { lock.withLock { opens } }
     var closed: Int { lock.withLock { closes } }
 
-    func open<T>(_ body: () -> T) -> T {
-        counted(opening: true, body)
+    /// Opens a reader, nil if it couldn't. Only one that opened counts.
+    func open<T>(_ body: () -> T?) -> T? {
+        let reader = counted(body)
+        if reader != nil { lock.withLock { opens += 1 } }
+        return reader
     }
 
     func close(_ body: () -> Void) {
-        counted(opening: false, body)
+        counted(body)
+        lock.withLock { closes += 1 }
     }
 
-    private func counted<T>(opening: Bool, _ body: () -> T) -> T {
+    private func counted<T>(_ body: () -> T) -> T {
         turn.lock()
         defer { turn.unlock() }
         lock.withLock {
             busy += 1
             most = max(most, busy)
-            if opening { opens += 1 } else { closes += 1 }
         }
         defer { lock.withLock { busy -= 1 } }
         return body()
