@@ -252,6 +252,13 @@ public struct FrameStats: Equatable, Sendable {
     }
 
     public var isBlack: Bool { luma < 0.02 && brightestTile < 0.05 }
+
+    /// The share of the frame's tiles that are black (the `isBlack` level),
+    /// whatever is lit around them.
+    public var blackShare: Double {
+        guard !thumbnail.isEmpty else { return 0 }
+        return Double(thumbnail.filter { $0 <= 5 }.count) / Double(thumbnail.count)
+    }
 }
 
 /// The checks behind `tandem check`. The model checks (gaps, slivers, soft
@@ -425,9 +432,30 @@ public enum QualityCheck {
         return found.sorted { ($0.start, $0.kind.rawValue) < ($1.start, $1.kind.rawValue) }
     }
 
-    /// Runs of black frames, outside the `quiet` stretches.
+    /// A few frames gone black under captions or a title count as black
+    /// while they're at least this much of the frame black...
+    static let blackUnderOverlays = 0.85
+    /// ...and this much more of it than the frames either side.
+    static let blackUnderOverlaysJump = 0.4
+    /// Longer than this, black with captions over it is a card on purpose.
+    static let blackUnderOverlaysLongest = 6
+
+    /// Runs of black frames, outside the `quiet` stretches. A frame can go
+    /// black with the captions still drawn over it: in the Abstract talk
+    /// Shorts (4 Nov 2026) a camera frame dropped out at a cut, and with
+    /// the captions lit it wasn't all dark, and with different shots
+    /// either side it wasn't a flicker either. So a short run of mostly
+    /// black frames, between frames that are far less black, counts too.
     static func black(_ frames: [FrameStats], project: Project, frameDuration: Time, quiet: [TimeRange]) -> [CheckProblem] {
-        let flagged = frames.map { stats in stats.isBlack && !quiet.contains { $0.contains(stats.time) } }
+        let loud = frames.map { stats in !quiet.contains { $0.contains(stats.time) } }
+        var flagged = frames.indices.map { frames[$0].isBlack && loud[$0] }
+        let mostly = frames.indices.map { loud[$0] && frames[$0].blackShare >= blackUnderOverlays }
+        for run in runs(of: mostly) where run.count <= blackUnderOverlaysLongest && run.lowerBound > 0 && run.upperBound < frames.count {
+            let least = run.map { frames[$0].blackShare }.min() ?? 0
+            let sides = [frames[run.lowerBound - 1], frames[run.upperBound]]
+            guard sides.allSatisfy({ !$0.isBlack && $0.blackShare <= least - blackUnderOverlaysJump }) else { continue }
+            for index in run { flagged[index] = true }
+        }
         return runs(of: flagged).map { run in
             let count = run.count
             return problem(.black, frames, run, project: project, frameDuration: frameDuration,

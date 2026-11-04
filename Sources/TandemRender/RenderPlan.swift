@@ -110,6 +110,31 @@ enum RenderPlanner {
     /// Hard cuts on audio get a fade this long each side so nothing clicks.
     static let microFade = Time(seconds: 0.003)
 
+    /// A video clip's edges within a millisecond of a frame boundary (what
+    /// `Time.overlapTolerance` already calls touching) moved onto it: its
+    /// start to the nearest one, its end only ever later.
+    ///
+    /// Frames are drawn at their start times, and at 29.97 fps those fall
+    /// between 48 kHz samples, which every time in a saved project snaps
+    /// to. A clip's start and duration snap separately, so two clips cut on
+    /// the same frame can come back one ending a sample before it and the
+    /// next starting a sample after: nothing covers the frame and it draws
+    /// black (four cuts in the Abstract talk Shorts, 4 Nov 2026). On the
+    /// frame, the next clip has it. A start moving later passes no frame's
+    /// time, but an end moving earlier would uncover the frame it moves to
+    /// (the last frame of the timeline, with nothing after it), so clips
+    /// only ever grow.
+    static func onFrames(_ range: TimeRange, rate: FrameRate) -> TimeRange {
+        let tolerance = Time.overlapTolerance.flicks
+        let nearest = range.start.roundedToFrame(rate)
+        let start = abs(nearest.flicks - range.start.flicks) <= tolerance ? nearest : range.start
+        let perFrame = rate.flicksPerFrame
+        let later = Time(flicks: (range.end.flicks + perFrame - 1).floorDivided(by: perFrame) * perFrame)
+        let end = later.flicks - range.end.flicks <= tolerance ? later : range.end
+        let snapped = TimeRange(start: start, end: end)
+        return snapped.isEmpty ? range : snapped
+    }
+
     static func plan(_ project: Project, format: String?, assets: RenderAssets?) -> RenderPlan {
         var warnings = Warnings()
         let duration = project.duration
@@ -123,7 +148,13 @@ enum RenderPlanner {
 
         for (trackIndex, track) in project.videoTracks.enumerated() where !track.hidden {
             let trackWindows = transitionWindows(track, trackIndex: trackIndex)
-            windows[trackIndex] = trackWindows
+            // On frames as the clips' edges are, so a transition starts and
+            // ends with the clips it plays over.
+            windows[trackIndex] = trackWindows.map { ref in
+                var ref = ref
+                ref.window = onFrames(ref.window, rate: project.settings.frameRate)
+                return ref
+            }
             let (heads, tails) = extensions(track, trackWindows)
 
             for clip in track.clips where clip.enabled && !clip.isHidden(inFormat: format) {
@@ -151,10 +182,13 @@ enum RenderPlanner {
                 // runs out (before its first frame or after its last) the
                 // assembler holds the edge frame, as Premiere and Filmora do,
                 // so the clip is there for the whole transition.
-                let head = heads[clip.id] ?? .zero
-                let tail = tails[clip.id] ?? .zero
                 let isMovingVideo = item.map { $0.kind == .video } ?? false
-                let visible = TimeRange(start: clip.start - head, end: clip.end + tail)
+                let visible = onFrames(
+                    TimeRange(start: clip.start - (heads[clip.id] ?? .zero), end: clip.end + (tails[clip.id] ?? .zero)),
+                    rate: project.settings.frameRate
+                )
+                // What it plays before its start, after moving onto frames.
+                let head = clip.start - visible.start
                 planned[trackIndex].append(PlannedClip(clip: clip, trackIndex: trackIndex, visible: visible))
 
                 guard let item, isMovingVideo else { continue }
@@ -165,7 +199,8 @@ enum RenderPlanner {
                 // A file whose picture lags its sound (a webcam) shows its
                 // picture that much later in the file; the matte follows.
                 let delay = item.pictureDelay ?? .zero
-                let sourceStart = (clip.freezeFrame ? clip.sourceStart : clip.sourceStart - head.scaled(by: clip.speed)) + delay
+                let lead = clip.speed == 1 ? head : head.scaled(by: clip.speed)
+                let sourceStart = (clip.freezeFrame ? clip.sourceStart : clip.sourceStart - lead) + delay
                 // The proxy and the converted copy keep the file's alpha.
                 let picture = PlannedSegment(
                     clipID: clip.id, mediaID: item.id, role: .picture, timeline: visible,
@@ -469,5 +504,13 @@ extension Effect {
         var copy = self
         copy.id = ""
         return copy
+    }
+}
+
+private extension Int64 {
+    /// Division rounding towards minus infinity.
+    func floorDivided(by divisor: Int64) -> Int64 {
+        let q = self / divisor
+        return (self % divisor != 0 && (self < 0) != (divisor < 0)) ? q - 1 : q
     }
 }

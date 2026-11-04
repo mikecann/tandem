@@ -17,8 +17,11 @@ import TandemRender
 /// matte and converted copy are ready, the scan's width, and which scan it
 /// is. Anything else changing leaves it alone.
 struct CheckCache: Sendable {
-    /// Bump when what's stored, or how a frame is measured, changes.
-    static let version = 1
+    /// Bump when what's stored, or how a frame is measured or drawn,
+    /// changes. 2: clip edges within a millisecond of a frame are on it
+    /// (`RenderPlanner.onFrames`), so frames scanned black at such cuts
+    /// before aren't any more.
+    static let version = 2
     /// The newest pieces are kept up to this many bytes.
     static let sizeLimit: Int64 = 256 * 1024 * 1024
 

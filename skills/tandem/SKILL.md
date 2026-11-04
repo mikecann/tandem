@@ -755,12 +755,12 @@ scripts and the speaker tracker are in
   with `"you": "you."`) hit every caption with that word and the SDK run can't
   be undone; replace exact captions instead (`.work/tools/setcaps.ts` in that
   folder, which also deletes filler-only ones).
-- **Scan the export for black frames.** Some clips rendered their first frame
-  after a cut black in `tandem clip` and exports (not in `tandem frame`), and
-  `tandem check` missed one; until the Tandem fix lands, scan each export's
-  frame brightness for single-frame dips and work round with
-  `.work/tools/fixblack.py` (picture one frame later, previous shot one
-  frame longer).
+- **Black first frames after cuts are fixed.** At 29.97 fps a cut could load
+  back one 48 kHz sample either side of its frame, so nothing covered that
+  frame and it rendered black, and with captions over it `tandem check`
+  missed one. Tandem now puts clip edges within a millisecond of a frame on
+  it, and check counts a frame black under captions, so the
+  `.work/tools/fixblack.py` workaround isn't needed any more.
 - **B-roll never freezes.** Holding a 6 s cartoon's last frame for 2.85 s to
   cover a line read as a freeze frame to Mike. Pick a span the clip fits,
   or slow it a touch (0.93x was invisible).

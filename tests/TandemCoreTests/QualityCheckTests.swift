@@ -118,6 +118,41 @@ final class QualityCheckTests: XCTestCase {
         XCTAssertTrue(QualityCheck.frameProblems(late, in: faded).isEmpty, "black on purpose")
     }
 
+    /// The Abstract talk Shorts (4 Nov 2026): a frame of the camera dropped
+    /// out at a cut, but the captions still drew over the black, so the
+    /// frame wasn't all dark, and the shots either side of the cut didn't
+    /// match, so it wasn't a flicker either. Only an export scan found it.
+    func testABlackFrameUnderCaptionsAtACutIsStillBlack() {
+        // 16 tiles: a dark stage (a third of the tiles black), the next
+        // shot of it, and between them black with one tile of caption.
+        func stage(_ level: UInt8) -> [UInt8] { [UInt8](repeating: 0, count: 5) + [UInt8](repeating: level, count: 11) }
+        let dropped = [UInt8](repeating: 0, count: 15) + [230]
+        func stats(_ thumbnails: [[UInt8]]) -> [FrameStats] {
+            thumbnails.enumerated().map { index, thumbnail in
+                let tiles = thumbnail.map { Double($0) / 255 }
+                return FrameStats(time: Time(seconds: Double(index) / 30), luma: tiles.reduce(0, +) / Double(tiles.count), brightestTile: tiles.max() ?? 0,
+                                  flatGreen: 0, flatWhite: 0, thumbnail: thumbnail)
+            }
+        }
+        let cut = stats([stage(90), stage(90), dropped, stage(140), stage(140)])
+        XCTAssertFalse(cut[2].isBlack, "the caption lights it")
+        let found = QualityCheck.frameProblems(cut, in: shot)
+        XCTAssertEqual(found.map(\.kind), [.black])
+        XCTAssertEqual(found.first?.frames, 1)
+        XCTAssertEqual(found.first?.start, cut[2].time)
+
+        // Half of it all black and half under a caption is one dropout.
+        let split = stats([stage(90), [UInt8](repeating: 0, count: 16), dropped, stage(140)])
+        XCTAssertEqual(QualityCheck.frameProblems(split, in: shot).map(\.frames), [2])
+
+        // A black card that holds under the captions is there on purpose,
+        // and a dark shot that stays dark is a dark shot.
+        let card = stats([stage(90)] + Array(repeating: dropped, count: 30) + [stage(140)])
+        XCTAssertTrue(QualityCheck.frameProblems(card, in: shot).isEmpty)
+        let darker = stats([stage(90), stage(90), [UInt8](repeating: 0, count: 10) + [UInt8](repeating: 90, count: 6), stage(90)])
+        XCTAssertTrue(QualityCheck.frameProblems(darker, in: shot).filter { $0.kind == .black }.isEmpty, "a bit more of it in shadow")
+    }
+
     func testFlickersAreFramesUnlikeMatchingNeighbours() {
         XCTAssertEqual(QualityCheck.frameProblems(frames([100, 100, 100, 200, 100, 100]), in: shot).map(\.frames), [1])
         XCTAssertEqual(QualityCheck.frameProblems(frames([100, 100, 200, 210, 100, 100]), in: shot).map(\.frames), [2])

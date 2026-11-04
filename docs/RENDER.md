@@ -71,6 +71,15 @@ Project ──RenderPlanner──▶ RenderPlan (pure)
   decode path clamps to the first frame too) or goes quiet (audio). That's
   how a clip with `holdEdges` runs past its file, too.
 - Instructions split at every visible clip edge and transition edge.
+- Edges of clips on video tracks, and of transitions, within a millisecond of a frame
+  boundary are moved onto it (`RenderPlanner.onFrames`): a start to the
+  nearest frame, an end only later, so clips only grow. Frames are drawn at
+  their start times, and at 29.97 fps those fall between 48 kHz samples,
+  and every time in a saved project snaps to a sample. A clip's start and
+  duration snap separately, so a cut on a frame could load back with one
+  clip ending a sample before the frame and the next starting a sample
+  after. Nothing covered the frame and it drew black (the Abstract talk
+  Shorts, Nov 2026).
 - Graphic clips (`.graphic`) with a built-in template, the section card
   (`sectionCard`), are drawn by the compositor like titles. Other graphic
   templates aren't rendered yet: there's no rendered-file contract, and
