@@ -36,7 +36,7 @@ final class PlacementTests: XCTestCase {
         ])
         XCTAssertEqual(c.clips("Voice").map(\.range), [TimeRange(start: t(0), end: t(10)), TimeRange(start: t(15), end: t(65))])
         XCTAssertEqual(c.clips("Screen").count, 2)
-        XCTAssertEqual(c.clips("Music").map(\.range), [TimeRange(start: t(0), end: t(60))], "music follows without a cut")
+        XCTAssertEqual(c.clips("Music").map(\.range), [TimeRange(start: t(0), end: t(65))], "music follows without a cut, stretching across the insert")
         XCTAssertEqual(c.clips("B-roll")[0].start, t(25))
         XCTAssertEqual(c.project.markers[0].time, t(35))
         assertValid(c.project)
