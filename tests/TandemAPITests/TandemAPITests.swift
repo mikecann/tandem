@@ -209,6 +209,32 @@ extension MediaRefreshTests {
     }
 }
 
+extension MediaRefreshTests {
+    func testAMissingFileNoClipUsesLeavesQuietlyAndAUsedOneStays() async throws {
+        // A helper wrote a file into the folder, the scan added it, then the
+        // helper deleted it (Threadbear launch, 4 Nov 2026). Nothing used it,
+        // so it goes without a word. A file a clip uses stays listed, so
+        // the clip can be relinked, and so does one outside the folder,
+        // which may only be on a drive that isn't plugged in.
+        let folder = TempFolder()
+        let session = try ProjectSession.create(at: folder.file("Video.tandem"), owner: .cli)
+        defer { session.close() }
+        try FileManager.default.createDirectory(at: folder.file("sfx"), withIntermediateDirectories: true)
+        for name in ["used", "unused"] { try Self.wav(samples: 4_800).write(to: folder.file("sfx/\(name).wav")) }
+        let outside = FileManager.default.temporaryDirectory.appendingPathComponent("tandem-gone-\(UUID().uuidString).wav")
+        try session.coordinator.apply(EditBatch(label: "Outside", commands: [.addMedia(item: MediaItem(id: "med_far", path: outside.path, kind: .audio, role: .sfx, duration: t(0.1), hasAudio: true))]))
+        try await session.refreshMedia()
+        let used = try XCTUnwrap(session.coordinator.project.media.first { $0.path == "sfx/used.wav" })
+        try session.coordinator.apply(EditBatch(label: "Place", commands: [.placeMedia(mediaIDs: [used.id], at: .zero)]))
+
+        try FileManager.default.removeItem(at: folder.file("sfx/used.wav"))
+        try FileManager.default.removeItem(at: folder.file("sfx/unused.wav"))
+        try await session.refreshMedia()
+        XCTAssertEqual(session.coordinator.project.media.map(\.path).sorted(), [outside.path, "sfx/used.wav"].sorted())
+        XCTAssertEqual(MediaRelinker.missing(in: session.coordinator.project, folder: session.folder, usedOnly: true).map(\.path), ["sfx/used.wav"])
+    }
+}
+
 final class SessionWatchingTests: XCTestCase {
     func testNewFilesJoinAWatchedProject() throws {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("tandem-watch-\(UUID().uuidString)")

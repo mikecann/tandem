@@ -116,6 +116,25 @@ final class ScannerTests: TempFolderTestCase {
         XCTAssertFalse(MediaScanner.isSkippedPath("source/a-camera.mov"))
     }
 
+    func testWalkOnlyTakesRendersFromACodeProject() throws {
+        // A Remotion project in the video folder: its public/ and src/ hold
+        // the project's own assets, which a helper can write and delete at
+        // any moment, and only out/ holds the clips it renders. The video
+        // folder itself having a package.json doesn't make it code.
+        for path in [
+            "package.json", "top.mov",
+            "motion-graphics/package.json", "motion-graphics/public/icon.png", "motion-graphics/src/clips/bg.mp4",
+            "motion-graphics/poster.png", "motion-graphics/out/clip-01-A.mp4", "motion-graphics/out/_rejected/clip-01-B.mp4",
+            "demo/package.json", "demo/assets/logo.png", "broll/screen/shot.mp4"
+        ] { touch(path) }
+        let found = MediaScanner.mediaFiles(in: folder).map { folder.path(for: $0) }
+        XCTAssertEqual(found, ["broll/screen/shot.mp4", "motion-graphics/out/_rejected/clip-01-B.mp4", "motion-graphics/out/clip-01-A.mp4", "top.mov"])
+        XCTAssertTrue(MediaScanner.isInsideCodeProject("motion-graphics/public/icon.png", in: folder))
+        XCTAssertTrue(MediaScanner.isInsideCodeProject("motion-graphics/poster.png", in: folder))
+        XCTAssertFalse(MediaScanner.isInsideCodeProject("motion-graphics/out/clip-01-A.mp4", in: folder))
+        XCTAssertFalse(MediaScanner.isInsideCodeProject("top.mov", in: folder))
+    }
+
     func testScanFindsProbesAndKeepsKnownIDs() async throws {
         try await SyntheticMedia.writeMovie(to: file("broll/clip.mp4"), .init(width: 320, height: 180, duration: 1))
         try SyntheticMedia.writeAudioFile(to: file("music/bed.wav"), segments: [(2, 0.5)])

@@ -140,8 +140,9 @@ the app open, the archive runs in the app.
 
 A project opened on another Mac, or a folder tidied by hand, can lose track
 of files. `tandem media` marks them `MISSING FILE` and `tandem validate`
-fails. The app offers to search a folder when it opens such a project; from
-the command line:
+fails. The app offers to search a folder when it opens such a project and
+clips use the missing files (a missing file nothing uses inside the folder
+just leaves the project on the next scan); from the command line:
 
 ```bash
 tandem relink --dry-run                        # what it would find in the project folder

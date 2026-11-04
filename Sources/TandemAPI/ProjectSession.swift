@@ -349,7 +349,7 @@ public final class ProjectSession: @unchecked Sendable {
         while true {
             attempt += 1
             let (current, revision) = coordinator.snapshot()
-            var (commands, added) = Self.refreshCommands(report.items, scannedFrom: project, into: current, folder: folder)
+            var (commands, added) = Self.refreshCommands(report.items, scannedFrom: project, into: current, folder: folder, missing: report.missing)
             guard !commands.isEmpty else { return MediaRefresh(added: [], cameraTakes: []) }
             // A new project takes its camera take's frame rate, in the same
             // undo step as the media.
@@ -378,7 +378,14 @@ public final class ProjectSession: @unchecked Sendable {
     /// The edit that brings a scan's results into `current`, and the IDs of
     /// the media it adds. `scannedFrom` is the project the scan started
     /// from.
-    static func refreshCommands(_ scanned: [MediaItem], scannedFrom project: Project, into current: Project, folder: ProjectFolder) -> (commands: [EditCommand], added: [String]) {
+    ///
+    /// Files in `missing` (known, but gone from disk) that no clip uses and
+    /// that were inside the folder are dropped: a tool that writes a file
+    /// and deletes it again (a Remotion helper's asset, a scratch render)
+    /// shouldn't leave Mike a missing-media question about something the
+    /// edit never needed. Ones a clip uses stay, for relinking, and so do
+    /// ones outside the folder, which may be on a drive that's unplugged.
+    static func refreshCommands(_ scanned: [MediaItem], scannedFrom project: Project, into current: Project, folder: ProjectFolder, missing: [MediaItem] = []) -> (commands: [EditCommand], added: [String]) {
         let known = Set(project.media.map(\.id))
         let paths = Set(current.media.map { folder.path(for: folder.url(for: $0)) })
         // Files media was swapped away from stay out (`MediaItem.replaces`).
@@ -405,6 +412,12 @@ public final class ProjectSession: @unchecked Sendable {
                 commands.append(.addMedia(item: item))
                 added.append(item.id)
             }
+        }
+        let used = Set(current.allTracks.flatMap(\.clips).compactMap(\.mediaID))
+        for item in missing where current.media(item.id) != nil && !used.contains(item.id) {
+            let url = folder.url(for: item)
+            guard !folder.path(for: url).hasPrefix("/"), FileCopier.fileInfo(url) == nil else { continue }
+            commands.append(.removeMedia(mediaID: item.id))
         }
         return (commands, added)
     }

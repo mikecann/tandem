@@ -1240,9 +1240,10 @@ comments, changed these rules for a conversation like this:
   folder, then `tandem media --refresh` adds them. Temporary files
   (ProRes masters before converting to HEVC with alpha, test renders) go
   in `$TMPDIR` or the scratchpad, never the video folder: Tandem adds
-  anything that appears there, and deleting 10 converted intermediates on
-  the Ian video gave Mike a "10 media files are missing" dialog. If one
-  gets registered anyway, `removeMedia` it before deleting the file.
+  anything that appears there. A file no clip uses leaves the project
+  quietly when it's deleted, but it churns the media list meanwhile. A
+  subfolder with a `package.json` (`motion-graphics/`) only counts its
+  `out/`, so a Remotion project's `public/` and `src/` are safe to write.
 - Find music, sound effects, stickers and icons with `tandem assets search`
   and add them with `tandem assets use <id> --at <time>`. Mike's shared
   library is `~/Movies/Tandem Library`.

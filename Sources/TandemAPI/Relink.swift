@@ -33,6 +33,14 @@ public enum MediaRelinker {
         project.media.filter { FileCopier.fileInfo(folder.url(for: $0)) == nil }
     }
 
+    /// The missing media, or with `usedOnly` just what a clip uses: the
+    /// app only stops Mike for files the edit needs.
+    public static func missing(in project: Project, folder: ProjectFolder, usedOnly: Bool) -> [MediaItem] {
+        guard usedOnly else { return missing(in: project, folder: folder) }
+        let used = Set(project.allTracks.flatMap(\.clips).compactMap(\.mediaID))
+        return missing(in: project, folder: folder).filter { used.contains($0.id) }
+    }
+
     /// Looks for each item's file by name in `folders` and their subfolders,
     /// earlier folders first. A file whose content matches the item's
     /// fingerprint (its size and a hash of both ends) is taken; an item

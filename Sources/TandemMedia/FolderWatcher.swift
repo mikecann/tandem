@@ -166,6 +166,9 @@ public final class FolderWatcher: @unchecked Sendable {
                 continue
             }
             guard MediaScanner.mediaKind(forPath: relative) != nil else { continue }
+            // A Remotion project's public/ churns as its tools work; only
+            // its renders in out/ are media (`MediaScanner.isCodeProject`).
+            guard !MediaScanner.isInsideCodeProject(relative, in: folder) else { continue }
             pending.insert(relative)
             relevant = true
         }
