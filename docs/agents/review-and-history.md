@@ -115,12 +115,26 @@ their own beside it, and reports, with the clips on screen there:
     usually left behind by an edit (a locked music track, or hand-timed
     keyframes). Move its keyframes back under the card. Read from the
     timeline, so it's in a quick check.
+  - how a Short opens (`shortOpening`), on a project taller than it's
+    wide: the first 12 s of what's said, quoted, when they start on a
+    back-reference ("And...", "So...", "The other area...", "The biggest
+    one...", "Like I said...", a host's "Shifting gears...") or when it's
+    a Q&A Short with no question in them. A Short is a Q&A when its name or
+    a file it plays says fireside, interview, podcast, Q&A, panel or AMA;
+    a question is a question mark or a question's words ("what does",
+    "how do", "do you"), since a transcript doesn't always punctuate. A
+    tip Short can open on a claim, so this never fails a check, and a good
+    opening says nothing. Mike: "We don't know what the question is when
+    it starts" (4 Nov 2026). Fix it by opening on the question, from
+    earlier or later in the talk, or where the thought starts. Read from
+    the transcript, so it's in a quick check, and `--changed` only says it
+    again when the opening changed.
 
 Run `tandem check --changed` before handing an edit back: it checks only
 what agents changed that's waiting for Mike's review, half a second either
 side. It exits 1 when it finds a problem; notes never fail it. `--quick`
 skips rendering, so it only finds gaps, soft pictures, slivers, double
-jumps and swells off their cards, and nothing that needs the screen recordings scanned (page changes,
+jumps, swells off their cards and how a Short opens, and nothing that needs the screen recordings scanned (page changes,
 low frame rates).
 
 It renders the timeline in 10 s pieces, several at once, and keeps what it

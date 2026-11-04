@@ -762,9 +762,12 @@ scripts and the speaker tracker are in
   start on the question itself rather than its lead-in ("Shifting gears...",
   "last ninety seconds"), and give a talk's running gag or number its setup
   (Seth's camp story before "the spreadsheet that became...", a hook saying the
-  audience made the number). `build.py opening <project>` prints each
-  Short's first 12 s and flags no question or a back-reference. Once the
-  question is asked on camera, no hook title repeating it: "we don't need to
+  audience made the number). `tandem check` quotes the first 12 s of a
+  Q&A Short (fireside, interview, podcast, Q&A, panel or AMA in its name
+  or files) with no question in them, or starting on a back-reference. It
+  can't tell a running gag is missing its setup, so read the opening as a
+  stranger anyway. Once the question is asked on camera, no hook title
+  repeating it: "we don't need to
   show the question on the screen... because it should get asked at the start
   of the video anyway" (Mike, 4 Nov 2026). Keep the small name line.
 - **The filmmaker's own insets are crops too.** Seth's master cut to a tall
@@ -841,7 +844,10 @@ and the upload batch.
   here", "the process I go through", "like I said", "so yeah, that's X",
   "can you get hold of it") or assumes they know the product, and put the
   missing context in the hook title or an on-screen line. A "what is X"
-  Short is often the obvious first one to make.
+  Short is often the obvious first one to make. `tandem check` (and
+  `--changed` once the opening changes) quotes a Short's first 12 s when
+  they start on a back-reference ("And...", "So yeah...", "The other
+  area...", "Like I said..."): read it, and fix it or say why it stands.
 - **Keep the caveats.** Cutting "S tier or Haiku tier" straight after
   "Haiku costs like 40 times less" left out "it's kind of an unfair test"
   and "we weren't running the full model". Mike asked for them back so the

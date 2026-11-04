@@ -71,6 +71,11 @@ public struct CheckProblem: Codable, Equatable, Sendable {
         /// A stretch of readable text, flagged or not, for a person to look
         /// through before export (`--privacy`).
         case readableText
+        /// A Short (a project taller than it's wide) whose first 12 s start
+        /// on a back-reference ("And...", "The other area...", "Like I
+        /// said..."), or a Q&A Short with no question in them
+        /// (`shortOpening`): it won't stand on its own.
+        case shortOpening
 
         /// Worth knowing rather than wrong: Mike signed off softer zooms on
         /// cartoon B-roll than on screen recordings, a pause can let a point
@@ -78,7 +83,7 @@ public struct CheckProblem: Codable, Equatable, Sendable {
         /// push. So these don't fail a check.
         public var isNote: Bool {
             self == .soft || self == .deadAir || self == .pageChange || self == .sliver || self == .lowFrameRate || self == .marginalJoin
-                || self == .heardDifferently || self == .heardWhole || self == .swellOffCard || self == .readableText
+                || self == .heardDifferently || self == .heardWhole || self == .swellOffCard || self == .readableText || self == .shortOpening
         }
     }
 
@@ -300,6 +305,10 @@ public enum QualityCheck {
         let jumps = doubleJumps(in: project, ranges: ranges)
         var found = gapProblems + softPictures(in: project, ranges: ranges) + slivers(in: project, ranges: ranges) + jumps + sameShotTwice(in: project, ranges: ranges)
             + swellsOffCards(in: project, ranges: ranges)
+        if let speech {
+            // Read from the transcript, so it's in a quick check too.
+            found += shortOpening(in: project, ranges: ranges, speech: speech)
+        }
         if let frames {
             let rendered = holdFixes(frameProblems(frames, in: project, skipping: gapProblems.map { TimeRange(start: $0.start, end: $0.end) }), in: project, screenFrames: screenFrames)
             found += withoutFlickersUnderFixedJumps(rendered, jumps: jumps, frame: project.settings.frameRate.frameDuration)
