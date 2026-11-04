@@ -743,14 +743,17 @@ scripts and the speaker tracker are in
   "last ninety seconds"), and give a talk's running gag or number its setup
   (Seth's camp story before "the spreadsheet that became...", a hook saying the
   audience made the number). `build.py opening <project>` prints each
-  Short's first 12 s and flags no question or a back-reference.
+  Short's first 12 s and flags no question or a back-reference. Once the
+  question is asked on camera, no hook title repeating it: "we don't need to
+  show the question on the screen... because it should get asked at the start
+  of the video anyway" (Mike, 4 Nov 2026). Keep the small name line.
 - **The filmmaker's own insets are crops too.** Seth's master cut to a tall
   "audience cam" phone inset on the left while people typed on calculators:
   it's nearly 9:16 already, so crop straight onto it, and back to the speaker
   when he's the joke.
 - **Titles over the chest on seated close-ups.** A fireside close-up puts the
-  face at the top of the 9:16 frame, so the hook (y 0.53) and the names
-  (y 0.61) go just above the captions, not at the top.
+  face at the top of the 9:16 frame, so the names (y 0.61) go just above
+  the captions, not at the top.
 - **Fix captions by whole caption, not by word.** A word map (`fixCaptionWords`
   with `"you": "you."`) hit every caption with that word and the SDK run can't
   be undone; replace exact captions instead (`.work/tools/setcaps.ts` in that
