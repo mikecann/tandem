@@ -193,7 +193,7 @@ private final class LockedCount: @unchecked Sendable {
 /// Checks scan at utility priority so they give way to Mike's own work;
 /// the viewer and exports keep theirs.
 final class ScanPriorityTests: XCTestCase {
-    func testScansRenderInTheBackground() {
+    func testScansGiveWayToOtherWork() {
         XCTAssertEqual(TandemScanCompositor.renderQoS, .utility)
         XCTAssertEqual(TandemCompositor.renderQoS, .userInitiated)
         XCTAssertEqual(TandemRGBCompositor.renderQoS, .userInitiated)
