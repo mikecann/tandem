@@ -15,28 +15,29 @@ type Ctx = { cwd: string; matched: string[]; sh: (command: string) => Promise<st
 type Comment = { id: string; time: number; text: string };
 type LookHere = { start: number; name: string; note?: string; question?: boolean };
 type Review = { label: string; date: string };
-type Project = { name: string; path: string; comments: Comment[]; handback: LookHere[]; reviews: Review[] };
+// error: the project couldn't be read (a broken file, a newer Tandem's).
+type Project = { name: string; path: string; comments: Comment[]; handback: LookHere[]; reviews: Review[]; error?: string };
 
 const quote = (s: string) => `'${s.replaceAll("'", `'\\''`)}'`;
 
-// Every .tandem project in the folder, read with --project so a folder with
-// two (a long cut and a short) works. Threadbear runs a command once per
-// read however many functions ask, so these are cheap to call from each.
+// Every .tandem project in the folder, from one `tandem waiting`. A folder
+// can hold dozens (a long interview and the Shorts cut from it), and
+// opening each with `tandem status` and `tandem comments` started two
+// processes per project on every refresh, each loading the whole timeline,
+// which kept Mike's Mac loaded. `waiting` reads only the comments and
+// review log of every project in one light process. Threadbear runs a
+// command once per read however many functions ask, so this is cheap to
+// call from each.
 async function projects({ matched, sh }: Ctx): Promise<Project[]> {
-  return Promise.all(
-    matched.map(async (file) => {
-      const flag = `--project ${quote(file)}`;
-      const [status, comments] = await Promise.all([sh(`tandem status --json ${flag}`), sh(`tandem comments --json ${flag}`)]);
-      const s = JSON.parse(status);
-      return {
-        name: s.name ?? file.split('/').pop()!.replace(/\.tandem$/, ''),
-        path: file,
-        comments: JSON.parse(comments).comments ?? [],
-        handback: s.handback ?? [],
-        reviews: s.reviewPending ?? [],
-      };
-    }),
-  );
+  const out = JSON.parse(await sh(`tandem waiting --json ${matched.map(quote).join(' ')}`));
+  return (out.projects ?? []).map((p: Record<string, any>) => ({
+    name: p.name,
+    path: p.path,
+    comments: p.comments ?? [],
+    handback: p.handback ?? [],
+    reviews: p.reviewPending ?? [],
+    error: p.error,
+  }));
 }
 
 const sum = (list: Project[], key: 'comments' | 'handback' | 'reviews') => list.reduce((n, p) => n + p[key].length, 0);
@@ -76,6 +77,7 @@ export default {
           count(sum(list, 'reviews'), 'edit waiting for your review', 'edits waiting for your review'),
           count(sum(list, 'handback'), 'place to look at', 'places to look at'),
           count(sum(list, 'comments'), 'comment for the agent', 'comments for the agent'),
+          count(list.filter((p) => p.error).length, "project Tandem can't read", "projects Tandem can't read"),
         ].filter(Boolean);
         return lines.length ? lines : 'Nothing waiting';
       },
@@ -85,6 +87,10 @@ export default {
         for (const p of list) {
           // A heading per project only when there's more than one.
           if (list.length > 1) rows.push({ title: p.name, path: p.path, icon: 'film' });
+          if (p.error) {
+            rows.push({ title: list.length > 1 ? "Can't read it" : `${p.name}: can't read it`, detail: p.error, icon: 'exclamationmark.triangle', tone: 'failed' });
+            continue;
+          }
           for (const c of p.comments) rows.push({ title: c.text, detail: `Comment at ${clock(c.time)}, for the agent`, icon: 'text.bubble', tone: 'attention' });
           for (const h of p.handback) rows.push({ title: h.name, detail: `${h.question ? 'Question' : 'Look here'} at ${clock(h.start)}${h.note ? `: ${h.note}` : ''}`, icon: h.question ? 'questionmark.bubble' : 'eye' });
           for (const r of p.reviews) rows.push({ title: r.label, detail: 'Waiting for your review', icon: 'checkmark.circle' });

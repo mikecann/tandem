@@ -323,6 +323,7 @@ One line each; `tandem help <command>` has the options and what they do.
 | `tandem check` | what Mike would catch in review (`--changed`, `--quick`, `--cuts`, `--listen`), or private text a viewer could read (`--privacy`, before every export) |
 | `tandem sync [<seconds> \| --check \| <file>...]` | how late each camera's picture is, or set it; measure voice against lips on each file; or line another angle or mic up with the camera by sound |
 | `tandem comments` | Mike's timeline comments (`resolve <id>`) |
+| `tandem waiting` | what waits in every project in the folder (comments, handback, edits to review), read light, for tools watching a folder of Shorts |
 | `tandem handback` | hand a round back: the two to five places Mike should look at first (alone, what he hasn't watched) |
 | `tandem frame <time>` | one frame as a PNG |
 | `tandem frames <time>...` | a labelled contact sheet |

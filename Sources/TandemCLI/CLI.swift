@@ -101,6 +101,13 @@ struct CLI {
             return try await AssetsCommand(directory: directory, environment: environment).run(args, author: author(args)) { try project(args) }
         case "segments":
             return try await SegmentsCommand(directory: directory, environment: environment).run(args, author: author(args)) { try project(args) }
+        case "waiting":
+            // Every project at once and without opening any, so a folder
+            // of Shorts is one cheap read (see ProjectsWaiting).
+            var paths = args.positionals
+            if paths.isEmpty, let given = args.options["project"] { paths = [given] }
+            let projects = try ProjectLocator.all(paths, in: directory)
+            return show(await ProjectsWaiting.read(projects, author: author(args)), json: json)
         case "archive":
             try args.expectPositionals(atMost: 1, command: name)
             if args.has("with-cache"), args.options["to"] == nil {
