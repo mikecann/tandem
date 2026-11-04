@@ -189,3 +189,13 @@ private final class LockedCount: @unchecked Sendable {
     var count: Int { lock.withLock { value } }
     @discardableResult func add() -> Int { lock.withLock { value += 1; return value } }
 }
+
+/// Checks scan at utility priority so they give way to Mike's own work;
+/// the viewer and exports keep theirs.
+final class ScanPriorityTests: XCTestCase {
+    func testScansRenderInTheBackground() {
+        XCTAssertEqual(TandemScanCompositor.renderQoS, .utility)
+        XCTAssertEqual(TandemCompositor.renderQoS, .userInitiated)
+        XCTAssertEqual(TandemRGBCompositor.renderQoS, .userInitiated)
+    }
+}
