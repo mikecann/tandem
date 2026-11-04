@@ -717,6 +717,35 @@ scripts and the speaker tracker are in
   transcript view after the cut: it hid "You're" and "That's" that were
   still in the audio. Copy fixed captions across rather than running
   `tandem captions` again, which drops those words.
+- **More talks the same way (Seth and the Fireside Chat, 12 Shorts, 4 Nov
+  2026):** `~/dev/convex/convex-videos/abstract-talk-clips/.work/tools/build.py`
+  does it in four steps: `new` (talk as camera, picture delay 0; an exported
+  master has no timecode, so `tandem new` gives it 80 ms and picks the wrong
+  file as camera), `place` (a source stretch), `frame` (blades at the
+  filmmaker's angle changes and crops each shot to 9:16 on the face Apple
+  Vision finds, following it, ignoring audience heads in the bottom of the
+  frame; shots with nobody in them stay whole over a blurred copy), then
+  `captions` and `titles`. Per-stretch fixes go in `.work/framing/<project>.json`:
+  `who` left/right picks the talker in a two-shot, `x`/`z` pin a crop,
+  `window` keeps a shot whole (an on-screen graphic, a wide from the back
+  where he's tiny). Its `edit-plan.md` has the rest.
+- **The filmmaker's own insets are crops too.** Seth's master cut to a tall
+  "audience cam" phone inset on the left while people typed on calculators:
+  it's nearly 9:16 already, so crop straight onto it, and back to the speaker
+  when he's the joke.
+- **Titles over the chest on seated close-ups.** A fireside close-up puts the
+  face at the top of the 9:16 frame, so the hook (y 0.53) and the names
+  (y 0.61) go just above the captions, not at the top.
+- **Fix captions by whole caption, not by word.** A word map (`fixCaptionWords`
+  with `"you": "you."`) hit every caption with that word and the SDK run can't
+  be undone; replace exact captions instead (`.work/tools/setcaps.ts` in that
+  folder, which also deletes filler-only ones).
+- **Scan the export for black frames.** Some clips rendered their first frame
+  after a cut black in `tandem clip` and exports (not in `tandem frame`), and
+  `tandem check` missed one; until the Tandem fix lands, scan each export's
+  frame brightness for single-frame dips and work round with
+  `.work/tools/fixblack.py` (picture one frame later, previous shot one
+  frame longer).
 - **B-roll never freezes.** Holding a 6 s cartoon's last frame for 2.85 s to
   cover a line read as a freeze frame to Mike. Pick a span the clip fits,
   or slow it a touch (0.93x was invisible).
