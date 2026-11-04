@@ -440,7 +440,7 @@ final class ServiceTests: XCTestCase {
         let h = try ServiceHarness(project: project)
         defer { h.close() }
 
-        let standard = try await ExportRequest(output: "exports/default.mp4").run(on: h.service, context: h.context)
+        let standard = try await ExportRequest(output: "exports/default.mp4", unreviewed: true).run(on: h.service, context: h.context)
         XCTAssertEqual(standard.preset, "YouTube 1080p")
         XCTAssertEqual(standard.width, 1080)
         XCTAssertEqual(standard.height, 1920)
@@ -452,7 +452,7 @@ final class ServiceTests: XCTestCase {
         XCTAssertEqual(try rendered(standard), "fake movie YouTube 1080p 1080x1920 h264 20000000 main")
         XCTAssertTrue(standard.readableText.hasPrefix("Wrote \(standard.path) (YouTube 1080p: 1080x1920 H.264 at 20 Mbps, 01:00.000 long) in "), standard.readableText)
 
-        let short = try await ExportRequest(preset: "short", output: "exports/short.mp4").run(on: h.service, context: h.context)
+        let short = try await ExportRequest(preset: "short", output: "exports/short.mp4", unreviewed: true).run(on: h.service, context: h.context)
         XCTAssertEqual(short.preset, "Short 9:16")
         XCTAssertNil(short.format, "the canvas is the short")
         XCTAssertEqual(try rendered(short), "fake movie Short 9:16 1080x1920 h264 20000000 main")
@@ -477,23 +477,23 @@ final class ServiceTests: XCTestCase {
     func testTheShortPresetNeedsAPortraitFrame() async throws {
         let h = try ServiceHarness()
         defer { h.close() }
-        XCTAssertThrowsError(try h.service.prepareExport(ExportRequest(preset: "short"))) { error in
+        XCTAssertThrowsError(try h.service.prepareExport(ExportRequest(preset: "short", unreviewed: true))) { error in
             let failure = error as? ServiceError
             XCTAssertEqual(failure?.code, ServiceError.Code.notFound.rawValue)
             XCTAssertTrue(failure?.message.contains("`tandem short --apply`") ?? false, "\(error)")
             XCTAssertTrue(failure?.message.hasSuffix("use --preset youtube4k.") ?? false, "\(error)")
         }
         // The landscape project's default is still 4K.
-        let standard = try await ExportRequest(output: "exports/default.mp4").run(on: h.service, context: h.context)
+        let standard = try await ExportRequest(output: "exports/default.mp4", unreviewed: true).run(on: h.service, context: h.context)
         XCTAssertEqual(try rendered(standard), "fake movie YouTube 4K 3840x2160 hevc 80000000 main")
 
         // Once the short is laid out, the short preset renders its format.
         _ = try h.service.short(ShortRequest(apply: true), context: h.context)
-        let short = try await ExportRequest(preset: "short", output: "exports/short.mp4").run(on: h.service, context: h.context)
+        let short = try await ExportRequest(preset: "short", output: "exports/short.mp4", unreviewed: true).run(on: h.service, context: h.context)
         XCTAssertEqual(short.format, "portrait")
         XCTAssertEqual(try rendered(short), "fake movie Short 9:16 1080x1920 h264 20000000 portrait")
         XCTAssertTrue(short.readableText.contains("(Short 9:16: 1080x1920 H.264 at 20 Mbps, portrait format, 01:00.000 long)"), short.readableText)
-        let format = try await ExportRequest(output: "exports/portrait.mp4", format: "portrait").run(on: h.service, context: h.context)
+        let format = try await ExportRequest(output: "exports/portrait.mp4", format: "portrait", unreviewed: true).run(on: h.service, context: h.context)
         XCTAssertEqual(try rendered(format), "fake movie YouTube 1080p 1080x1920 h264 20000000 portrait", "the default follows the format's frame")
 
         assertServiceError(.notFound) { _ = try h.service.prepareExport(ExportRequest(format: "square")) }

@@ -690,10 +690,14 @@ final class NewProjectCLITests: XCTestCase {
         XCTAssertEqual(placed.status, 0, placed.stderr)
 
         // Into exports/, as the snapshot beside each export is a .tandem too.
-        let short = try cli.tandem("export", "--preset", "short", "-o", "exports/short.mp4", in: folder.url)
+        // The apply above waits for review, so these are check exports.
+        let waiting = try cli.tandem("export", "--preset", "short", "-o", "exports/short.mp4", in: folder.url)
+        XCTAssertEqual(waiting.status, 1, "a final export waits for Mike's review")
+        XCTAssertTrue(waiting.stderr.contains("Not exported"), waiting.stderr)
+        let short = try cli.tandem("export", "--preset", "short", "-o", "exports/short.mp4", "--unreviewed", in: folder.url)
         XCTAssertEqual(short.status, 0, short.stderr)
         XCTAssertTrue(short.stdout.contains("(Short 9:16: 1080x1920 H.264 at 20 Mbps, 00:02.000 long)"), short.stdout)
-        let standard = try cli.tandem("export", "-o", "exports/default.mp4", "--json", in: folder.url)
+        let standard = try cli.tandem("export", "-o", "exports/default.mp4", "--unreviewed", "--json", in: folder.url)
         XCTAssertEqual(standard.status, 0, standard.stderr)
         let outcome = try ServiceJSON.decoder().decode(ExportOutcome.self, from: Data(standard.stdout.utf8))
         XCTAssertEqual(outcome.preset, "YouTube 1080p")

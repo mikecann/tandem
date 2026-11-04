@@ -948,6 +948,7 @@ public final class TandemService: @unchecked Sendable {
             preset.range = TimeRange(start: start, end: end)
         }
         let plan = try exportPlan(preset, format: request.format)
+        let waiting = try reviewGate(preset: preset, unreviewed: request.unreviewed == true)
         let output: URL
         if let path = request.output {
             output = outputURL(path)
@@ -955,7 +956,36 @@ public final class TandemService: @unchecked Sendable {
             let (project, revision) = coordinator.snapshot()
             output = uniqueURL(folder.exportsFolder.appendingPathComponent("\(project.name) r\(revision).mp4"))
         }
-        return try prepareRender(plan: plan, output: output)
+        let render = try prepareRender(plan: plan, output: output)
+        guard let waiting else { return render }
+        return {
+            var outcome = try await render()
+            outcome.warnings.insert(waiting, at: 0)
+            return outcome
+        }
+    }
+
+    /// A final export waits for Mike to review agent edits: an agent once
+    /// exported the Threadbear launch video four times while its privacy
+    /// blurs still waited for him, and he said "I need to verify all that
+    /// before you export it." It throws, naming them, unless this is a
+    /// review copy or a deliberate unreviewed check, which get the warning
+    /// it returns instead. Nil with nothing waiting. Mike's own exports from
+    /// the app don't come through here.
+    func reviewGate(preset: ExportPreset, unreviewed: Bool) throws -> String? {
+        let waiting = session.review.log.entries
+        guard !waiting.isEmpty else { return nil }
+        var names = waiting.suffix(5).map { "\"\($0.label)\" by \($0.author)" }
+        if waiting.count > names.count { names.insert("\(waiting.count - names.count) more", at: 0) }
+        let count = waiting.count == 1 ? "1 agent edit" : "\(waiting.count) agent edits"
+        let list = names.joined(separator: "; ")
+        if preset.cliName == "review" {
+            return "This review copy shows \(count) Mike hasn't reviewed yet: \(list)."
+        }
+        if unreviewed {
+            return "Exported with \(count) Mike hasn't reviewed (\(list)): a check export, not one to publish."
+        }
+        throw ServiceError(.invalid, "Not exported: \(count) still \(waiting.count == 1 ? "waits" : "wait") for Mike's review in Tandem (\(list)). He checks them first (the review chip walks him through them, or tandem handback names what to look at), then export. For a check export that won't be published, pass --unreviewed (MCP and HTTP unreviewed: true), or use --preset review.")
     }
 
     /// A preset by name, or nil for none.

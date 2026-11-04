@@ -163,7 +163,7 @@ enum Help {
                     --audio-only writes the sound alone as a .m4a; -o something.wav writes 24-bit PCM instead (a stem over 0 dBFS clips there).
                     To measure rather than listen, `tandem loudness --from <t> --to <t>` takes the same --tracks.
                     """),
-        CommandHelp(name: "export", usage: "tandem export [--preset <name>] [-o out.mp4] [--from <time>] [--to <time>] [--format <id>]", summary: "Export the video, loudness matched (presets: youtube4k, youtube1080, review, short).", options: ["output", "preset", "from", "to", "format"],
+        CommandHelp(name: "export", usage: "tandem export [--preset <name>] [-o out.mp4] [--from <time>] [--to <time>] [--format <id>] [--unreviewed]", summary: "Export the video, loudness matched (presets: youtube4k, youtube1080, review, short).", options: ["output", "preset", "from", "to", "format", "unreviewed"],
                     details: """
                     A preset sets the quality: codec, bitrate and resolution (pixels on the frame's short side). The frame keeps the canvas's shape, so youtube1080 is 1920x1080 for a landscape project, 1080x1920 for a 9:16 one and 1080x1080 for a square.
                       youtube4k    HEVC, 2160 on the short side, 80 Mbps. For a 4K landscape video.
@@ -174,6 +174,7 @@ enum Help {
                     Bitrates are for 16:9 at up to 30 fps. A frame with less area gets proportionally less (1080x1080 gets 11.3 Mbps), and 48 to 60 fps gets half as much again, as YouTube recommends.
                     A preset bigger than the canvas (youtube4k of a 1080x1920 project is 2160x3840) upscales it, with a warning. --format renders an alternate format, like portrait, at the preset's quality.
                     It prints the preset, size, codec and bitrate it used, and the mix's loudness: -14 LUFS, with true peaks limited 0.5 dB under the -1 dBTP ceiling so the AAC file stays under it too.
+                    While agent edits wait for Mike's review (tandem status lists them), every preset but review refuses and names them: he checks them in Tandem first. A review copy exports with a warning saying what he hasn't seen. --unreviewed exports anyway for a check, with a warning that it's not one to publish.
                     """),
         CommandHelp(name: "archive", usage: "tandem archive [<project>] [--to <folder>] [--with-cache] [--dry-run]", summary: "Make the project standalone: copy what it uses from outside its folder into it, or with --to write a standalone copy of the whole folder somewhere else.", options: ["to", "with-cache", "dry-run", "label"],
                     details: """
