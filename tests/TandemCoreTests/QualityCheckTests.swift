@@ -141,6 +141,10 @@ final class QualityCheckTests: XCTestCase {
         XCTAssertEqual(found.first?.frames, 1)
         XCTAssertEqual(found.first?.start, cut[2].time)
 
+        // Half of it all black and half under a caption is one dropout.
+        let split = stats([stage(90), [UInt8](repeating: 0, count: 16), dropped, stage(140)])
+        XCTAssertEqual(QualityCheck.frameProblems(split, in: shot).map(\.frames), [2])
+
         // A black card that holds under the captions is there on purpose,
         // and a dark shot that stays dark is a dark shot.
         let card = stats([stage(90)] + Array(repeating: dropped, count: 30) + [stage(140)])

@@ -442,7 +442,7 @@ public enum QualityCheck {
     static func black(_ frames: [FrameStats], project: Project, frameDuration: Time, quiet: [TimeRange]) -> [CheckProblem] {
         let loud = frames.map { stats in !quiet.contains { $0.contains(stats.time) } }
         var flagged = frames.indices.map { frames[$0].isBlack && loud[$0] }
-        let mostly = frames.indices.map { loud[$0] && !flagged[$0] && frames[$0].blackShare >= blackUnderOverlays }
+        let mostly = frames.indices.map { loud[$0] && frames[$0].blackShare >= blackUnderOverlays }
         for run in runs(of: mostly) where run.count <= blackUnderOverlaysLongest && run.lowerBound > 0 && run.upperBound < frames.count {
             let least = run.map { frames[$0].blackShare }.min() ?? 0
             let sides = [frames[run.lowerBound - 1], frames[run.upperBound]]

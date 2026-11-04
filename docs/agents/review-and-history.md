@@ -9,8 +9,10 @@ go on the edit itself. It renders every frame of the stretch small (384
 wide, from proxies where they're ready), and the screen recordings again on
 their own beside it, and reports, with the clips on screen there:
 
-- black frames (a few mostly black frames count too, with captions or a
-  title still drawn over them), and gaps with nothing on any video track;
+- black frames, and gaps with nothing on any video track. Up to six frames
+  that are 85% black or more count as black even with captions or a title
+  drawn over them, when the frames either side are at least 40 points less
+  black; a black card that holds longer, or a dark shot, doesn't;
 - flickers: one to three frames unlike the frames either side, like a
   stale still or a frame of the wrong shot. Where the flicker is inside one
   clip of a video and the check can tell which picture flashed (the only

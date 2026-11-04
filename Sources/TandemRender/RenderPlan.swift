@@ -111,7 +111,8 @@ enum RenderPlanner {
     static let microFade = Time(seconds: 0.003)
 
     /// A video clip's edges within a millisecond of a frame boundary (what
-    /// `Time.overlapTolerance` already calls touching), moved onto it.
+    /// `Time.overlapTolerance` already calls touching) moved onto it: its
+    /// start to the nearest one, its end only ever later.
     ///
     /// Frames are drawn at their start times, and at 29.97 fps those fall
     /// between 48 kHz samples, which every time in a saved project snaps
@@ -119,13 +120,18 @@ enum RenderPlanner {
     /// the same frame can come back one ending a sample before it and the
     /// next starting a sample after: nothing covers the frame and it draws
     /// black (four cuts in the Abstract talk Shorts, 4 Nov 2026). On the
-    /// frame, the next clip has it.
+    /// frame, the next clip has it. A start moving later passes no frame's
+    /// time, but an end moving earlier would uncover the frame it moves to
+    /// (the last frame of the timeline, with nothing after it), so clips
+    /// only ever grow.
     static func onFrames(_ range: TimeRange, rate: FrameRate) -> TimeRange {
-        func snap(_ time: Time) -> Time {
-            let frame = time.roundedToFrame(rate)
-            return abs(frame.flicks - time.flicks) <= Time.overlapTolerance.flicks ? frame : time
-        }
-        let snapped = TimeRange(start: snap(range.start), end: snap(range.end))
+        let tolerance = Time.overlapTolerance.flicks
+        let nearest = range.start.roundedToFrame(rate)
+        let start = abs(nearest.flicks - range.start.flicks) <= tolerance ? nearest : range.start
+        let perFrame = rate.flicksPerFrame
+        let later = Time(flicks: (range.end.flicks + perFrame - 1).floorDivided(by: perFrame) * perFrame)
+        let end = later.flicks - range.end.flicks <= tolerance ? later : range.end
+        let snapped = TimeRange(start: start, end: end)
         return snapped.isEmpty ? range : snapped
     }
 
@@ -498,5 +504,13 @@ extension Effect {
         var copy = self
         copy.id = ""
         return copy
+    }
+}
+
+private extension Int64 {
+    /// Division rounding towards minus infinity.
+    func floorDivided(by divisor: Int64) -> Int64 {
+        let q = self / divisor
+        return (self % divisor != 0 && (self < 0) != (divisor < 0)) ? q - 1 : q
     }
 }

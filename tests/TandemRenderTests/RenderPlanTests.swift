@@ -244,6 +244,26 @@ final class RenderPlanTests: XCTestCase {
         }
     }
 
+    /// An end only moves later: one a hair after a frame still covers that
+    /// frame, so the last clip of the timeline keeps its last frame, and
+    /// at a cut the next clip, moved back onto the frame, has it.
+    func testAnEndJustAfterAFrameKeepsIt() throws {
+        let rate = FrameRate(30000, 1001)
+        let frame = Time.frames(1173, at: rate)
+        let a = mediaClip("clip_a", "med_cam", start: 38.873, duration: 0.266104, source: 20)
+        XCTAssertGreaterThan(a.end, frame)
+        var p = project(video: [Track(kind: .video, name: "Camera", clips: [a])])
+        p.settings.frameRate = rate
+        var plan = RenderPlanner.plan(p, format: nil, assets: nil)
+        XCTAssertEqual(plan.videoSegments.first?.timeline.end, a.end)
+        XCTAssertEqual(try XCTUnwrap(plan.instructions.first { $0.range.contains(frame) }).stack.flatMap(\.clipIDs), ["clip_a"])
+
+        let b = mediaClip("clip_b", "med_cam", start: a.end.seconds, duration: 1, source: 30)
+        p.videoTracks[0].clips.append(b)
+        plan = RenderPlanner.plan(p, format: nil, assets: nil)
+        XCTAssertEqual(try XCTUnwrap(plan.instructions.first { $0.range.contains(frame) }).stack.flatMap(\.clipIDs).last, "clip_b")
+    }
+
     /// Only edges within a millisecond of a frame move: one 0.4 of a frame
     /// in starts where it says.
     func testEdgesWellOffAFrameStayPut() {
