@@ -280,6 +280,33 @@ extension Track {
         shiftClips(from: time, by: duration)
     }
 
+    /// Stretches music beds that span `time` across `duration` of time
+    /// opened there (after `openTime` without splitting), playing on from
+    /// their files, so a bed laid to end with a section card still does and
+    /// its swell keeps its place. A bed whose file runs out stretches as far
+    /// as it can, with a warning. Other clips stay whole and play across the
+    /// new time: a B-roll shot isn't made longer.
+    mutating func stretchBeds(across time: Time, by duration: Time, media: [String: MediaItem], context: inout EditContext) {
+        guard duration > .zero else { return }
+        for index in clips.indices {
+            let clip = clips[index]
+            guard clip.start < time, time < clip.end, !clip.freezeFrame, clip.speed > 0,
+                  let id = clip.mediaID, let item = media[id], item.role == .music else { continue }
+            let used = clip.sourceStart + clip.duration.scaled(by: clip.speed)
+            // A file whose length isn't known yet is taken to have enough.
+            let left = item.duration.map { max($0 - used, .zero).scaled(by: 1 / clip.speed) } ?? duration
+            let stretch = min(duration, left)
+            if stretch < duration {
+                let name = URL(fileURLWithPath: item.path).lastPathComponent
+                context.warn("The music bed \(name) on \"\(self.name)\" only had \(Editing.jsonSeconds(left)) s left in its file, so it plays \(Editing.jsonSeconds(stretch)) s of the \(Editing.jsonSeconds(duration)) s opened at \(time) and ends that much before it did.")
+            }
+            guard stretch > .zero else { continue }
+            clips[index].duration += stretch
+            clips[index].keyframes = KeyframeEditing.followingInsertion(clip.keyframes, at: time - clip.start, duration: duration)
+            clips[index].tidy()
+        }
+    }
+
     mutating func removeTransitions(referencing ids: Set<String>) {
         guard !ids.isEmpty else { return }
         transitions.removeAll { t in

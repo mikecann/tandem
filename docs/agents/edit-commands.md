@@ -213,9 +213,12 @@ delete does.
 ## insertTime
 
 Cut tracks are split at `at` and everything from there moves later. On
-follow tracks only clips starting at or after `at` move: a clip spanning it
-(a music bed, a B-roll shot) stays where it is, isn't cut, and keeps playing
-across the new time, ending where it did. Off tracks and locked tracks
+follow tracks only clips starting at or after `at` move. A music bed spanning
+it isn't cut: it stretches across the new time, playing on from its file, so
+it still ends with what it ended with, and its gain keyframes after `at` move
+on (the level at `at` holds through the new time). Any other clip spanning it
+(a B-roll shot) stays where it is, isn't cut, and keeps playing across the
+new time, ending where it did. Off tracks and locked tracks
 don't move (a locked one warns). Time opened right on a cut parts its two
 clips, so a transition between them goes, with a warning. `trackIDs` names
 the tracks to split and open up instead of the cut tracks; when none of

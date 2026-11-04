@@ -209,7 +209,9 @@ Each track has a `rippleMode`:
 - `follow` (B-roll, Graphics, Text, Music, SFX): clips move with the content
   around them but aren't cut. A music bed or B-roll shot that spans deleted
   time keeps playing from its head and loses that much from its tail. A clip
-  entirely inside deleted time is removed (with a warning).
+  entirely inside deleted time is removed (with a warning). Their sound
+  keyframes move with the timeline, picture ones with the content. Time
+  opened inside a music bed stretches it across the new time.
 - `off`: ripple edits elsewhere leave the track alone.
 
 A ripple edit made on a `follow` or `off` track only ripples that track, so

@@ -178,7 +178,7 @@ final class RippleTests: XCTestCase {
         let (_, c) = try Fixture.edited()
         try c.run("Open", .insertTime(at: t(30), duration: t(2)))
         XCTAssertEqual(c.clips("Camera").map(\.range), [TimeRange(start: t(0), end: t(30)), TimeRange(start: t(32), end: t(62))])
-        XCTAssertEqual(c.clips("Music").map(\.range), [TimeRange(start: t(0), end: t(60))])
+        XCTAssertEqual(c.clips("Music").map(\.range), [TimeRange(start: t(0), end: t(62))], "the bed stretches across it (BedStretchTests)")
     }
 
     /// Time opened right on a cut parts its two clips, so a transition

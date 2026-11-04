@@ -164,24 +164,55 @@ enum KeyframeEditing {
                 }
             }
             after = after.map { var k = $0.0; k.time -= range.duration; return (k, $0.1) }
-            var moved = before + after
-            // A pinned keyframe on a flat stretch (the same value either
-            // side of it) changes nothing, so a cut through a steady bed
-            // leaves its keyframes as they were.
-            var index = 0
-            while index < moved.count {
-                let value = moved[index].0.value
-                let flatBefore = index == 0 || moved[index - 1].0.value == value
-                let flatAfter = index == moved.count - 1 || moved[index + 1].0.value == value
-                if moved[index].1, flatBefore, flatAfter, moved.count > 1 {
-                    moved.remove(at: index)
-                } else {
-                    index += 1
-                }
-            }
+            let moved = withoutFlatPins(before + after)
             result[path] = moved.map { var k = $0.0; k.time += oldStart - newStart; return k }
         }
         return result
+    }
+
+    /// Re-times a clip's timeline keyframes for `duration` of time opened
+    /// `offset` into the clip, which stretches across it
+    /// (`Track.stretchBeds`). Keyframes after `offset` move on by
+    /// `duration`. Where `offset` falls inside the keyed curve, the value
+    /// playing there holds through the new time, and the curve before and
+    /// after it is as it was.
+    static func followingInsertion(_ keyframes: [String: [Keyframe]], at offset: Time, duration: Time) -> [String: [Keyframe]] {
+        var result = keyframes
+        for (path, list) in keyframes where followsTimeline(path) && !list.isEmpty {
+            let sorted = list.sorted { $0.time < $1.time }
+            var before = sorted.filter { $0.time <= offset }.map { ($0, false) }
+            var after = sorted.filter { $0.time > offset }.map { ($0, false) }
+            if let first = sorted.first, let last = sorted.last, first.time < offset, offset < last.time, let value = sorted.value(at: offset) {
+                if before.last?.0.time != offset {
+                    before.append((Keyframe(time: offset, value: value, interpolation: .hold), true))
+                }
+                // The segment playing at `offset` carries on after the new time.
+                let interpolation = sorted.last { $0.time <= offset }?.interpolation ?? first.interpolation
+                after.insert((Keyframe(time: offset, value: value, interpolation: interpolation), true), at: 0)
+            }
+            after = after.map { var k = $0.0; k.time += duration; return (k, $0.1) }
+            result[path] = withoutFlatPins(before + after).map(\.0)
+        }
+        return result
+    }
+
+    /// Drops keyframes pinned by a ripple edit (flagged true) that sit on a
+    /// flat stretch, the same value either side: they change nothing, so an
+    /// edit through a steady bed leaves its keyframes as they were.
+    private static func withoutFlatPins(_ keys: [(Keyframe, Bool)]) -> [(Keyframe, Bool)] {
+        var moved = keys
+        var index = 0
+        while index < moved.count {
+            let value = moved[index].0.value
+            let flatBefore = index == 0 || moved[index - 1].0.value == value
+            let flatAfter = index == moved.count - 1 || moved[index + 1].0.value == value
+            if moved[index].1, flatBefore, flatAfter, moved.count > 1 {
+                moved.remove(at: index)
+            } else {
+                index += 1
+            }
+        }
+        return moved
     }
 
     /// Drops keyframes that can't affect `0...duration`, keeping the nearest

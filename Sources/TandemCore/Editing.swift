@@ -697,7 +697,8 @@ public enum Editing {
     /// Opens time at `time` for a ripple edit on the `edited` tracks, which
     /// the caller has already handled or wants split. If any edited track is
     /// a `.cut` track the whole timeline moves: `.cut` tracks split, `.follow`
-    /// tracks shift, `.off` tracks stay. Otherwise only the edited tracks move.
+    /// tracks shift (a music bed spanning `time` stretches across it), `.off`
+    /// tracks stay. Otherwise only the edited tracks move.
     ///
     /// Markers after `time` move with it. One right at `time` moves too,
     /// unless `keepingMarkersAt`: an insert keeps it there, before the new
@@ -715,6 +716,7 @@ public enum Editing {
     ) throws {
         guard duration > .zero else { return }
         let global = edited.contains { p.track($0)?.rippleMode == .cut }
+        let media = Dictionary(p.media.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         for location in p.trackLocations {
             var track = p[location]
             if handled.contains(track.id) { continue }
@@ -737,6 +739,9 @@ public enum Editing {
                 continue
             }
             track.openTime(at: time, duration: duration, split: split, context: &context)
+            if !split {
+                track.stretchBeds(across: time, by: duration, media: media, context: &context)
+            }
             // Time opened right on a cut parts its clips, so a transition
             // there goes, as one does when a ripple delete parts them.
             track.repairTransitions(context: &context)
