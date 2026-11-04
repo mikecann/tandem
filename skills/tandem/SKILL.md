@@ -1175,7 +1175,7 @@ quicker model to copy.
   fundraising banner or warning boxes over the lead.
 - **Graphics never cover Ian drawing or pointing at the board,** and draw
   things the way he drew them (also in `motion-graphics`).
-- **A review copy for the guest,** once Mike has reviewed the round: `tandem export --preset youtube1080`
+- **A review copy for the guest,** once Mike has reviewed every agent edit: `tandem export --preset youtube1080`
   (5.7 GB for 37 minutes, about 10 minutes), put in the Convex Dropbox
   with rclone on Bruce, since the laptop has no Dropbox app. scp it to
   `bruce:/Volumes/CannMedia/ConvexFootage/exports/`, `rclone copyto` it
@@ -1323,7 +1323,7 @@ comments, changed these rules for a conversation like this:
   library is `~/Movies/Tandem Library`.
 - To export, `tandem export` writes the finished video (4K for a 4K frame)
   into `exports/`, once Mike has reviewed every agent edit. While any wait
-  for him (`tandem status` lists them), it refuses and names them: on the
+  for him (`tandem status` lists them), it refuses and names the latest: on the
   Threadbear launch video an agent exported four times while its privacy
   blurs still waited, and Mike said "I didn't actually verify the blur
   looks good. I need to verify all that before you export it." Hand back

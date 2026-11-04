@@ -537,11 +537,13 @@ export` lists the presets).
 
 A final export (every preset but `review`) waits for Mike to review agent
 edits: while `tandem status` lists edits waiting for his review, it
-refuses and names them, so hand back and let him look first. `--preset
+refuses and names the latest five (`tandem status --json` has them all),
+so hand back and let him look first. `--preset
 review` exports anyway with a warning that says what he hasn't seen, and
 `--unreviewed` (MCP and HTTP `unreviewed: true`) makes a check export of
 any preset, with a warning that it isn't one to publish. Mike's own
-exports from the app aren't held.
+exports from the app aren't held, and neither is `tandem clip`, which is
+always a render to look at, whatever its preset.
 
 `clip` defaults to `exports/review <start>-<end>.mp4` in the project folder
 and `export` to `exports/<name> r<revision>.mp4`. In MCP, `frame` returns
