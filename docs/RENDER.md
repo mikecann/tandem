@@ -26,7 +26,7 @@ Project ──RenderPlanner──▶ RenderPlan (pure)
 | `AudioGain.swift` | Each audio track's envelope applied sample by sample by an `MTAudioProcessingTap` |
 | `ViewerAudio.swift` | The viewer's sound: the mix read ahead through the gain taps into an `AVSampleBufferAudioRenderer`, forwards or backwards, on the clock the viewer's players run on |
 | `CompositionAssembler.swift` | Plan to AVFoundation: source loading, speed, freeze, hold, base track, audio mix |
-| `Compositor.swift` | `TandemInstruction`, `TandemCompositor` (4:2:0 video range) and `TandemRGBCompositor` (grabs) |
+| `Compositor.swift` | `TandemInstruction`, `TandemCompositor` (4:2:0 video range), `TandemRGBCompositor` (grabs) and `TandemScanCompositor` (`tandem check`'s scans, at utility priority) |
 | `FrameComposer.swift` | The per-layer pipeline, cutout, repair masks, text layers, still image cache |
 | `Effects.swift` | Colour, colour wheels, HSL, vignette, sharpen, LUT and Core Image bindings; rounded corners, border, drop shadow |
 | `ColourWheelGrade.swift` | The colour wheels as per-channel lift, gain and gamma, and the same maths on the CPU for tests |

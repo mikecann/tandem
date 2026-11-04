@@ -47,7 +47,8 @@ class TandemCompositor: NSObject, AVVideoCompositing {
     /// waiting on an export, but not on a check's scan.
     class var renderQoS: DispatchQoS { .userInitiated }
 
-    private let queue: DispatchQueue
+    /// Built from `renderQoS` in `init`; internal so a test can check it.
+    let queue: DispatchQueue
     private let lock = NSLock()
     private var generation = 0
 
@@ -172,9 +173,10 @@ final class TandemRGBCompositor: TandemCompositor {
 /// runs checks over and over while it edits, and at the viewer's priority
 /// the scans took two or three cores of Mike's Mac for minutes at a time
 /// (4 Nov 2026). At utility they give way to whatever he's doing and run at
-/// full speed when nothing is. Background priority was 2.7x slower even on
-/// an idle Mac (CheckScanTests, 5.8 s against 29 s on tinker-desk), which
-/// agents waiting on a check would feel.
+/// full speed when nothing is. Background priority made the scan tests
+/// (FrameScannerTests and CheckScanTests) about 2.7x slower even on an idle
+/// Mac, 45 s against 16 s on tinker-desk that day, which agents waiting on a
+/// check would feel.
 final class TandemScanCompositor: TandemCompositor {
     override class var renderQoS: DispatchQoS { .utility }
 }
