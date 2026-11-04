@@ -88,12 +88,57 @@ final class RedactTests: XCTestCase {
         assertValid(c.project)
     }
 
-    func testAnEdgeJustInsideAClipGoesOutToItRatherThanLeaveASliver() throws {
+    func testNeverRunsPastTheTimeAskedFor() throws {
+        // The Threadbear launch video: a blur on a thread that ended at
+        // 7:07.467 snapped out to the clip's end at 7:07.817 and blurred
+        // the next window for 0.35 s as it opened. Hiding a frame too long
+        // is fine; a third of a second over the wrong picture isn't.
         let (_, c) = try Fixture.edited()
         try c.run("Hide", .redact(range: TimeRange(start: t(0.2), end: t(59.8)), rect: email, mediaID: "med_screen"))
-        XCTAssertEqual(c.clips("Privacy (Screen)").map(\.range), [TimeRange(start: t(0), end: t(60))])
-        XCTAssertEqual(c.clips("Screen").count, 1, "nothing to cut")
+        XCTAssertEqual(c.clips("Privacy (Screen)").map(\.range), [TimeRange(start: t(0.2), end: t(59.8))])
+        XCTAssertEqual(c.clips("Screen").map(\.range), [
+            TimeRange(start: t(0), end: t(0.2)), TimeRange(start: t(0.2), end: t(59.8)), TimeRange(start: t(59.8), end: t(60))
+        ], "cut where asked, through-edits that play straight on")
         assertCovered(c)
+        assertValid(c.project)
+    }
+
+    func testAnEdgeWithinAFrameOfAClipsEdgeGoesToItRatherThanLeaveASliver() throws {
+        // A take tightened off the frame grid: the screen is cut at 10.01.
+        let (_, c) = try Fixture.edited()
+        try c.run("Cut", .blade(at: t(10.01)))
+        try c.run("Hide", .redact(range: TimeRange(start: t(10), end: t(15)), rect: email, mediaID: "med_screen"))
+        XCTAssertEqual(c.clips("Privacy (Screen)").map(\.range), [TimeRange(start: t(10.01), end: t(15))],
+                       "no 0.01 s copy over the clip before, and no 0.01 s of take cut off it")
+        XCTAssertEqual(c.clips("Screen").map(\.range), [
+            TimeRange(start: t(0), end: t(10.01)), TimeRange(start: t(10.01), end: t(15)), TimeRange(start: t(15), end: t(60))
+        ])
+        XCTAssertTrue(QualityCheck.slivers(in: c.project, ranges: [TimeRange(start: .zero, end: t(60))]).isEmpty)
+        assertCovered(c)
+    }
+
+    func testARedactionsEdgeIsntACutForTheDoubleJumpCheck() throws {
+        // The launch video: a blur starting 5 frames after a B-roll shot
+        // ended, and check asked to run the shot on to it, as if the take
+        // cut there. The take carries straight on; only the patch starts.
+        let (_, c) = try Fixture.edited()
+        // The camera in the corner, so the screen recording is what's seen.
+        let camera = c.clips("Camera")[0]
+        try c.run("PiP", .updateClip(clipID: camera.id, patch: .object(["video": .object(["transform": .object(["scale": .number(0.3)])])])))
+        let everything = [TimeRange(start: .zero, end: t(60))]
+        let before = QualityCheck.doubleJumps(in: c.project, ranges: everything)
+        try c.run("Hide", .redact(range: TimeRange(start: t(25 + 5.0 / 30), end: t(28)), rect: email, mediaID: "med_screen"))
+        try c.run("Hide", .redact(range: TimeRange(start: t(16), end: t(20 - 4.0 / 30)), rect: email, mediaID: "med_screen"))
+        XCTAssertEqual(QualityCheck.doubleJumps(in: c.project, ranges: everything).map(\.message), before.map(\.message))
+
+        // A take clip with a blur of its own is still the take: a cut into
+        // it is a cut, and B-roll a few frames off it is a double jump.
+        try c.run("Cut", .blade(at: t(40)))
+        let after = try XCTUnwrap(c.clips("Screen").first { $0.start == t(40) })
+        try c.run("Blur", .addEffect(clipID: after.id, effect: Effect(type: "blur", params: ["radius": .number(10)])))
+        try c.run("Slip", .slip(clipID: after.id, delta: t(-2)))
+        try c.run("Shot", .placeMedia(mediaIDs: ["med_broll"], at: t(40.1), sourceStart: t(1), duration: t(3)))
+        XCTAssertTrue(QualityCheck.doubleJumps(in: c.project, ranges: everything).contains { $0.start == t(40) }, "the cut at 40 still counts")
     }
 
     func testOverlappingRedactionsStackOnTheirOwnTracks() throws {

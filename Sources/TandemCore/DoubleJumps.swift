@@ -290,7 +290,7 @@ private struct TakePicture {
             }
         }
         covers.sort { $0.clip.start < $1.clip.start }
-        take = Self.joined(project.videoTracks.filter { !$0.hidden && $0.rippleMode == .cut }.flatMap { $0.clips.filter(\.enabled).map(\.range) })
+        take = Self.joined(project.videoTracks.filter(Self.isTakeTrack).flatMap { $0.clips.filter(\.enabled).map(\.range) })
         cuts = findCuts()
         longestCut = cuts.map(\.span.duration).max() ?? .zero
     }
@@ -357,7 +357,7 @@ private struct TakePicture {
         let tiny = QualityCheck.snapSlack
         let fades = QualityCheck.fadeWindows(in: project)
         var found: [Cut] = []
-        for (index, track) in project.videoTracks.enumerated() where !track.hidden && track.rippleMode == .cut {
+        for (index, track) in project.videoTracks.enumerated() where Self.isTakeTrack(track) {
             let clips = track.clips.filter(\.enabled)
             // A fade to or from black is the fade windows'; every other
             // transition carries the picture from one shot to the next.
@@ -458,6 +458,16 @@ private struct TakePicture {
         return (to, stretch(to: to), together.allSatisfy(\.screen), cut.transition)
     }
 
+    /// Whether a shown cut track is the take, rather than the privacy track
+    /// `redact` puts its patches on: that's a cut track so ripple cuts keep
+    /// each patch on its picture, but a patch's edges aren't cuts. In the
+    /// Threadbear launch video a blur starting 5 frames after a B-roll shot
+    /// ended was called a double jump, and the fix ran the shot on to it.
+    /// A take clip with a blur of its own is still the take.
+    static func isTakeTrack(_ track: Track) -> Bool {
+        !track.hidden && track.rippleMode == .cut && !Editing.isPrivacyTrack(track)
+    }
+
     /// Whether a cut track above `track` shows one unbroken full-frame shot
     /// across `time`: the camera full frame hides a cut in the screen
     /// recording under it.
@@ -477,7 +487,7 @@ private struct TakePicture {
     /// the take plays there.
     func takeClip(in range: TimeRange) -> Clip? {
         let middle = range.start + Time(flicks: range.duration.flicks / 2)
-        for track in project.videoTracks.reversed() where !track.hidden && track.rippleMode == .cut {
+        for track in project.videoTracks.reversed() where Self.isTakeTrack(track) {
             if let clip = track.clip(at: middle), clip.enabled { return clip }
         }
         return nil
