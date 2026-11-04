@@ -825,6 +825,15 @@ The spike's plain composite managed about 3.5x; the encoder is the limit.
   released, crashes. Export cancel is a flag: the encoder feed and muxers
   stop at the next sample, the feed thread (which holds the reader) is
   joined, and only then is the reader cancelled.
+- Behind an `AVAssetReaderAudioMixOutput` is an offline mixer with an
+  audio queue for each track, all served by one audio-queue server in
+  the process. The viewer opens a reader on every prime and used to
+  close the last one at the same moment on another queue (up to five
+  opening or closing at once in a stress test); the app crashed once
+  inside that server (TANDEM-2, a jump through a freed pointer on its
+  `AQServer` queue). Viewer readers now open and close one at a time
+  through `ViewerMix.readers`, and are read on each feed's own queue as
+  before.
 
 ## Tests
 
