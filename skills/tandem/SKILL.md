@@ -729,6 +729,17 @@ scripts and the speaker tracker are in
   `who` left/right picks the talker in a two-shot, `x`/`z` pin a crop,
   `window` keeps a shot whole (an on-screen graphic, a wide from the back
   where he's tiny). Its `edit-plan.md` has the rest.
+- **Open a Q&A Short on the question.** Every Fireside Short first went out
+  starting on the answer ("The biggest one that I think is unsolved..."), and
+  Mike: "We don't know what the question is when it starts. So can you
+  interweave the question in there at the start?" (4 Nov 2026). Put the
+  host's question first, even from a minute earlier or after the answer (Luke's
+  "do we buy Salesforce or HubSpot, or build our own CRM?" opened its Short),
+  start on the question itself rather than its lead-in ("Shifting gears...",
+  "last ninety seconds"), and give a talk's running gag or number its setup
+  (Seth's camp story before "the spreadsheet that became...", a hook saying the
+  audience made the number). `build.py opening <project>` prints each
+  Short's first 12 s and flags no question or a back-reference.
 - **The filmmaker's own insets are crops too.** Seth's master cut to a tall
   "audience cam" phone inset on the left while people typed on calculators:
   it's nearly 9:16 already, so crop straight onto it, and back to the speaker
