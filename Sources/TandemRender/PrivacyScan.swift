@@ -500,8 +500,9 @@ public enum PrivacyCheck {
                 continue
             case .media(let mediaID):
                 // Read through a blur, it isn't readable; and the copy under
-                // it is the same file anyway.
-                guard !clip.isObscured, let item = project.media(mediaID), item.hasVideo,
+                // it is the same file anyway. A privacy copy with its blur
+                // off isn't drawn.
+                guard !clip.isObscured, !track.isPrivacy, let item = project.media(mediaID), item.hasVideo,
                       let width = item.width, let height = item.height, width > 0, height > 0 else { continue }
                 let video = clip.resolvedVideo(at: time - clip.start)
                 let display = CGSize(width: width, height: height)

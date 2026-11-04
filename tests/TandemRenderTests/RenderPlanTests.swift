@@ -67,6 +67,28 @@ final class RenderPlanTests: XCTestCase {
         XCTAssertEqual(plan.videoTrackCount, 2)
     }
 
+    func testAPrivacyCopyWithItsBlurOffIsntDrawn() {
+        // The Threadbear launch video: with "Turn off blur" on a privacy
+        // copy, the copy still drew the same footage over itself, and its
+        // crop edges left a faint seam (up to 30 levels off along a row).
+        var video = VideoProperties()
+        video.crop = Crop(left: 0.2, top: 0.2, right: 0.2, bottom: 0.2)
+        video.effects = [Effect(type: "blur", enabled: false, params: ["radius": .number(24)])]
+        let off = Clip(id: "clip_off", content: .media(mediaID: "med_scr"), start: t(0), duration: t(4), sourceStart: t(10), video: video)
+        var on = off
+        on.id = "clip_on"
+        on.start = t(5)
+        on.video?.effects[0].enabled = true
+        var removed = off
+        removed.id = "clip_removed"
+        removed.start = t(10)
+        removed.video?.effects = []
+        let screen = Track(kind: .video, name: "Screen", clips: [mediaClip("clip_s", "med_scr", start: 0, duration: 15)])
+        let privacy = Track(kind: .video, name: "Privacy (Screen)", clips: [off, on, removed], rippleMode: .cut)
+        let plan = RenderPlanner.plan(project(video: [screen, privacy]), format: nil, assets: nil)
+        XCTAssertEqual(plan.videoSegments.map(\.clipID).sorted(), ["clip_on", "clip_s"], "a copy hides nothing without its blur, so it isn't drawn")
+    }
+
     func testInstructionsCoverTheWholeTimelineIncludingGaps() {
         let v1 = Track(kind: .video, name: "V1", clips: [mediaClip("clip_a", "med_scr", start: 1, duration: 2)])
         let a1 = Track(kind: .audio, name: "Music", clips: [mediaClip("clip_m", "med_music", start: 0, duration: 5, source: 0)])

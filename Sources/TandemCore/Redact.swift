@@ -26,6 +26,12 @@ extension Clip {
     }
 }
 
+extension Track {
+    /// Whether this is a track `redact` puts its copies on, "Privacy
+    /// (Screen)" (`Editing.isPrivacyTrack`).
+    public var isPrivacy: Bool { Editing.isPrivacyTrack(self) }
+}
+
 extension Editing {
     /// The tracks `redact` puts its copies on are named "Privacy (Screen)"
     /// after the track they hide part of; this is how they're recognised,

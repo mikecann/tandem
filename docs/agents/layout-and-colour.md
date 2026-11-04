@@ -83,6 +83,12 @@ part of whatever's on a track. Two regions at once stack on "Privacy
 linked to the take, so the default takes the screen, camera and voice
 with them.
 
+Turning a copy's blur off (Mike's "Turn off blur" in the inspector), or
+removing it, leaves the copy hiding nothing, so it isn't drawn: drawn,
+it's the same footage over itself with a faint seam along its crop. Turn
+it back on and it hides the region again. `check` never counts a privacy
+copy as the same shot twice, blur on or off.
+
 The edges are where you ask, to the frame: `redact` never runs a copy
 past them to a clip's edge (once it ran on by up to half a second, and
 blurred the next window as it opened). An edge less than a frame from a

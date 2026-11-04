@@ -53,6 +53,20 @@ final class RedactTests: XCTestCase {
         assertValid(c.project)
     }
 
+    func testACopyWithItsBlurOffOrRemovedIsntTheSameShotTwice() throws {
+        // 189 "Same shot twice" notes on the launch video, one for each
+        // copy whose blur Mike had switched off while he reviewed them.
+        let (_, c) = try Fixture.edited()
+        try c.run("Hide", .redact(range: TimeRange(start: t(10), end: t(15)), rect: email, mediaID: "med_screen", style: .blur))
+        try c.run("Hide", .redact(range: TimeRange(start: t(30), end: t(35)), rect: email, mediaID: "med_screen", style: .blur))
+        let copies = c.clips("Privacy (Screen)")
+        let first = try XCTUnwrap(copies.first), second = try XCTUnwrap(copies.last)
+        let blur = try XCTUnwrap(first.video?.effects.last)
+        try c.run("Turn off blur", .updateEffect(clipID: first.id, effectID: blur.id, patch: .object(["enabled": .bool(false)])))
+        try c.run("Remove blur", .removeEffect(clipID: second.id, effectID: try XCTUnwrap(second.video?.effects.last?.id)))
+        XCTAssertEqual(QualityCheck.sameShotTwice(in: c.project, ranges: [TimeRange(start: .zero, end: t(60))]), [])
+    }
+
     func testFollowsTheClipsPlacementSoAPiPIsHiddenWhereItsShown() throws {
         let (_, c) = try Fixture.edited()
         let screen = c.clips("Screen")[0]
