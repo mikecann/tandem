@@ -9,7 +9,9 @@ import TandemCore
 ///
 /// It reads the composition the way an export does (sequentially, through
 /// AVFoundation's reader), at a few hundred pixels wide and from proxies
-/// where they're ready, so a minute of 4K timeline scans in seconds.
+/// where they're ready, so a minute of 4K timeline scans in seconds. Its
+/// reader threads and compositor run at utility priority, so the reading
+/// gives way to Mike's own work.
 public enum FrameScanner {
     /// Tiles across the frame; rows keep them about square (18 for 16:9).
     static let columns = 32
@@ -71,12 +73,24 @@ public enum FrameScanner {
         }
     }
 
+    /// Readers run at utility priority, like the compositor they read
+    /// through (`TandemScanCompositor`).
+    static let readerQoS: DispatchQoS.QoSClass = .utility
+
+    /// The composition a scan reads: the built one through the scan's own
+    /// compositor.
+    static func scanComposition(_ built: BuiltComposition) -> AVVideoComposition {
+        let composition = built.videoComposition.mutableCopy() as! AVMutableVideoComposition
+        composition.customVideoCompositorClass = TandemScanCompositor.self
+        return composition
+    }
+
     /// Reads one stretch on a thread of its own: the reader blocks. `from`
     /// overrides where reading starts, for a test to make a reader stall.
     static func read(_ built: BuiltComposition, tracks: [AVAssetTrack], range: TimeRange, scanlines: Bool, stallLimit: TimeInterval = FrameScanner.stallLimit, from: Time? = nil) async throws -> [FrameStats] {
         let source = Unchecked((built: built, tracks: tracks))
         return try await withCheckedThrowingContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async {
+            DispatchQueue.global(qos: readerQoS).async {
                 do {
                     continuation.resume(returning: try readNow(source.value.built, tracks: source.value.tracks, range: range, scanlines: scanlines, stallLimit: stallLimit, from: from))
                 } catch {
@@ -95,7 +109,7 @@ public enum FrameScanner {
         let output = AVAssetReaderVideoCompositionOutput(videoTracks: tracks, videoSettings: [
             kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA
         ])
-        output.videoComposition = built.videoComposition
+        output.videoComposition = scanComposition(built)
         output.alwaysCopiesSampleData = false
         reader.add(output)
         guard reader.startReading() else { throw reader.error ?? RenderError.export("couldn't start reading the timeline") }

@@ -43,10 +43,19 @@ class TandemCompositor: NSObject, AVVideoCompositing {
     class var outputPixelFormat: OSType { kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange }
     /// True for frame grabs, where every frame is a seek.
     class var rendersStills: Bool { false }
+    /// How urgently frames are rendered: someone's watching the viewer or
+    /// waiting on an export, but not on a check's scan.
+    class var renderQoS: DispatchQoS { .userInitiated }
 
-    private let queue = DispatchQueue(label: "com.mikerosoft.tandem.compositor", qos: .userInitiated, attributes: .concurrent)
+    /// Built from `renderQoS` in `init`; internal so a test can check it.
+    let queue: DispatchQueue
     private let lock = NSLock()
     private var generation = 0
+
+    override init() {
+        queue = DispatchQueue(label: "com.mikerosoft.tandem.compositor", qos: Self.renderQoS, attributes: .concurrent)
+        super.init()
+    }
 
     var sourcePixelBufferAttributes: [String: any Sendable]? {
         [
@@ -158,6 +167,18 @@ class TandemCompositor: NSObject, AVVideoCompositing {
 final class TandemRGBCompositor: TandemCompositor {
     override class var outputPixelFormat: OSType { kCVPixelFormatType_32BGRA }
     override class var rendersStills: Bool { true }
+}
+
+/// The compositor for `tandem check`'s scans, at utility priority. An agent
+/// runs checks over and over while it edits, and at the viewer's priority
+/// the scans took two or three cores of Mike's Mac for minutes at a time
+/// (4 Nov 2026). At utility they give way to whatever he's doing and run at
+/// full speed when nothing is. Background priority made the scan tests
+/// (FrameScannerTests and CheckScanTests) about 2.7x slower even on an idle
+/// Mac, 45 s against 16 s on tinker-desk that day, which agents waiting on a
+/// check would feel.
+final class TandemScanCompositor: TandemCompositor {
+    override class var renderQoS: DispatchQoS { .utility }
 }
 
 /// Source frames from an AVFoundation request.

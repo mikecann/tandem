@@ -189,3 +189,25 @@ private final class LockedCount: @unchecked Sendable {
     var count: Int { lock.withLock { value } }
     @discardableResult func add() -> Int { lock.withLock { value += 1; return value } }
 }
+
+/// Checks scan at utility priority so they give way to Mike's own work;
+/// the viewer and exports keep theirs.
+final class ScanPriorityTests: XCTestCase {
+    func testScansGiveWayToOtherWork() {
+        XCTAssertEqual(TandemScanCompositor().queue.qos, .utility)
+        XCTAssertEqual(TandemCompositor().queue.qos, .userInitiated)
+        XCTAssertEqual(TandemRGBCompositor().queue.qos, .userInitiated)
+        XCTAssertEqual(FrameScanner.readerQoS, .utility)
+    }
+
+    /// The scan reads through its own compositor, not the viewer's.
+    func testTheScanReadsThroughTheScanCompositor() async throws {
+        let media = try TestMedia()
+        try await media.movie("a.mov", seconds: 1, draw: { _, context in TestMedia.fill(context, 1, 0, 0) })
+        let clip = Clip(id: "clip_a", content: .media(mediaID: "med_a"), start: .zero, duration: t(1))
+        let project = Project(name: "Scan", settings: ProjectSettings(width: 320, height: 180, frameRate: .fps30),
+                              media: [media.item("med_a", "a.mov", seconds: 1)], videoTracks: [Track(kind: .video, name: "V1", clips: [clip])], audioTracks: [])
+        let built = try await CompositionAssembler.build(RenderContext(project: project, folder: media.projectFolder))
+        XCTAssertTrue(FrameScanner.scanComposition(built).customVideoCompositorClass == TandemScanCompositor.self)
+    }
+}
