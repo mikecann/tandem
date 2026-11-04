@@ -211,7 +211,8 @@ Each track has a `rippleMode`:
   time keeps playing from its head and loses that much from its tail. A clip
   entirely inside deleted time is removed (with a warning). Their sound
   keyframes move with the timeline, picture ones with the content. Time
-  opened inside a music bed stretches it across the new time.
+  opened inside a music bed stretches it across the new time, as far as its
+  file runs (with a warning when it can't stretch the whole way).
 - `off`: ripple edits elsewhere leave the track alone.
 
 A ripple edit made on a `follow` or `off` track only ripples that track, so

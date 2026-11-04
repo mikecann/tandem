@@ -173,16 +173,18 @@ enum KeyframeEditing {
     /// Re-times a clip's timeline keyframes for `duration` of time opened
     /// `offset` into the clip, which stretches across it
     /// (`Track.stretchBeds`). Keyframes after `offset` move on by
-    /// `duration`. Where `offset` falls inside the keyed curve, the value
-    /// playing there holds through the new time, and the curve before and
-    /// after it is as it was.
+    /// `duration`. Where `offset` falls inside the keyed curve (or on its
+    /// first keyframe), the value playing there holds through the new time,
+    /// and the curve before and after it is as it was (exactly for linear
+    /// and hold segments; an eased one split here keeps its values and
+    /// easing but not quite its shape).
     static func followingInsertion(_ keyframes: [String: [Keyframe]], at offset: Time, duration: Time) -> [String: [Keyframe]] {
         var result = keyframes
         for (path, list) in keyframes where followsTimeline(path) && !list.isEmpty {
             let sorted = list.sorted { $0.time < $1.time }
             var before = sorted.filter { $0.time <= offset }.map { ($0, false) }
             var after = sorted.filter { $0.time > offset }.map { ($0, false) }
-            if let first = sorted.first, let last = sorted.last, first.time < offset, offset < last.time, let value = sorted.value(at: offset) {
+            if let first = sorted.first, let last = sorted.last, first.time <= offset, offset < last.time, let value = sorted.value(at: offset) {
                 if before.last?.0.time != offset {
                     before.append((Keyframe(time: offset, value: value, interpolation: .hold), true))
                 }

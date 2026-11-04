@@ -298,7 +298,7 @@ extension Track {
             let stretch = min(duration, left)
             if stretch < duration {
                 let name = URL(fileURLWithPath: item.path).lastPathComponent
-                context.warn("The music bed \(name) on \"\(self.name)\" only had \(Editing.jsonSeconds(left)) s left in its file, so it plays \(Editing.jsonSeconds(stretch)) s of the \(Editing.jsonSeconds(duration)) s opened at \(time) and ends that much before it did.")
+                context.warn("The music bed \(name) on \"\(self.name)\" only had \(Editing.jsonSeconds(left)) s more of its file to play, so it plays \(Editing.jsonSeconds(stretch)) s of the \(Editing.jsonSeconds(duration)) s opened at \(time) and ends that much before it did.")
             }
             guard stretch > .zero else { continue }
             clips[index].duration += stretch

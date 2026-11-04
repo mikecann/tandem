@@ -189,6 +189,20 @@ final class EditorBehaviourTests: XCTestCase {
 
     // MARK: - Freeze frames
 
+    func testAFreezeFrameStretchesTheMusicBedAndMovesItsSwell() {
+        // Option-F opens five seconds in the take: the bed plays on across
+        // them, so it still ends with the take and its swell keeps its place.
+        let music = editor.clip("Music").id
+        let swell = [(0.0, -30.0), (50, -30), (52, -18), (55, -30)].map { Keyframe(time: t($0.0), value: .number($0.1), interpolation: .linear) }
+        editor.model.apply(EditBatch(label: "Swell", commands: [.setKeyframes(clipID: music, parameter: "audio.gainDB", keyframes: swell)]))
+        editor.settle()
+        editor.model.playback.seek(to: t(10))
+        editor.press("option+f")
+        let bed = editor.clip("Music")
+        XCTAssertEqual(bed.end.seconds, 65, accuracy: 1e-6)
+        XCTAssertEqual(bed.keyframes["audio.gainDB"]?.map(\.time.seconds), [0, 55, 57, 60])
+    }
+
     func testOptionFFreezesThePictureAtThePlayheadAndPicksItOutToTrim() {
         editor.model.playback.seek(to: t(10))
         editor.press("option+f")

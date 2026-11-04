@@ -210,8 +210,8 @@ so use one of those.
   its values and easing but not quite its shape). A swell that sat inside the removed time goes with it. Its
   picture keyframes (a push across a still) stay with its content. A clip that sat entirely inside the removed time is
   removed, with a warning. When time is opened up instead (`insertTime`, an
-  insert, a ripple trim that lengthens the take), a music bed spanning that
-  point stretches across it, playing on from its file, and its sound
+  insert, a ripple trim that lengthens the take), a music bed on a follow
+  track the edit doesn't name, spanning that point, stretches across it, playing on from its file, and its sound
   keyframes after the point move on with the timeline, so it still ends with
   its section card. If the file runs out first it stretches as far as it
   can, with a warning. Any other follow clip spanning the point (a B-roll

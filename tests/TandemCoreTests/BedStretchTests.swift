@@ -35,6 +35,16 @@ final class BedStretchTests: XCTestCase {
         XCTAssertEqual(curve.last?.time, t(22))
     }
 
+    func testInsertingOnTheFirstKeyframeHoldsItsLevel() throws {
+        let (f, c) = try Fixture.edited()
+        let music = f.clips("Music")[0].id
+        try c.run("Ramp", .setKeyframes(clipID: music, parameter: "audio.gainDB", keyframes: gain([(10, -30), (20, -10)])))
+        try c.run("Room", .insertTime(at: t(10), duration: t(2)))
+        let curve = try XCTUnwrap(c.clips("Music")[0].keyframes["audio.gainDB"])
+        XCTAssertEqual(curve.value(at: t(11))?.number ?? 0, -30, accuracy: 1e-9, "held through the new time")
+        XCTAssertEqual(curve.value(at: t(17))?.number ?? 0, -20, accuracy: 1e-9, "what played at 15 s")
+    }
+
     func testABedAtTheEndOfItsFileStretchesAsFarAsItCanAndSays() throws {
         let (f, c) = try Fixture.edited()
         // 179 s into a 180 s file: one second left.

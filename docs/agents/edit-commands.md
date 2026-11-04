@@ -216,7 +216,10 @@ Cut tracks are split at `at` and everything from there moves later. On
 follow tracks only clips starting at or after `at` move. A music bed spanning
 it isn't cut: it stretches across the new time, playing on from its file, so
 it still ends with what it ended with, and its gain keyframes after `at` move
-on (the level at `at` holds through the new time). Any other clip spanning it
+on (the level at `at` holds through the new time). If its file runs out
+first it stretches as far as the file goes and the edit warns, so it ends
+that much earlier. This is for beds on tracks the edit follows: a Music track
+named in `trackIDs` is split and opened like the take. Any other clip spanning it
 (a B-roll shot) stays where it is, isn't cut, and keeps playing across the
 new time, ending where it did. Off tracks and locked tracks
 don't move (a locked one warns). Time opened right on a cut parts its two
