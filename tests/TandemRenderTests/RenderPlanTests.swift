@@ -208,6 +208,55 @@ final class RenderPlanTests: XCTestCase {
         XCTAssertEqual(segB.timeline.start, t(4.5), "the whole of the transition")
     }
 
+    /// At 29.97 fps a frame time falls between 48 kHz samples, and a clip's
+    /// start and duration each snap to a sample when a project loads. A cut
+    /// on frame 1173 came back with the clip before it ending one sample
+    /// before the frame and the clip after starting one sample after, so
+    /// nothing covered frame 1173 and it rendered black (Fireside 3 at
+    /// 0:39.139, 4 Nov 2026). Edges that close to a frame are on it.
+    func testACutOneSampleEitherSideOfAnNTSCFrameStillCoversTheFrame() throws {
+        let rate = FrameRate(30000, 1001)
+        let frame = Time.frames(1173, at: rate)
+        // As they were on disk.
+        let a = mediaClip("clip_a", "med_cam", start: 38.873, duration: 0.266083, source: 20)
+        let b = mediaClip("clip_b", "med_cam", start: 39.139104, duration: 1.868896, source: 30)
+        XCTAssertLessThan(a.end, frame)
+        XCTAssertGreaterThan(b.start, frame)
+
+        // On one track, and with the next shot on a track of its own.
+        let tracks = [
+            [Track(kind: .video, name: "Camera", clips: [a, b])],
+            [Track(kind: .video, name: "V1", clips: [a]), Track(kind: .video, name: "V2", clips: [b])]
+        ]
+        for video in tracks {
+            var p = project(video: video)
+            p.settings.frameRate = rate
+            let plan = RenderPlanner.plan(p, format: nil, assets: nil)
+            let shown = try XCTUnwrap(plan.instructions.first { $0.range.contains(frame) })
+            XCTAssertEqual(shown.stack.flatMap(\.clipIDs), ["clip_b"], "frame 1173 is the next shot's first")
+            let before = try XCTUnwrap(plan.instructions.first { $0.range.contains(frame - Time(flicks: 1)) })
+            XCTAssertEqual(before.stack.flatMap(\.clipIDs), ["clip_a"])
+            let segment = try XCTUnwrap(plan.videoSegments.first { $0.clipID == "clip_b" })
+            XCTAssertEqual(segment.timeline.start, frame)
+            // Started that hair earlier, it's that much earlier in the file.
+            XCTAssertEqual(segment.sourceStart, t(30) - (b.start - frame))
+            XCTAssertEqual(plan.videoSegments.first { $0.clipID == "clip_a" }?.timeline.end, frame)
+        }
+    }
+
+    /// Only edges within a millisecond of a frame move: one 0.4 of a frame
+    /// in starts where it says.
+    func testEdgesWellOffAFrameStayPut() {
+        let rate = FrameRate(30000, 1001)
+        let start = Time.frames(100, at: rate) + Time(seconds: 0.4 / 29.97)
+        let clip = Clip(id: "clip_a", content: .media(mediaID: "med_cam"), start: start, duration: t(2), sourceStart: t(10))
+        var p = project(video: [Track(kind: .video, name: "Camera", clips: [clip])])
+        p.settings.frameRate = rate
+        let plan = RenderPlanner.plan(p, format: nil, assets: nil)
+        XCTAssertEqual(plan.videoSegments.first?.timeline, TimeRange(start: start, duration: t(2)))
+        XCTAssertEqual(plan.videoSegments.first?.sourceStart, t(10))
+    }
+
     func testMatteSegmentsMirrorTheirClip() {
         var pip = mediaClip("clip_c", "med_cam", start: 1, duration: 3, source: 12, speed: 2)
         pip.video = VideoProperties(transform: Transform(position: Point(x: 0.87, y: 0.77), scale: 0.5), cutout: Cutout())
