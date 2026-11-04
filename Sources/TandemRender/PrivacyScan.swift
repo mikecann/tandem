@@ -270,7 +270,7 @@ public enum PrivacyCheck {
 
     /// `folder` lets a still with alpha be looked at where text was read
     /// over it (`AlphaProbe`); without it, alpha is taken as see-through.
-    public static func run(project: Project, ranges: [TimeRange], folder: ProjectFolder? = nil, read: Reader) async throws -> (problems: [CheckProblem], notes: [CheckProblem]) {
+    public static func run(project: Project, ranges: [TimeRange], folder: ProjectFolder?, read: Reader) async throws -> (problems: [CheckProblem], notes: [CheckProblem]) {
         let probe = folder.map(AlphaProbe.init)
         let rate = project.settings.frameRate
         var times: [Time] = []
@@ -416,9 +416,12 @@ public enum PrivacyCheck {
             // A line and the one under it, read as one: a narrow card wraps
             // "Collect the keys at 12" above "Harbour Rise", and neither
             // line alone is an address. Only what the pair adds counts.
-            for (upper, lower) in wrapped(lines.map(\.line)) {
-                let alone = Set((PrivateText.hits(in: upper.text) + PrivateText.hits(in: lower.text)).map(\.text))
-                for hit in PrivateText.hits(in: upper.text + " " + lower.text) where !alone.contains(hit.text) && !alone.contains(where: hit.text.contains) {
+            let aspect = Double(project.settings.width) / Double(max(project.settings.height, 1))
+            for (upper, lower) in wrapped(lines.map(\.line), aspect: aspect) {
+                // Only what neither line has alone: "12 Bank" over "Road" is
+                // a new address even though "Bank" alone was money.
+                let alone = PrivateText.hits(in: upper.text) + PrivateText.hits(in: lower.text)
+                for hit in PrivateText.hits(in: upper.text + " " + lower.text) where !alone.contains(hit) {
                     let rects = lines.filter { $0.line == upper || $0.line == lower }.map(\.rect)
                     seen.spots.append(Spot(category: hit.category, text: hit.text, mediaID: mediaID, rect: rects.dropFirst().reduce(rects[0]) { $0.union($1) }))
                 }
@@ -436,14 +439,16 @@ public enum PrivacyCheck {
     }
 
     /// Pairs of lines where the second sits right under the first, starting
-    /// about where it starts: one paragraph wrapped.
-    static func wrapped(_ lines: [ReadLine]) -> [(ReadLine, ReadLine)] {
+    /// about where it starts: one paragraph wrapped. `aspect` is the frame's
+    /// width over its height, so the starts are compared in line heights
+    /// whatever the frame's shape.
+    static func wrapped(_ lines: [ReadLine], aspect: Double = 16.0 / 9) -> [(ReadLine, ReadLine)] {
         var pairs: [(ReadLine, ReadLine)] = []
         for upper in lines {
             let below = lines.filter { lower in
                 let gap = lower.box.minY - upper.box.maxY
                 return lower != upper && gap > -upper.box.height * 0.3 && gap < upper.box.height * 1.2
-                    && abs(lower.box.minX - upper.box.minX) < max(upper.box.height, 0.01) * 2
+                    && abs(lower.box.minX - upper.box.minX) * aspect < max(upper.box.height, 0.01) * 2
             }
             if let lower = below.min(by: { $0.box.minY < $1.box.minY }) { pairs.append((upper, lower)) }
         }
@@ -551,7 +556,13 @@ final class AlphaProbe: @unchecked Sendable {
         let image: CGImage? = lock.withLock {
             if let cached = images[item.id] { return cached }
             let url = folder.url(for: item)
-            let loaded = CGImageSourceCreateWithURL(url as CFURL, nil).flatMap { CGImageSourceCreateImageAtIndex($0, 0, nil) }
+            // Turned the way it's shown (EXIF orientation), as the render
+            // draws it: a phone photo is stored on its side.
+            let options: [CFString: Any] = [
+                kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceCreateThumbnailWithTransform: true,
+                kCGImageSourceThumbnailMaxPixelSize: 4096
+            ]
+            let loaded = CGImageSourceCreateWithURL(url as CFURL, nil).flatMap { CGImageSourceCreateThumbnailAtIndex($0, 0, options as CFDictionary) }
             images[item.id] = loaded
             return loaded
         }

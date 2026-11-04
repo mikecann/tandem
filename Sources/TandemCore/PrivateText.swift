@@ -93,7 +93,7 @@ public enum PrivateText {
             "street", "st", "road", "rd", "avenue", "ave", "lane", "ln", "drive", "dr", "court", "ct", "place", "pl", "crescent", "cres",
             "way", "parade", "pde", "terrace", "tce", "close", "boulevard", "blvd", "highway", "hwy", "square", "sq", "grove", "gardens",
             "mews", "circuit", "cct", "esplanade", "esp", "retreat", "rise", "ridge", "heights", "chase", "glade", "quay",
-            "wharf", "loop", "link", "track", "mall", "alley", "row", "walk", "view", "vista", "bend", "nook", "outlook", "promenade"
+            "wharf", "alley", "promenade"
         ].joined(separator: "|")
         return [
             rule(.email, "[A-Z0-9._%+-]+@[A-Z0-9-]+(?:\\.[A-Z0-9-]+)*\\.[A-Z]{2,}"),

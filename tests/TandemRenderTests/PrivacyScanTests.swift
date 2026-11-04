@@ -54,7 +54,7 @@ final class PrivacyScanTests: XCTestCase {
     }
 
     func run(_ project: Project, _ reader: FakeReader, from: Double = 0, to: Double = 60) async throws -> (problems: [CheckProblem], notes: [CheckProblem]) {
-        try await PrivacyCheck.run(project: project, ranges: [TimeRange(start: t(from), end: t(to))]) { times, _ in reader.read(times) }
+        try await PrivacyCheck.run(project: project, ranges: [TimeRange(start: t(from), end: t(to))], folder: nil) { times, _ in reader.read(times) }
     }
 
     func frame(_ n: Int) -> Time { Time(seconds: Double(n) / 30) }
@@ -194,6 +194,15 @@ final class PrivacyScanTests: XCTestCase {
         let found = try await run(project(), reader)
         XCTAssertEqual(found.problems.count, 1)
         XCTAssertTrue(found.problems.first?.message.contains("12 Harbour Rise") == true, "\(found.problems.map(\.message))")
+
+        // A word one line has alone ("Bank", money) doesn't hide the address.
+        let bank = FakeReader()
+        bank.shows = [
+            (t(5), t(6), ReadLine(text: "Drop it at 12 Bank", box: CGRect(x: 0.7, y: 0.30, width: 0.15, height: 0.02))),
+            (t(5), t(6), ReadLine(text: "Road", box: CGRect(x: 0.7, y: 0.325, width: 0.05, height: 0.02)))
+        ]
+        let banked = try await run(project(), bank)
+        XCTAssertTrue(banked.problems.first?.message.contains("12 Bank Road") == true, "\(banked.problems.map(\.message))")
     }
 
     func testTitlesAndCaptionsAreMikesOwnWords() async throws {

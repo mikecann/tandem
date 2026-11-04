@@ -74,7 +74,7 @@ final class PrivateTextTests: XCTestCase {
             "Run 12 of 340 passed in 1.2 s",
             // What each thread cost, a path that looks like a token, a PR.
             "Opus 5.5 • $5.51", "$0.37 today", "/var/folders/rh/6mwtgc150llc9g21bybfslpm0000gn/T/coldopen-music",
-            "Smaller cloud images (PR #60606) were merged", "bun add convex@latest", "@MainActor final class Viewer"
+            "Smaller cloud images (PR #60606) were merged", "Step 2 Open Tab View", "Section 3 Data Row", "bun add convex@latest", "@MainActor final class Viewer"
         ] {
             assertClean(line)
         }
