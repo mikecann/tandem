@@ -451,6 +451,7 @@ final class CompositorTests: XCTestCase {
             .composited(over: CIImage(color: .black).cropped(to: CGRect(x: 0, y: 0, width: 160, height: 90)))
         let outer = h.render(at: t(1))[94, 90]
         XCTAssertLessThan(outer[1], 40, "the outer grown band shows the wall: \(outer)")
+        XCTAssertGreaterThan(outer[2], 150, "the outer grown band should be the person's colour: \(outer)")
     }
 
     /// A negative choke grows a diagonal edge further than a straight one
@@ -471,6 +472,7 @@ final class CompositorTests: XCTestCase {
         // steps: canvas (112, 112), row 68 of the top-down bitmap.
         let grown = h.render(at: t(1))[112, 68]
         XCTAssertLessThan(grown[1], 40, "the grown diagonal shows the wall: \(grown)")
+        XCTAssertGreaterThan(grown[2], 150, "the grown diagonal should be the person's colour: \(grown)")
     }
 
     /// A negative edge setting doesn't eat into a negative choke's reach.
@@ -482,6 +484,7 @@ final class CompositorTests: XCTestCase {
             .composited(over: CIImage(color: .black).cropped(to: CGRect(x: 0, y: 0, width: 160, height: 90)))
         let outer = h.render(at: t(1))[94, 90]
         XCTAssertLessThan(outer[1], 40, "the outer grown band shows the wall: \(outer)")
+        XCTAssertGreaterThan(outer[2], 150, "the outer grown band should be the person's colour: \(outer)")
     }
 
     /// A negative edge setting (the API takes any number) mustn't crash.
