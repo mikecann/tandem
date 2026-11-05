@@ -20,8 +20,9 @@ public struct CheckRequest: ServiceCall {
     /// With `cuts`: also render the voice across each join, transcribe it
     /// and compare what's heard with the take's words (`CutListen`).
     public var listen: Bool?
-    /// How wide frames are rendered for the scan. Default 384, or 1920
-    /// for `privacy`.
+    /// How wide frames are rendered for the scan. Default 384; for
+    /// `privacy` 1920, or a `format`'s own width (1080 for a Short), never
+    /// under 640.
     public var width: Int?
     /// Only private text a viewer could read (`PrivacyCheck`): reads a frame
     /// every half second, as export renders it, with Vision on this Mac.
@@ -426,7 +427,7 @@ extension TandemService {
             layout = found
         }
         // A Short's own width (1080) by default, the main layout's 1920.
-        let width = requested ?? min(1920, layout?.width ?? 1920)
+        let width = requested ?? max(640, min(1920, layout?.width ?? 1920))
         guard (640...3840).contains(width) else { throw ServiceError(.badRequest, "width is 640 to 3840 pixels for a privacy check.") }
         // Wider than the proxies, the files themselves: a 4K read of 1080p
         // proxies would only upscale away the small text it's for.
@@ -444,7 +445,7 @@ extension TandemService {
         return {
             let started = Date()
             guard !ranges.isEmpty else {
-                return CheckResult(ranges: [], frames: 0, seconds: 0, problems: [], clipNames: [:], note: note, privacy: true)
+                return CheckResult(ranges: [], frames: 0, seconds: 0, problems: [], clipNames: [:], note: note, warnings: notices, privacy: true)
             }
             let reader = FrameTextReader(context: renderContext, width: width)
             let found = try await PrivacyCheck.run(project: project, ranges: ranges, folder: projectFolder, format: format) { times, sequential in

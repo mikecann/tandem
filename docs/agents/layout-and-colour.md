@@ -151,7 +151,9 @@ crops off, so scan each one too, in its own frame:
 tandem check --privacy --format portrait
 ```
 
-Without `--format`, a project with formats gets a warning naming them.
+Without `--format`, a project with formats gets a warning naming them. A
+Short made with `tandem short --copy` is a 9:16 project of its own, with
+no format: scan it with plain `--privacy`, in that project.
 The redacts it gives are in the file's frame either way, and a redact
 covers every format.
 

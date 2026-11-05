@@ -12,6 +12,13 @@ final class PrivacyFormatTests: XCTestCase {
         assertServiceError(.notFound) { _ = try h.service.prepareCheck(CheckRequest(privacy: true, format: "square")) }
         assertServiceError(.badRequest) { _ = try h.service.prepareCheck(CheckRequest(quick: true, format: "portrait")) }
         XCTAssertNoThrow(try h.service.prepareCheck(CheckRequest(privacy: true, format: "portrait")))
+
+        // A format narrower than a privacy read's 640 still scans by default.
+        var narrow = APIFixture.project()
+        narrow.settings.alternateFormats = [OutputFormat(id: "tiny", name: "Tiny", width: 480, height: 480)]
+        let g = try ServiceHarness(project: narrow)
+        defer { g.close() }
+        XCTAssertNoThrow(try g.service.prepareCheck(CheckRequest(privacy: true, format: "tiny")))
     }
 
     func testWithoutAFormatItSaysWhichLayoutsItDidntRead() async throws {
@@ -22,6 +29,7 @@ final class PrivacyFormatTests: XCTestCase {
         // An empty stretch, so nothing renders: the warning still comes back.
         let result = try await CheckRequest(changed: true, privacy: true).run(on: h.service, context: h.context)
         XCTAssertEqual(result.privacy, true)
+        XCTAssertTrue(result.warnings.contains { $0.contains("--format portrait") }, "nothing read, and still the warning: \(result.warnings)")
         let none = try await CheckRequest(from: t(0), to: t(0.5), privacy: true).run(on: h.service, context: h.context)
         XCTAssertTrue(none.warnings.contains { $0.contains("--format portrait") }, "\(none.warnings)")
     }
