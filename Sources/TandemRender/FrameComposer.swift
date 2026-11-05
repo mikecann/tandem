@@ -422,19 +422,34 @@ struct FrameComposer {
                 .clampedToExtent().cropped(to: work)
         }
         let small = atWork(image.transformed(by: toImage.inverted()))
-        let workMatte = atWork(matte), workSolid = atWork(solid)
+        let workSolid = atWork(solid)
+        // Where the flood may go, at the work size: shrinking would close a
+        // gap thinner than a work pixel, and a detail past it would take the
+        // body's colour in the viewer but not in the export (review). So
+        // gaps are widened by a work pixel first and sampled, not filtered.
+        func cover(_ image: CIImage) -> CIImage {
+            guard scale != 1 else { return image }
+            return image.clampedToExtent()
+                .applyingFilter("CIMorphologyMinimum", parameters: [kCIInputRadiusKey: (1 / scale).rounded(.up)])
+                .transformed(by: toWork).cropped(to: work)
+        }
+        let coverMatte = cover(matte), coverSolid = cover(solid)
         guard var flood = coreKernel.apply(extent: work, arguments: [small, workSolid, low, high]) else { return nil }
         // Through the matte as made: 16 matte pixels (about 11 on the
         // diagonal) is past RVM's soft edge, a few of its own pixels at any
         // matte size, and the soft hand of a fast gesture. Then into what
-        // feathering (about two sigmas) and a negative choke added. Clamped:
-        // the API takes any number, and a negative count would trap.
-        let added = Int(min(64, max(0, (2 * feather * scale).rounded(.up) + max(0, -choke * scale).rounded(.up))))
+        // feathering (about two sigmas) and a negative choke added, half as
+        // far again, since four-way steps take 1.4 times as many to go
+        // diagonally and both spread round. Each is clamped at zero first:
+        // the API takes any number, a negative feather mustn't eat into the
+        // choke's reach, and a negative count would trap.
+        let reach = (2 * max(0, feather) + max(0, -choke)) * scale * 1.5
+        let added = Int(min(128, reach.rounded(.up)))
         let plus = CIVector(values: [0, 0.2, 0, 0.2, 0.2, 0.2, 0, 0.2, 0], count: 9)
         for phase in [(steps: 16, added: Float(0)), (steps: added, added: Float(1))] {
             for _ in 0..<phase.steps {
                 let around = flood.applyingFilter("CIConvolution3X3", parameters: ["inputWeights": plus, "inputBias": 0]).cropped(to: work)
-                guard let next = floodKernel.apply(extent: work, arguments: [flood, around, workMatte, workSolid, phase.added]) else { return nil }
+                guard let next = floodKernel.apply(extent: work, arguments: [flood, around, coverMatte, coverSolid, phase.added]) else { return nil }
                 flood = next
             }
         }
