@@ -204,7 +204,8 @@ struct CLI {
             let request = CheckRequest(
                 from: try time(args, "from"), to: try time(args, "to"),
                 changed: args.has("changed") ? true : nil, quick: args.has("quick") ? true : nil, cuts: args.has("cuts") ? true : nil,
-                listen: args.has("listen") ? true : nil, width: try args.integer("width"), privacy: args.has("privacy") ? true : nil
+                listen: args.has("listen") ? true : nil, width: try args.integer("width"), privacy: args.has("privacy") ? true : nil,
+                format: args.options["format"]
             )
             let result = try await client().call(request)
             _ = show(result, json: json)

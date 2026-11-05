@@ -20,16 +20,20 @@ public struct CheckRequest: ServiceCall {
     /// With `cuts`: also render the voice across each join, transcribe it
     /// and compare what's heard with the take's words (`CutListen`).
     public var listen: Bool?
-    /// How wide frames are rendered for the scan. Default 384, or 1920
-    /// for `privacy`.
+    /// How wide frames are rendered for the scan. Default 384; for
+    /// `privacy` 1920, or a `format`'s own width (1080 for a Short), never
+    /// under 640.
     public var width: Int?
     /// Only private text a viewer could read (`PrivacyCheck`): reads a frame
     /// every half second, as export renders it, with Vision on this Mac.
     public var privacy: Bool?
+    /// With `privacy`: an alternate output format to read instead of the
+    /// main layout, like `portrait` (a Short), in its own frame.
+    public var format: String?
 
     public init(
         from: Time? = nil, to: Time? = nil, changed: Bool? = nil, quick: Bool? = nil, cuts: Bool? = nil, listen: Bool? = nil, width: Int? = nil,
-        privacy: Bool? = nil
+        privacy: Bool? = nil, format: String? = nil
     ) {
         self.from = from
         self.to = to
@@ -39,6 +43,7 @@ public struct CheckRequest: ServiceCall {
         self.listen = listen
         self.width = width
         self.privacy = privacy
+        self.format = format
     }
 
     public init(from decoder: Decoder) throws {
@@ -51,6 +56,7 @@ public struct CheckRequest: ServiceCall {
         listen = try c.decodeIfPresent(Bool.self, forKey: .listen)
         width = try c.decodeIfPresent(Int.self, forKey: .width)
         privacy = try c.decodeIfPresent(Bool.self, forKey: .privacy)
+        format = try c.decodeIfPresent(String.self, forKey: .format)
     }
 
     public func run(on service: TandemService, context: CallContext) async throws -> CheckResult {
@@ -251,7 +257,10 @@ extension TandemService {
             if request.quick == true || request.cuts == true || request.listen == true {
                 throw ServiceError(.badRequest, "A privacy check is a check of its own: it doesn't go with quick, cuts or listen.")
             }
-            return try privacyCheck(project: project, ranges: ranges, width: request.width ?? 1920, note: note)
+            return try privacyCheck(project: project, ranges: ranges, width: request.width, format: request.format, note: note)
+        }
+        if request.format != nil {
+            throw ServiceError(.badRequest, "format goes with a privacy check (--privacy --format portrait), which reads that layout; the other checks read the main one.")
         }
         if request.cuts == true || request.listen == true {
             if request.quick == true { throw ServiceError(.badRequest, "A cuts check renders nothing already, so it doesn't take quick.") }
@@ -402,20 +411,46 @@ extension TandemService {
     /// sharp as a 1920 wide read, and decode several times faster than a 4K
     /// screen recording, which is most of a scan's time (Vision reads a
     /// frame in a tenth of a second).
-    func privacyCheck(project: Project, ranges: [TimeRange], width: Int, note: String?) throws -> @Sendable () async throws -> CheckResult {
+    ///
+    /// `format` reads an alternate layout (a Short) in its own frame, as its
+    /// export renders it: the screen in a Short's top window can show text
+    /// the main layout crops off. Without one, a project that has formats
+    /// gets a warning naming them.
+    func privacyCheck(project: Project, ranges: [TimeRange], width requested: Int?, format: String?, note: String?) throws -> @Sendable () async throws -> CheckResult {
+        let formats = project.settings.alternateFormats
+        var layout: OutputFormat?
+        if let format {
+            guard let found = formats.first(where: { $0.id == format }) else {
+                let known = formats.map(\.id).joined(separator: ", ")
+                throw ServiceError(.notFound, "No format \"\(format)\" in this project\(known.isEmpty ? "; it has only the main layout" : ". Formats: \(known)").")
+            }
+            layout = found
+        }
+        // A Short's own width (1080) by default, the main layout's 1920.
+        let width = requested ?? max(640, min(1920, layout?.width ?? 1920))
         guard (640...3840).contains(width) else { throw ServiceError(.badRequest, "width is 640 to 3840 pixels for a privacy check.") }
         // Wider than the proxies, the files themselves: a 4K read of 1080p
         // proxies would only upscale away the small text it's for.
-        let context = RenderContext(project: project, folder: folder, analysis: session.analysis, useProxies: width <= 1920)
+        var context = RenderContext(project: project, folder: folder, analysis: session.analysis, useProxies: width <= 1920)
+        context.format = format
+        var warnings: [String] = []
+        if format == nil, !formats.isEmpty {
+            let names = formats.map { "--format \($0.id) (\($0.name))" }.joined(separator: ", ")
+            warnings.append("This read the main layout only. The project also exports as \(names): check each, as its layout can show text this one crops off.")
+        }
         let revision = coordinator.revision
         let projectFolder = folder
+        let notices = warnings
+        let renderContext = context
         return {
             let started = Date()
             guard !ranges.isEmpty else {
-                return CheckResult(ranges: [], frames: 0, seconds: 0, problems: [], clipNames: [:], note: note, privacy: true)
+                return CheckResult(ranges: [], frames: 0, seconds: 0, problems: [], clipNames: [:], note: note, warnings: notices, privacy: true)
             }
-            let reader = FrameTextReader(context: context, width: width)
-            let found = try await PrivacyCheck.run(project: project, ranges: ranges, folder: projectFolder) { times, sequential in try await reader.read(times, sequential: sequential) }
+            let reader = FrameTextReader(context: renderContext, width: width)
+            let found = try await PrivacyCheck.run(project: project, ranges: ranges, folder: projectFolder, format: format) { times, sequential in
+                try await reader.read(times, sequential: sequential)
+            }
             var names: [String: String] = [:]
             for id in Set((found.problems + found.notes).flatMap(\.clipIDs)) {
                 guard let clip = project.clip(id) else { continue }
@@ -425,7 +460,7 @@ extension TandemService {
             // first, and widen, before applying it.
             return CheckResult(
                 ranges: ranges, frames: reader.framesRead, seconds: Date().timeIntervalSince(started), problems: found.problems, notes: found.notes,
-                clipNames: names, note: note, revision: found.problems.isEmpty ? nil : revision, privacy: true
+                clipNames: names, note: note, warnings: notices, revision: found.problems.isEmpty ? nil : revision, privacy: true
             )
         }
     }

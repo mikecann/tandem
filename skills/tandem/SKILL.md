@@ -578,7 +578,9 @@ From his review comments on the Daytona and Build Your Own Convex videos
   clip's start back to it; mikecann/tandem#48 and #49). Fill tiny picture
   gaps, and drop fades on joins that became continuous: they dip mid-word.
 - **Sweep for private text before every export.** Run `tandem check
-  --privacy` over the whole video, as the last edit before exporting. It
+  --privacy` over the whole video, as the last edit before exporting, and
+  again with `--format <id>` for each format the project exports (its
+  warning names them). It
   reads a frame every half second as export renders it (blurs in place,
   so text scrolling past a fixed blur shows up) and flags emails, phone
   numbers, addresses, booking references, ID, money, crypto, travel, keys,

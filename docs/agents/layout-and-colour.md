@@ -143,9 +143,19 @@ name that's public) should stay sharp.
 frame, flagged or not. Look through each (`tandem frames` across it): the
 rules can't know that a plan is internal, a quote is someone else's, or a
 list of projects is private. Titles and captions are left out, and so is
-text under a blur. It reads the main layout: a Short or other format
-with its own crops can show text the main one hides, so look through
-that format's export too.
+text under a blur. It reads the main layout; a format with its own layout
+(the portrait Short `tandem short` lays out) can show text the main one
+crops off, so scan each one too, in its own frame:
+
+```
+tandem check --privacy --format portrait
+```
+
+Without `--format`, a project with formats gets a warning naming them. A
+Short made with `tandem short --copy` is a 9:16 project of its own, with
+no format: scan it with plain `--privacy`, in that project.
+The redacts it gives are in the file's frame either way, and a redact
+covers every format.
 
 It reads from proxies (1080p) where they're ready, about 3 s of video a
 second, so a 25 minute video takes about 7 minutes. Re-run it after blurring until every flag left is one you've
