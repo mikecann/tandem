@@ -264,14 +264,18 @@ enum Kernels {
 
     static let cutoutFloodSource = header + """
     extern "C" { namespace coreimage {
-    // One step of the flood: a pixel the matte covers that has no colour
-    // yet takes the mean of its coloured neighbours (`around` is the 3x3
-    // mean of the step before, colour times has). A pixel a step moves
-    // the colour one pixel, so it can't cross even a one pixel clear gap to
-    // a finger or a prop that isn't the same thing.
-    [[stitchable]] float4 tandemCutoutFlood(sample_t current, sample_t around, sample_t m) {
+    // One step of the flood: a pixel with no colour yet takes the mean of
+    // its coloured neighbours (`around`, the mean over the pixel and its
+    // four sides of colour times has, so a step never hops a corner).
+    // First (`added` 0) through the matte as made, so the colour can't cross
+    // even a one pixel clear gap, straight or diagonal, to a finger or prop
+    // that isn't the same thing. Then (`added` 1) only into pixels that
+    // feathering or a negative choke added, which have no colour of their
+    // own to keep.
+    [[stitchable]] float4 tandemCutoutFlood(sample_t current, sample_t around, sample_t m, sample_t solid, float added) {
         if (current.a > 0.5) return current;
-        if (m.r > 0.02 && around.a > 0.0001) return float4(around.rgb / around.a, 1.0);
+        bool open = added > 0.5 ? (m.r > 0.02 && solid.r <= 0.02) : solid.r > 0.02;
+        if (open && around.a > 0.0001) return float4(around.rgb / around.a, 1.0);
         return float4(0.0);
     }
     }}

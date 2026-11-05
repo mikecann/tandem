@@ -241,7 +241,7 @@ struct FrameComposer {
         var cutOut = false
         if let cutout = video.cutout, cutout.enabled, let track = ref.matteTrack,
            let matte = frame(track, sceneClip.matte, sceneClip.matteRecovery, sceneClip, at: time, sources: sources) {
-            image = Self.cutout(image, matte: Self.oriented(matte, sceneClip.matteTransform), settings: cutout, displaySize: size, unit: unit)
+            image = Self.cutout(image, matte: Self.oriented(matte, sceneClip.matteTransform), settings: cutout, displaySize: size, unit: unit, layerScale: total)
             cutOut = true
         }
 
@@ -323,7 +323,7 @@ struct FrameComposer {
     /// Multiplies the layer by the person matte. Edge feather, choke and
     /// repair shapes are worked out at the matte's own resolution, which is
     /// usually lower than the camera's and so cheaper.
-    static func cutout(_ image: CIImage, matte frame: CIImage, settings: Cutout, displaySize size: CGSize, unit: CGFloat) -> CIImage {
+    static func cutout(_ image: CIImage, matte frame: CIImage, settings: Cutout, displaySize size: CGSize, unit: CGFloat, layerScale: CGFloat = 1) -> CIImage {
         let matteRect = frame.extent
         guard matteRect.width > 0, matteRect.height > 0 else { return image }
         let toMatte = matteRect.width / size.width
@@ -371,7 +371,8 @@ struct FrameComposer {
             matte = matte.clampedToExtent().applyingGaussianBlur(sigma: Double(feather)).cropped(to: matteRect)
         }
         let toImage = CGAffineTransform(scaleX: size.width / matteRect.width, y: size.height / matteRect.height)
-        if let cut = cutoutEdgeColour(image, matte: matte, solid: solid, feather: feather, matteRect: matteRect, toImage: toImage) {
+        if let cut = cutoutEdgeColour(image, matte: matte, solid: solid, feather: feather, choke: choke, matteRect: matteRect, toImage: toImage,
+                                       detail: min(1, layerScale / toMatte)) {
             return cut.cropped(to: image.extent)
         }
         matte = matte.transformed(by: toImage)
@@ -392,31 +393,52 @@ struct FrameComposer {
     /// Measured on the Threadbear launch take: the rim's extra light fell
     /// from 3.4 to about 0.9 (0 to 255, mean over the soft edge).
     ///
-    /// The flood moves a pixel a step through pixels the matte covers, so
-    /// it can't cross a clear gap to a finger or a prop that isn't the same
-    /// colour: blurs did, even in small steps (review, 5 Nov 2026). The core
-    /// comes from `solid`, the matte before feathering, so a wide feather
-    /// can't shrink it out of reach, and the flood runs further with the
-    /// feather. It's made at the matte's size and scaled up. Nil if a
+    /// The flood moves a pixel a step, never round a corner, through the
+    /// matte as made (`solid`, before feathering or a negative choke), so it
+    /// can't cross a clear gap to a finger or a prop that isn't the same
+    /// colour: blurs did, even in small steps, and so did a flood through
+    /// the feathered matte or with corner steps (reviews, 5 Nov 2026). Then
+    /// it carries on into what the feather or the choke added, as far as
+    /// they reach. It's made at the matte's size and scaled up. Nil if a
     /// kernel didn't compile; the caller then cuts out with the picture's
     /// own colours as before.
-    static func cutoutEdgeColour(_ image: CIImage, matte: CIImage, solid: CIImage, feather: CGFloat, matteRect: CGRect, toImage: CGAffineTransform) -> CIImage? {
+    static func cutoutEdgeColour(_ image: CIImage, matte: CIImage, solid: CIImage, feather: CGFloat, choke: CGFloat, matteRect: CGRect, toImage: CGAffineTransform, detail: CGFloat = 1) -> CIImage? {
         guard let coreKernel = Kernels.cutoutCoreKernel, let floodKernel = Kernels.cutoutFlood,
               let edgeKernel = Kernels.cutoutEdge else { return nil }
         let (low, high) = Kernels.cutoutCore
-        let small = image.transformed(by: toImage.inverted())
-        guard var flood = coreKernel.apply(extent: matteRect, arguments: [small, solid, low, high]) else { return nil }
-        // 12 matte pixels is past RVM's soft edge (a few of its own pixels
-        // at any matte size) and the soft hand of a fast gesture; a feather
-        // spreads the edge about two sigmas further.
-        let steps = min(64, 12 + Int((2 * feather).rounded(.up)))
-        let mean = CIVector(values: [CGFloat](repeating: 1.0 / 9, count: 9), count: 9)
-        for _ in 0..<steps {
-            let around = flood.applyingFilter("CIConvolution3X3", parameters: ["inputWeights": mean, "inputBias": 0]).cropped(to: matteRect)
-            guard let next = floodKernel.apply(extent: matteRect, arguments: [flood, around, matte]) else { return nil }
-            flood = next
+        // The flood runs at the size the layer is drawn, up to the matte's
+        // own: a 4K export's corner is the matte's size, but the viewer and a
+        // 720p review draw it a third as wide, and the flood at full size
+        // made a review render three times slower. A gap too small to see
+        // at that size closes up, which is fine: it can't be seen.
+        let scale = detail < 0.95 ? max(detail, 0.1) : 1
+        let toWork = CGAffineTransform(scaleX: scale, y: scale)
+        let work = matteRect.applying(toWork).integral
+        // Lanczos to shrink: plain sampling would skip pixels, and the edge
+        // colour would crawl as he moves.
+        func atWork(_ image: CIImage) -> CIImage {
+            guard scale != 1 else { return image }
+            return image.applyingFilter("CILanczosScaleTransform", parameters: [kCIInputScaleKey: scale, kCIInputAspectRatioKey: 1])
+                .clampedToExtent().cropped(to: work)
         }
-        let floodUp = flood.clampedToExtent().transformed(by: toImage).cropped(to: image.extent)
+        let small = atWork(image.transformed(by: toImage.inverted()))
+        let workMatte = atWork(matte), workSolid = atWork(solid)
+        guard var flood = coreKernel.apply(extent: work, arguments: [small, workSolid, low, high]) else { return nil }
+        // Through the matte as made: 16 matte pixels (about 11 on the
+        // diagonal) is past RVM's soft edge, a few of its own pixels at any
+        // matte size, and the soft hand of a fast gesture. Then into what
+        // feathering (about two sigmas) and a negative choke added. Clamped:
+        // the API takes any number, and a negative count would trap.
+        let added = Int(min(64, max(0, (2 * feather * scale).rounded(.up) + max(0, -choke * scale).rounded(.up))))
+        let plus = CIVector(values: [0, 0.2, 0, 0.2, 0.2, 0.2, 0, 0.2, 0], count: 9)
+        for phase in [(steps: 16, added: Float(0)), (steps: added, added: Float(1))] {
+            for _ in 0..<phase.steps {
+                let around = flood.applyingFilter("CIConvolution3X3", parameters: ["inputWeights": plus, "inputBias": 0]).cropped(to: work)
+                guard let next = floodKernel.apply(extent: work, arguments: [flood, around, workMatte, workSolid, phase.added]) else { return nil }
+                flood = next
+            }
+        }
+        let floodUp = flood.clampedToExtent().transformed(by: toWork.inverted().concatenating(toImage)).cropped(to: image.extent)
         return edgeKernel.apply(extent: image.extent, arguments: [
             image, floodUp, matte.transformed(by: toImage), solid.transformed(by: toImage),
             low, high, Kernels.cutoutKeepFrom
