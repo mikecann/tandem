@@ -434,6 +434,7 @@ struct FrameComposer {
                 .transformed(by: toWork).cropped(to: work)
         }
         let coverMatte = cover(matte), coverSolid = cover(solid)
+        let madeSolid = scale == 1 ? solid : solid.clampedToExtent().transformed(by: toWork).cropped(to: work)
         guard var flood = coreKernel.apply(extent: work, arguments: [small, workSolid, low, high]) else { return nil }
         // Through the matte as made: 16 matte pixels (about 11 on the
         // diagonal) is past RVM's soft edge, a few of its own pixels at any
@@ -449,7 +450,7 @@ struct FrameComposer {
         for phase in [(steps: 16, added: Float(0)), (steps: added, added: Float(1))] {
             for _ in 0..<phase.steps {
                 let around = flood.applyingFilter("CIConvolution3X3", parameters: ["inputWeights": plus, "inputBias": 0]).cropped(to: work)
-                guard let next = floodKernel.apply(extent: work, arguments: [flood, around, coverMatte, coverSolid, phase.added]) else { return nil }
+                guard let next = floodKernel.apply(extent: work, arguments: [flood, around, coverMatte, coverSolid, madeSolid, phase.added]) else { return nil }
                 flood = next
             }
         }

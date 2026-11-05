@@ -318,6 +318,27 @@ final class CompositorTests: XCTestCase {
         XCTAssertGreaterThan(detail[1], detail[2] + 30, "the colour crossed the gap at the corner's size: \(detail)")
     }
 
+    /// The same with a feather, which bridges the gap: the viewer still
+    /// mustn't recolour the detail (review; the default feather moves it a
+    /// pixel or so, a wider one shows it plainly).
+    func testCutoutEdgeColourDoesntCrossAFeatheredGapInASmallCorner() {
+        // About a 3 matte pixel blur at this size.
+        var h = screenAndCamera(VideoProperties(transform: Transform(position: Point(x: 0.5, y: 0.5), scale: 0.5), cutout: Cutout(edgeFeather: 36)))
+        h.pictures["med_blue"] = CIImage(color: .green).cropped(to: CGRect(x: 121, y: 0, width: 24, height: 180))
+            .composited(over: CIImage(color: .blue).cropped(to: CGRect(x: 0, y: 0, width: 120, height: 180)))
+            .composited(over: CIImage(color: .white).cropped(to: CGRect(x: 0, y: 0, width: 320, height: 180)))
+        h.mattes["med_blue"] = CIImage(color: CIColor(red: 0.4, green: 0.4, blue: 0.4)).cropped(to: CGRect(x: 121, y: 0, width: 24, height: 180))
+            .composited(over: CIImage(color: .white).cropped(to: CGRect(x: 0, y: 0, width: 120, height: 180)))
+            .composited(over: CIImage(color: .black).cropped(to: CGRect(x: 0, y: 0, width: 320, height: 180)))
+        // The detail past the feathered gap: picture x 126...130 lands at
+        // 143...145.
+        let frame = h.render(at: t(1))
+        for x in [143, 145] {
+            let detail = frame[x, 90]
+            XCTAssertGreaterThan(detail[1], detail[2] + 20, "the colour crossed a feathered gap at the corner's size, x \(x): \(detail)")
+        }
+    }
+
     /// A thin detail that's never solid in the matte (a motion-blurred
     /// finger, a strand of hair) keeps its own colour rather than taking the
     /// nearest solid part's across a gap (found in review).

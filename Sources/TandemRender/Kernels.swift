@@ -271,10 +271,12 @@ enum Kernels {
     // even a one pixel clear gap, straight or diagonal, to a finger or prop
     // that isn't the same thing. Then (`added` 1) only into pixels that
     // feathering or a negative choke added, which have no colour of their
-    // own to keep.
-    [[stitchable]] float4 tandemCutoutFlood(sample_t current, sample_t around, sample_t m, sample_t solid, float added) {
+    // own to keep. `solid` is the matte as made with its gaps widened for
+    // a smaller work size; `made` is it as it is, so a detail the widening
+    // ate into still counts as made, not added (review).
+    [[stitchable]] float4 tandemCutoutFlood(sample_t current, sample_t around, sample_t m, sample_t solid, sample_t made, float added) {
         if (current.a > 0.5) return current;
-        bool open = added > 0.5 ? (m.r > 0.02 && solid.r <= 0.02) : solid.r > 0.02;
+        bool open = added > 0.5 ? (m.r > 0.02 && made.r <= 0.02) : solid.r > 0.02;
         if (open && around.a > 0.0001) return float4(around.rgb / around.a, 1.0);
         return float4(0.0);
     }
