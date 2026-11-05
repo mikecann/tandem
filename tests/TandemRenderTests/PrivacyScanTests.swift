@@ -205,6 +205,38 @@ final class PrivacyScanTests: XCTestCase {
         XCTAssertTrue(banked.problems.first?.message.contains("12 Bank Road") == true, "\(banked.problems.map(\.message))")
     }
 
+    func testAShortsOwnLayoutIsReadInItsOwnFrame() async throws {
+        // A Short (the portrait format) puts the screen in its top window,
+        // where the main layout has it full frame: text there is placed by
+        // the format's own transform, and a clip hidden in the format isn't
+        // what's read.
+        var p = project()
+        p.settings.alternateFormats = [OutputFormat(id: "portrait", name: "Short 9:16", width: 1080, height: 1920)]
+        let screenID = p.videoTracks[0].clips[0].id
+        p.videoTracks[0].clips[0].video = VideoProperties()
+        p.videoTracks[0].clips[0].video?.formatOverrides["portrait"] = FormatOverride(transform: Transform(position: Point(x: 0.5, y: 0.25), scale: 1))
+        // A full-frame still over everything in the main layout, hidden in the Short.
+        let card = MediaItem(id: "med_card", path: "card.png", kind: .image, role: .broll, width: 3840, height: 2160, hasVideo: true)
+        p.media.append(card)
+        var cardVideo = VideoProperties()
+        cardVideo.formatOverrides["portrait"] = FormatOverride(hidden: true)
+        p.videoTracks.append(Track(id: "trk_card", kind: .video, name: "Card", clips: [
+            Clip(id: "clip_card", content: .media(mediaID: "med_card"), start: .zero, duration: t(60), video: cardVideo)
+        ], rippleMode: .follow))
+
+        let reader = FakeReader()
+        // The middle of the Short's top window is the middle of the screen recording.
+        reader.shows = [(t(5), t(6), ReadLine(text: "jane@example.com", box: CGRect(x: 0.45, y: 0.24, width: 0.1, height: 0.02)))]
+        let found = try await PrivacyCheck.run(project: p, ranges: [TimeRange(start: .zero, end: t(60))], folder: nil, format: "portrait") { times, _ in reader.read(times) }
+        guard case .redact(_, let rect, let mediaID, _, _, _, _)? = found.problems.first?.fix else { return XCTFail("a redact: \(found.problems)") }
+        XCTAssertEqual(mediaID, "med_screen", "not the card, which the Short hides")
+        XCTAssertEqual(found.problems.first?.clipIDs, [screenID])
+        // 108 px of a 1080 wide Short over a screen shown 1080 wide: a tenth of the file.
+        XCTAssertEqual(rect.x, 0.45 - 0.01, accuracy: 0.002)
+        XCTAssertEqual(rect.width, 0.1 + 0.02, accuracy: 0.002)
+        XCTAssertEqual(rect.y + rect.height / 2, 0.5, accuracy: 0.002, "the middle of the file, up and down")
+    }
+
     func testTitlesAndCaptionsAreMikesOwnWords() async throws {
         let title = Clip(id: "clip_title", content: .text(TextContent(text: "Email me at jane@example.com")), start: t(40), duration: t(5))
         let reader = FakeReader()

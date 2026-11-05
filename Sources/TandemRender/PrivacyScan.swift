@@ -270,8 +270,14 @@ public enum PrivacyCheck {
 
     /// `folder` lets a still with alpha be looked at where text was read
     /// over it (`AlphaProbe`); without it, alpha is taken as see-through.
-    public static func run(project: Project, ranges: [TimeRange], folder: ProjectFolder?, read: Reader) async throws -> (problems: [CheckProblem], notes: [CheckProblem]) {
+    /// `format` reads an alternate output format (a Short's 9:16 layout)
+    /// in its own frame, through each clip's layout for it; the frames
+    /// `read` returns must be rendered in that format too.
+    public static func run(
+        project: Project, ranges: [TimeRange], folder: ProjectFolder?, format: String? = nil, read: Reader
+    ) async throws -> (problems: [CheckProblem], notes: [CheckProblem]) {
         let probe = folder.map(AlphaProbe.init)
+        let look = Look(probe: probe, format: format)
         let rate = project.settings.frameRate
         var times: [Time] = []
         var segment: [Int] = []
@@ -284,7 +290,7 @@ public enum PrivacyCheck {
             }
         }
         let frames = try await read(times, true)
-        let seen = frames.map { see($0, in: project, probe: probe) }
+        let seen = frames.map { see($0, in: project, look: look) }
         // Which stretch each frame read is in (a frame that failed to
         // render is missing, so it's by time).
         let stretchOf = Dictionary(zip(times.map(\.flicks), segment), uniquingKeysWith: { first, _ in first })
@@ -301,11 +307,11 @@ public enum PrivacyCheck {
                 let range = ranges[segments[run.first!]]
                 let before = first - step, after = last + step
                 let start = try await edge(
-                    from: max(range.start, before), to: first, mediaID: mediaID, rising: true, unread: before < range.start, project: project, probe: probe, read: read
+                    from: max(range.start, before), to: first, mediaID: mediaID, rising: true, unread: before < range.start, project: project, look: look, read: read
                 )
                 let lastShown = try await edge(
                     from: last, to: min(range.end - rate.frameDuration, after), mediaID: mediaID, rising: false,
-                    unread: after > range.end - rate.frameDuration, project: project, probe: probe, read: read
+                    unread: after > range.end - rate.frameDuration, project: project, look: look, read: read
                 )
                 problems.append(problem(spots, mediaID: mediaID, range: TimeRange(start: start, end: lastShown + rate.frameDuration), project: project))
             }
@@ -351,12 +357,12 @@ public enum PrivacyCheck {
     /// (the last with it, between `from`, with, and `to`), found by halves.
     /// `unread`: the far end is the stretch's edge rather than a frame read
     /// without it, so it's read first.
-    static func edge(from: Time, to: Time, mediaID: String, rising: Bool, unread: Bool, project: Project, probe: AlphaProbe?, read: Reader) async throws -> Time {
+    static func edge(from: Time, to: Time, mediaID: String, rising: Bool, unread: Bool, project: Project, look: Look, read: Reader) async throws -> Time {
         let frame = project.settings.frameRate.frameDuration
         var without = rising ? from : to, with = rising ? to : from
         func shows(_ time: Time) async throws -> Bool {
             guard let frame = try await read([time], false).first else { return false }
-            return see(frame, in: project, probe: probe).spots.contains { $0.mediaID == mediaID }
+            return see(frame, in: project, look: look).spots.contains { $0.mediaID == mediaID }
         }
         guard without != with else { return with }
         if unread, try await shows(without) { return without }
@@ -398,25 +404,26 @@ public enum PrivacyCheck {
     // MARK: - One frame
 
     /// The private spots on a frame, and the words each picture shows.
-    static func see(_ frame: ReadFrame, in project: Project, probe: AlphaProbe? = nil) -> Seen {
+    static func see(_ frame: ReadFrame, in project: Project, look: Look = Look()) -> Seen {
         var seen = Seen(time: frame.time, spots: [], words: [:], sample: [:])
         var linesBy: [String: [(line: ReadLine, rect: CGRect)]] = [:]
         for line in frame.lines where line.confidence >= minimumConfidence {
-            guard let source = source(of: line.box, text: line.text, at: frame.time, in: project, probe: probe) else { continue }
+            guard let source = source(of: line.box, text: line.text, at: frame.time, in: project, look: look) else { continue }
             linesBy[source.mediaID, default: []].append((line, source.rect))
             for hit in PrivateText.hits(in: line.text) {
                 seen.spots.append(Spot(category: hit.category, text: hit.text, mediaID: source.mediaID, rect: source.rect))
             }
         }
         for box in frame.codes {
-            guard let source = source(of: box, text: nil, at: frame.time, in: project, probe: probe) else { continue }
+            guard let source = source(of: box, text: nil, at: frame.time, in: project, look: look) else { continue }
             seen.spots.append(Spot(category: .code, text: "QR code", mediaID: source.mediaID, rect: source.rect))
         }
         for (mediaID, lines) in linesBy {
             // A line and the one under it, read as one: a narrow card wraps
             // "Collect the keys at 12" above "Harbour Rise", and neither
             // line alone is an address. Only what the pair adds counts.
-            let aspect = Double(project.settings.width) / Double(max(project.settings.height, 1))
+            let frame = look.canvas(project)
+            let aspect = Double(frame.width) / Double(max(frame.height, 1))
             for (upper, lower) in wrapped(lines.map(\.line), aspect: aspect) {
                 // Only what neither line has alone: "12 Bank" over "Road" is
                 // a new address even though "Bank" alone was money.
@@ -476,8 +483,8 @@ public enum PrivacyCheck {
     /// file on top there (under any frame with alpha round it), and where
     /// in its frame the box is. Nil for a title or caption Tandem draws
     /// (Mike wrote those), or a box over nothing.
-    static func source(of box: CGRect, text: String?, at time: Time, in project: Project, probe: AlphaProbe? = nil) -> (mediaID: String, rect: CGRect)? {
-        let canvas = CGSize(width: project.settings.width, height: project.settings.height)
+    static func source(of box: CGRect, text: String?, at time: Time, in project: Project, look: Look = Look()) -> (mediaID: String, rect: CGRect)? {
+        let canvas = look.canvas(project)
         let centre = CGPoint(x: box.midX * canvas.width, y: box.midY * canvas.height)
         // A picture with alpha over the text (a phone frame round a phone
         // recording, a camera cut out over the screen) is usually
@@ -485,7 +492,7 @@ public enum PrivacyCheck {
         // under it, if anything is.
         var seeThrough: (mediaID: String, rect: CGRect)?
         for track in project.videoTracks.reversed() where !track.hidden {
-            guard let clip = track.clip(at: time), clip.enabled else { continue }
+            guard let clip = track.clip(at: time), clip.enabled, !clip.isHidden(inFormat: look.format) else { continue }
             switch clip.content {
             case .text(let content):
                 // A caption or a title: its own words are Mike's. Only a
@@ -504,7 +511,8 @@ public enum PrivacyCheck {
                 // off isn't drawn.
                 guard !clip.isObscured, !track.isSwitchedOffRedaction(clip), let item = project.media(mediaID), item.hasVideo,
                       let width = item.width, let height = item.height, width > 0, height > 0 else { continue }
-                let video = clip.resolvedVideo(at: time - clip.start)
+                // The format's own layout where it has one (a Short's top window).
+                guard let video = clip.resolvedVideo(at: time - clip.start, format: look.format) else { continue }
                 let display = CGSize(width: width, height: height)
                 let placement = LayerMath.placement(source: display, canvas: canvas, transform: video.transform)
                 let crop = video.crop
@@ -523,7 +531,7 @@ public enum PrivacyCheck {
                     // A still is looked at where the text is: an opaque card
                     // with alpha round it holds its own text.
                     let centre = CGPoint(x: found.1.midX, y: found.1.midY)
-                    if video.cutout?.enabled != true, let opaque = probe?.isOpaque(item, at: centre), opaque { return found }
+                    if video.cutout?.enabled != true, let opaque = look.probe?.isOpaque(item, at: centre), opaque { return found }
                     if seeThrough == nil { seeThrough = found }
                     continue
                 }
@@ -540,6 +548,26 @@ public enum PrivacyCheck {
     /// The clips of `mediaID` there, not the privacy copies over them.
     static func clipIDs(of mediaID: String, in range: TimeRange, project: Project) -> [String] {
         project.videoTracks.filter { !$0.isPrivacy }.flatMap(\.clips).filter { $0.mediaID == mediaID && !$0.isObscured && $0.range.overlaps(range) }.map(\.id)
+    }
+}
+
+/// How a frame is looked at: in which output format (nil for the main
+/// one), and with what to read a still's alpha.
+struct Look {
+    var probe: AlphaProbe?
+    var format: String?
+
+    init(probe: AlphaProbe? = nil, format: String? = nil) {
+        self.probe = probe
+        self.format = format
+    }
+
+    /// The frame the text was read in: the format's, or the project's.
+    func canvas(_ project: Project) -> CGSize {
+        if let format, let alt = project.settings.alternateFormats.first(where: { $0.id == format }) {
+            return CGSize(width: alt.width, height: alt.height)
+        }
+        return CGSize(width: project.settings.width, height: project.settings.height)
     }
 }
 
