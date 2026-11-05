@@ -230,6 +230,81 @@ enum Kernels {
         }
     }()
 
+    // MARK: Cutout edge colour
+    //
+    // The camera's pixels under a soft matte edge are part wall, so a light
+    // wall left a pale rim round Mike's cap and shoulders over dark UI. These
+    // three give the edge the person's own colour from just inside the
+    // outline instead (`FrameComposer.cutoutEdgeColour`).
+
+    /// Where the matte counts as solid person: their colour is taken from
+    /// here. Just below 1 so a matte that never quite reaches 1 still has a
+    /// core; 0.85 and up is solid on RVM's mattes of Mike.
+    static let cutoutCore = (low: Float(0.85), high: Float(0.98))
+    /// From this alpha up a pixel keeps more and more of its own colour: it
+    /// has less wall in it, and a detail that's mostly there and touches
+    /// something else (a finger against the jacket) shouldn't take that
+    /// colour. 0.7 cut the rim a little more (0.7 against 0.9 of 3.4) but
+    /// left a touching detail at 0.8 only 29% of its own colour (review).
+    static let cutoutKeepFrom = Float(0.5)
+
+    static let cutoutCoreSource = header + """
+    extern "C" { namespace coreimage {
+    // The solid person's colour, with alpha 1 where it's solid and 0
+    // elsewhere: the start of the flood. Times the picture's alpha, so a
+    // crop's empty outside gives no colour.
+    [[stitchable]] float4 tandemCutoutCore(sample_t s, sample_t m, float low, float high) {
+        float core = smoothstep(low, high, m.r) * s.a;
+        float has = core > 0.5 ? 1.0 : 0.0;
+        float3 c = s.a > 0.0 ? s.rgb / s.a : float3(0.0);
+        return float4(c * has, has);
+    }
+    }}
+    """
+
+    static let cutoutFloodSource = header + """
+    extern "C" { namespace coreimage {
+    // One step of the flood: a pixel with no colour yet takes the mean of
+    // its coloured neighbours (`around`, the mean over the pixel and its
+    // four sides of colour times has, so a step never hops a corner).
+    // First (`added` 0) through the matte as made, so the colour can't cross
+    // even a one pixel clear gap, straight or diagonal, to a finger or prop
+    // that isn't the same thing. Then (`added` 1) only into pixels that
+    // feathering or a negative choke added, which have no colour of their
+    // own to keep. `solid` is the matte as made with its gaps widened for
+    // a smaller work size; `made` is it as it is, so a detail the widening
+    // ate into still counts as made, not added (review).
+    [[stitchable]] float4 tandemCutoutFlood(sample_t current, sample_t around, sample_t m, sample_t solid, sample_t made, float added) {
+        if (current.a > 0.5) return current;
+        bool open = added > 0.5 ? (m.r > 0.02 && made.r <= 0.02) : solid.r > 0.02;
+        if (open && around.a > 0.0001) return float4(around.rgb / around.a, 1.0);
+        return float4(0.0);
+    }
+    }}
+    """
+
+    static let cutoutEdgeSource = header + """
+    extern "C" { namespace coreimage {
+    // The cut-out layer, premultiplied: the picture where the matte is
+    // solid or nearly, the flooded colour where it's soft. Where the flood
+    // didn't reach, the picture's own colour.
+    [[stitchable]] float4 tandemCutoutEdge(sample_t s, sample_t flood, sample_t m, sample_t solid, float low, float high, float keepFrom) {
+        float3 c = s.a > 0.0 ? s.rgb / s.a : float3(0.0);
+        float3 fill = flood.a > 0.0001 ? mix(c, flood.rgb / flood.a, flood.a) : c;
+        // How much of its own colour a pixel keeps goes by the matte before
+        // feathering or a negative choke: pixels those add are wall.
+        float core = smoothstep(low, high, solid.r);
+        float keep = 1.0 - (1.0 - core) * (1.0 - smoothstep(keepFrom, high, solid.r));
+        float a = m.r * s.a;
+        return float4(mix(fill, c, keep) * a, a);
+    }
+    }}
+    """
+
+    static let cutoutCoreKernel = compile(cutoutCoreSource, "tandemCutoutCore")
+    static let cutoutFlood = compile(cutoutFloodSource, "tandemCutoutFlood")
+    static let cutoutEdge = compile(cutoutEdgeSource, "tandemCutoutEdge")
+
     private static func compile(_ source: String, _ name: String) -> CIColorKernel? {
         do {
             return try CIKernel.kernels(withMetalString: source).first { $0.name == name } as? CIColorKernel

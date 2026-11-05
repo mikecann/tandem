@@ -509,9 +509,43 @@ Notes on each:
   than the person just inside, where the picture is still) drops to 32% and
   33% on the two ranges; 98% of the alpha where hands move stays, and fast
   swipes keep their motion blur. A 2 px choke took the rim to 26% but shaved
-  the ear; a higher floor would start on fine hair. Using RVM's own
-  foreground output to decontaminate the colour would need the renderer to
-  carry a second picture, so it isn't done.
+  the ear; a higher floor would start on fine hair.
+
+  The renderer does the rest (`FrameComposer.cutoutEdgeColour`, November
+  2026). Mike still saw a pale glow round his cap and a warm rim on his
+  shoulders in the Threadbear launch video's corner. The edge feather was
+  a Gaussian with the setting as its sigma (2 px at 1080p, so 4 px on the
+  PiP's own pixels at 4K), which spread alpha back over the wall
+  `cleanEdge` had cut; it's now the soft edge's width, a quarter of that
+  as sigma. And wherever the matte is soft, the colour comes from the
+  solid person just inside (matte 0.85 and up, before feathering or a
+  negative choke), flooded outward a pixel a step and never round a corner,
+  16 steps through the matte as made and then on into whatever the feather
+  or a negative choke added, and fading back to the picture's own colour as
+  the matte rises from 0.5. On six frames of that
+  take the extra light at the edge fell from 3.4 to about 0.9 (0 to 255,
+  mean over the soft edge), the edge flickered less between still frames
+  (1.4 against 1.9). The flood runs at the size the corner is drawn, up to
+  the matte's own, so a 720p review render of 10 s (300 frames) takes 3.5
+  to 4 s against 2 s, about 5 ms a frame more; flooding at the matte's full
+  size took 6 s, 13 ms a frame more.
+
+  What else was tried, with the rim's extra light on the same scale:
+  blurs of the core's colour carried it further (0.3) but jumped clear
+  gaps, free or in small steps, so a thin detail that's never solid (a
+  motion-blurred finger beside the jacket) took the jacket's colour. A
+  diffusion a pixel a step couldn't jump them, but its reach only grows
+  with the square root of its steps, so 16 steps left 1.4. Fading the fill
+  out from 0.7 rather than 0.5 left 0.7, but a detail at 0.8 touching the
+  body kept only 29% of its own colour. The core is taken before
+  feathering, or a wide edge setting would shrink it out of reach; the
+  flood goes through the matte as made and four ways, or it crosses gaps
+  the feather bridges or that run diagonally; and at a corner's smaller
+  size the gaps are widened before shrinking, so the viewer shows what the
+  export does. `CompositorTests` has a test for each. RVM's own foreground
+  output was worse than doing nothing (4.3): it carries the wall too.
+  Solving for the colour against a blurred estimate of the wall behind
+  took it only to 2.4.
 
   Scores through the job on the two ranges (A / B): flicker 0.066 / 0.062
   (version 2: 0.17 / 0.20, RVM before the edge fix 0.082 / 0.070), pop

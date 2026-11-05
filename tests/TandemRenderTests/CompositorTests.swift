@@ -254,6 +254,264 @@ final class CompositorTests: XCTestCase {
         assertColor(frame[260, 90], red)
     }
 
+    /// Where the matte is soft, the camera's own pixels there are part wall
+    /// (Mike's light grey wall made a pale rim round his cap over dark UI).
+    /// The edge should show the person's colour from just inside instead.
+    func testCutoutEdgeShowsThePersonsColourNotTheWall() {
+        XCTAssertNotNil(Kernels.cutoutCoreKernel)
+        XCTAssertNotNil(Kernels.cutoutFlood)
+        XCTAssertNotNil(Kernels.cutoutEdge)
+        var h = screenAndCamera(VideoProperties(cutout: Cutout(edgeFeather: 0)))
+        // Blue person to x 140, white wall beyond.
+        h.pictures["med_blue"] = CIImage(color: .white).cropped(to: CGRect(x: 140, y: 0, width: 180, height: 180))
+            .composited(over: CIImage(color: .blue).cropped(to: CGRect(x: 0, y: 0, width: 140, height: 180)))
+        // The matte (half size) is solid to x 68, just inside the person's
+        // edge at 70, then ramps to clear by 76: a soft edge reaching over
+        // the wall, the way RVM's do.
+        let ramp = CIFilter(name: "CILinearGradient", parameters: [
+            "inputPoint0": CIVector(x: 68, y: 0), "inputColor0": CIColor.white,
+            "inputPoint1": CIVector(x: 76, y: 0), "inputColor1": CIColor.black
+        ])!.outputImage!.cropped(to: CGRect(x: 0, y: 0, width: 160, height: 90))
+        h.mattes["med_blue"] = ramp
+        let frame = h.render(at: t(1))
+        // A third alpha over the red screen there: pink in the wall's
+        // colour, purple with the person's, no green at all.
+        let edge = frame[146, 90]
+        XCTAssertLessThan(edge[1], 20, "wall colour in the cutout's edge: \(edge)")
+        XCTAssertGreaterThan(edge[2], 40, "the person's colour should carry to the edge: \(edge)")
+        // Inside, the person is untouched; outside, the screen is.
+        assertColor(frame[60, 90], blue)
+        assertColor(frame[300, 90], red)
+    }
+
+    /// In a corner drawn smaller than its matte (the viewer, a review
+    /// render) the colour is worked out at the drawn size, and still holds.
+    func testCutoutEdgeColourHoldsInASmallCorner() {
+        var h = screenAndCamera(VideoProperties(transform: Transform(position: Point(x: 0.5, y: 0.5), scale: 0.5), cutout: Cutout(edgeFeather: 0)))
+        h.pictures["med_blue"] = CIImage(color: .white).cropped(to: CGRect(x: 140, y: 0, width: 180, height: 180))
+            .composited(over: CIImage(color: .blue).cropped(to: CGRect(x: 0, y: 0, width: 140, height: 180)))
+        // A full-size matte, so the corner draws it at half size: solid to
+        // 136, ramping to clear by 152 over the wall.
+        h.mattes["med_blue"] = CIFilter(name: "CILinearGradient", parameters: [
+            "inputPoint0": CIVector(x: 136, y: 0), "inputColor0": CIColor.white,
+            "inputPoint1": CIVector(x: 152, y: 0), "inputColor1": CIColor.black
+        ])!.outputImage!.cropped(to: CGRect(x: 0, y: 0, width: 320, height: 180))
+        // The corner spans x 80...240; picture x 144 lands at 152.
+        let edge = h.render(at: t(1))[152, 90]
+        XCTAssertLessThan(edge[1], 30, "wall colour in a small corner's edge: \(edge)")
+        XCTAssertGreaterThan(edge[2], 40, "the person's colour should carry to the edge: \(edge)")
+    }
+
+    /// Nor does a gap close when the corner is drawn smaller than its
+    /// matte, so the viewer shows what the export does (review).
+    func testCutoutEdgeColourDoesntCrossAGapInASmallCorner() {
+        var h = screenAndCamera(VideoProperties(transform: Transform(position: Point(x: 0.5, y: 0.5), scale: 0.5), cutout: Cutout(edgeFeather: 0)))
+        h.pictures["med_blue"] = CIImage(color: .green).cropped(to: CGRect(x: 121, y: 0, width: 24, height: 180))
+            .composited(over: CIImage(color: .blue).cropped(to: CGRect(x: 0, y: 0, width: 120, height: 180)))
+            .composited(over: CIImage(color: .white).cropped(to: CGRect(x: 0, y: 0, width: 320, height: 180)))
+        // Full-size matte: solid to 120, one clear column, the detail at 0.4.
+        h.mattes["med_blue"] = CIImage(color: CIColor(red: 0.4, green: 0.4, blue: 0.4)).cropped(to: CGRect(x: 121, y: 0, width: 24, height: 180))
+            .composited(over: CIImage(color: .white).cropped(to: CGRect(x: 0, y: 0, width: 120, height: 180)))
+            .composited(over: CIImage(color: .black).cropped(to: CGRect(x: 0, y: 0, width: 320, height: 180)))
+        // The corner spans x 80...240: picture x 136 lands at 148.
+        let detail = h.render(at: t(1))[148, 90]
+        XCTAssertGreaterThan(detail[1], detail[2] + 30, "the colour crossed the gap at the corner's size: \(detail)")
+    }
+
+    /// The same with a feather, which bridges the gap: the viewer still
+    /// mustn't recolour the detail (review; the default feather moves it a
+    /// pixel or so, a wider one shows it plainly).
+    func testCutoutEdgeColourDoesntCrossAFeatheredGapInASmallCorner() {
+        // About a 3 matte pixel blur at this size.
+        var h = screenAndCamera(VideoProperties(transform: Transform(position: Point(x: 0.5, y: 0.5), scale: 0.5), cutout: Cutout(edgeFeather: 36)))
+        h.pictures["med_blue"] = CIImage(color: .green).cropped(to: CGRect(x: 121, y: 0, width: 24, height: 180))
+            .composited(over: CIImage(color: .blue).cropped(to: CGRect(x: 0, y: 0, width: 120, height: 180)))
+            .composited(over: CIImage(color: .white).cropped(to: CGRect(x: 0, y: 0, width: 320, height: 180)))
+        h.mattes["med_blue"] = CIImage(color: CIColor(red: 0.4, green: 0.4, blue: 0.4)).cropped(to: CGRect(x: 121, y: 0, width: 24, height: 180))
+            .composited(over: CIImage(color: .white).cropped(to: CGRect(x: 0, y: 0, width: 120, height: 180)))
+            .composited(over: CIImage(color: .black).cropped(to: CGRect(x: 0, y: 0, width: 320, height: 180)))
+        // The detail past the feathered gap: picture x 126...130 lands at
+        // 143...145.
+        let frame = h.render(at: t(1))
+        for x in [143, 145] {
+            let detail = frame[x, 90]
+            XCTAssertGreaterThan(detail[1], detail[2] + 20, "the colour crossed a feathered gap at the corner's size, x \(x): \(detail)")
+        }
+    }
+
+    /// A thin detail that's never solid in the matte (a motion-blurred
+    /// finger, a strand of hair) keeps its own colour rather than taking the
+    /// nearest solid part's across a gap (found in review).
+    func testCutoutEdgeLeavesAMostlySolidDetailItsOwnColour() {
+        var h = screenAndCamera(VideoProperties(cutout: Cutout(edgeFeather: 0)))
+        // Blue person to x 96, a green detail at 104...108.
+        h.pictures["med_blue"] = CIImage(color: .green).cropped(to: CGRect(x: 104, y: 0, width: 4, height: 180))
+            .composited(over: CIImage(color: .blue).cropped(to: CGRect(x: 0, y: 0, width: 96, height: 180)))
+            .composited(over: CIImage(color: .white).cropped(to: CGRect(x: 0, y: 0, width: 320, height: 180)))
+        // Matte (half size): solid to 48, a 4 px clear gap, the detail at 0.8.
+        h.mattes["med_blue"] = CIImage(color: CIColor(red: 0.8, green: 0.8, blue: 0.8)).cropped(to: CGRect(x: 52, y: 0, width: 2, height: 90))
+            .composited(over: CIImage(color: .white).cropped(to: CGRect(x: 0, y: 0, width: 48, height: 90)))
+            .composited(over: CIImage(color: .black).cropped(to: CGRect(x: 0, y: 0, width: 160, height: 90)))
+        let detail = h.render(at: t(1))[106, 90]
+        XCTAssertGreaterThan(detail[1], detail[2] + 60, "the detail took the person's blue: \(detail)")
+    }
+
+    /// The colour can't cross even a one pixel clear gap (review: blur
+    /// steps of a 2 px sigma reached over it).
+    func testCutoutEdgeColourDoesntCrossAOnePixelGap() {
+        var h = screenAndCamera(VideoProperties(cutout: Cutout(edgeFeather: 0)))
+        h.pictures["med_blue"] = CIImage(color: .green).cropped(to: CGRect(x: 122, y: 0, width: 4, height: 180))
+            .composited(over: CIImage(color: .blue).cropped(to: CGRect(x: 0, y: 0, width: 120, height: 180)))
+            .composited(over: CIImage(color: .white).cropped(to: CGRect(x: 0, y: 0, width: 320, height: 180)))
+        // Matte (half size): solid to 60, one clear pixel, the detail at 0.8.
+        h.mattes["med_blue"] = CIImage(color: CIColor(red: 0.8, green: 0.8, blue: 0.8)).cropped(to: CGRect(x: 61, y: 0, width: 2, height: 90))
+            .composited(over: CIImage(color: .white).cropped(to: CGRect(x: 0, y: 0, width: 60, height: 90)))
+            .composited(over: CIImage(color: .black).cropped(to: CGRect(x: 0, y: 0, width: 160, height: 90)))
+        let detail = h.render(at: t(1))[124, 90]
+        XCTAssertGreaterThan(detail[1], detail[2] + 100, "the colour crossed the gap: \(detail)")
+    }
+
+    /// A mostly solid detail touching the body keeps most of its own colour.
+    func testCutoutEdgeLeavesATouchingDetailMostlyItsOwnColour() {
+        var h = screenAndCamera(VideoProperties(cutout: Cutout(edgeFeather: 0)))
+        h.pictures["med_blue"] = CIImage(color: .green).cropped(to: CGRect(x: 120, y: 0, width: 4, height: 180))
+            .composited(over: CIImage(color: .blue).cropped(to: CGRect(x: 0, y: 0, width: 120, height: 180)))
+            .composited(over: CIImage(color: .white).cropped(to: CGRect(x: 0, y: 0, width: 320, height: 180)))
+        h.mattes["med_blue"] = CIImage(color: CIColor(red: 0.8, green: 0.8, blue: 0.8)).cropped(to: CGRect(x: 60, y: 0, width: 2, height: 90))
+            .composited(over: CIImage(color: .white).cropped(to: CGRect(x: 0, y: 0, width: 60, height: 90)))
+            .composited(over: CIImage(color: .black).cropped(to: CGRect(x: 0, y: 0, width: 160, height: 90)))
+        let detail = h.render(at: t(1))[122, 90]
+        XCTAssertGreaterThan(detail[1], detail[2] + 40, "the detail took the body's colour: \(detail)")
+    }
+
+    /// A negative choke grows the matte over the wall; those pixels take the
+    /// person's colour rather than showing the wall (review).
+    func testCutoutEdgeColourIgnoresWhatANegativeChokeAdds() {
+        // About 4 matte pixels of growth at this size.
+        var h = screenAndCamera(VideoProperties(cutout: Cutout(edgeFeather: 0, choke: -48)))
+        h.pictures["med_blue"] = CIImage(color: .white).cropped(to: CGRect(x: 100, y: 0, width: 220, height: 180))
+            .composited(over: CIImage(color: .blue).cropped(to: CGRect(x: 0, y: 0, width: 100, height: 180)))
+        h.mattes["med_blue"] = CIImage(color: .white).cropped(to: CGRect(x: 0, y: 0, width: 50, height: 90))
+            .composited(over: CIImage(color: .black).cropped(to: CGRect(x: 0, y: 0, width: 160, height: 90)))
+        let grown = h.render(at: t(1))[104, 90]
+        XCTAssertLessThan(grown[1], 40, "the grown band shows the wall: \(grown)")
+        XCTAssertGreaterThan(grown[2], 150, "the grown band should be the person's colour: \(grown)")
+    }
+
+    /// A feather mustn't let the colour cross a gap the matte itself has
+    /// (review: the flood went through the feathered matte).
+    func testCutoutEdgeColourDoesntCrossAGapTheFeatherBridges() {
+        // About a 1 matte pixel blur at this size.
+        var h = screenAndCamera(VideoProperties(cutout: Cutout(edgeFeather: 48)))
+        h.pictures["med_blue"] = CIImage(color: .green).cropped(to: CGRect(x: 122, y: 0, width: 12, height: 180))
+            .composited(over: CIImage(color: .blue).cropped(to: CGRect(x: 0, y: 0, width: 120, height: 180)))
+            .composited(over: CIImage(color: .white).cropped(to: CGRect(x: 0, y: 0, width: 320, height: 180)))
+        h.mattes["med_blue"] = CIImage(color: CIColor(red: 0.4, green: 0.4, blue: 0.4)).cropped(to: CGRect(x: 61, y: 0, width: 6, height: 90))
+            .composited(over: CIImage(color: .white).cropped(to: CGRect(x: 0, y: 0, width: 60, height: 90)))
+            .composited(over: CIImage(color: .black).cropped(to: CGRect(x: 0, y: 0, width: 160, height: 90)))
+        let detail = h.render(at: t(1))[128, 90]
+        XCTAssertGreaterThan(detail[1], detail[2] + 30, "the colour crossed the gap through the feather: \(detail)")
+    }
+
+    /// Nor a clear gap on the diagonal (review: a 3x3 step hopped corners).
+    func testCutoutEdgeColourDoesntCrossADiagonalGap() {
+        // A hard step along x + y = at, `below` under it and `above` over.
+        func step(_ at: CGFloat, _ below: CIColor, _ above: CIColor, _ size: CGSize) -> CIImage {
+            CIFilter(name: "CILinearGradient", parameters: [
+                "inputPoint0": CIVector(x: at / 2, y: at / 2), "inputColor0": below,
+                "inputPoint1": CIVector(x: at / 2 + 0.01, y: at / 2 + 0.01), "inputColor1": above
+            ])!.outputImage!.cropped(to: CGRect(origin: .zero, size: size))
+        }
+        var h = screenAndCamera(VideoProperties(cutout: Cutout(edgeFeather: 0)))
+        // Canvas: blue person up to x + y = 202, green detail beyond.
+        h.pictures["med_blue"] = step(202, .blue, .green, CGSize(width: 320, height: 180))
+        // Matte (half size): solid up to x + y = 100 at pixel centres, one
+        // clear diagonal of pixels (x + y = 101), the detail at 0.4 from 102
+        // to 120, clear beyond.
+        let grey = CIColor(red: 0.4, green: 0.4, blue: 0.4)
+        let size = CGSize(width: 160, height: 90)
+        let band = step(101.5, .black, grey, size)
+            .applyingFilter("CIMinimumCompositing", parameters: [kCIInputBackgroundImageKey: step(120.5, grey, .black, size)])
+        h.mattes["med_blue"] = step(100.5, .white, .black, size)
+            .applyingFilter("CIMaximumCompositing", parameters: [kCIInputBackgroundImageKey: band])
+        // Matte (55, 55) is x + y = 110, inside the detail: canvas (110, 110),
+        // which is row 70 of the top-down bitmap.
+        let detail = h.render(at: t(1))[110, 70]
+        XCTAssertGreaterThan(detail[1], detail[2] + 30, "the colour crossed the diagonal gap: \(detail)")
+    }
+
+    /// A negative choke wider than the flood's own reach still gets the
+    /// person's colour all the way out (review).
+    func testCutoutEdgeColourCoversAWideNegativeChoke() {
+        // About 20 matte pixels of growth at this size.
+        var h = screenAndCamera(VideoProperties(cutout: Cutout(edgeFeather: 0, choke: -240)))
+        h.pictures["med_blue"] = CIImage(color: .white).cropped(to: CGRect(x: 60, y: 0, width: 260, height: 180))
+            .composited(over: CIImage(color: .blue).cropped(to: CGRect(x: 0, y: 0, width: 60, height: 180)))
+        h.mattes["med_blue"] = CIImage(color: .white).cropped(to: CGRect(x: 0, y: 0, width: 30, height: 90))
+            .composited(over: CIImage(color: .black).cropped(to: CGRect(x: 0, y: 0, width: 160, height: 90)))
+        let outer = h.render(at: t(1))[94, 90]
+        XCTAssertLessThan(outer[1], 40, "the outer grown band shows the wall: \(outer)")
+        XCTAssertGreaterThan(outer[2], 150, "the outer grown band should be the person's colour: \(outer)")
+    }
+
+    /// A negative choke grows a diagonal edge further than a straight one
+    /// (the grow is round); the colour still reaches all of it (review).
+    func testCutoutEdgeColourCoversANegativeChokeOnADiagonal() {
+        func step(_ at: CGFloat, _ below: CIColor, _ above: CIColor, _ size: CGSize) -> CIImage {
+            CIFilter(name: "CILinearGradient", parameters: [
+                "inputPoint0": CIVector(x: at / 2, y: at / 2), "inputColor0": below,
+                "inputPoint1": CIVector(x: at / 2 + 0.01, y: at / 2 + 0.01), "inputColor1": above
+            ])!.outputImage!.cropped(to: CGRect(origin: .zero, size: size))
+        }
+        // About 10 matte pixels of growth, so the diagonal edge moves out
+        // about 14 along x + y... sqrt 2 times 10.
+        var h = screenAndCamera(VideoProperties(cutout: Cutout(edgeFeather: 0, choke: -120)))
+        h.pictures["med_blue"] = step(200, .blue, .white, CGSize(width: 320, height: 180))
+        h.mattes["med_blue"] = step(100, .white, .black, CGSize(width: 160, height: 90))
+        // Matte x + y = 112 is inside the grown band, past 10 four-way
+        // steps: canvas (112, 112), row 68 of the top-down bitmap.
+        let grown = h.render(at: t(1))[112, 68]
+        XCTAssertLessThan(grown[1], 40, "the grown diagonal shows the wall: \(grown)")
+        XCTAssertGreaterThan(grown[2], 150, "the grown diagonal should be the person's colour: \(grown)")
+    }
+
+    /// A negative edge setting doesn't eat into a negative choke's reach.
+    func testCutoutEdgeColourCoversANegativeChokeWithANegativeFeather() {
+        var h = screenAndCamera(VideoProperties(cutout: Cutout(edgeFeather: -400, choke: -240)))
+        h.pictures["med_blue"] = CIImage(color: .white).cropped(to: CGRect(x: 60, y: 0, width: 260, height: 180))
+            .composited(over: CIImage(color: .blue).cropped(to: CGRect(x: 0, y: 0, width: 60, height: 180)))
+        h.mattes["med_blue"] = CIImage(color: .white).cropped(to: CGRect(x: 0, y: 0, width: 30, height: 90))
+            .composited(over: CIImage(color: .black).cropped(to: CGRect(x: 0, y: 0, width: 160, height: 90)))
+        let outer = h.render(at: t(1))[94, 90]
+        XCTAssertLessThan(outer[1], 40, "the outer grown band shows the wall: \(outer)")
+        XCTAssertGreaterThan(outer[2], 150, "the outer grown band should be the person's colour: \(outer)")
+    }
+
+    /// A negative edge setting (the API takes any number) mustn't crash.
+    func testCutoutWithANegativeFeatherRenders() {
+        var h = screenAndCamera(VideoProperties(cutout: Cutout(edgeFeather: -400)))
+        h.mattes["med_blue"] = split(.white, .black, width: 160, height: 90)
+        let frame = h.render(at: t(1))
+        assertColor(frame[60, 90], blue)
+        assertColor(frame[260, 90], red)
+    }
+
+    /// A wide edge setting on a small corner feathers the matte over many
+    /// matte pixels; the edge still mustn't fall back to the wall's colour
+    /// (found in review: the solid core was taken after feathering, so it
+    /// shrank out of the fill's reach).
+    func testCutoutEdgeColourHoldsWithAWideFeather() {
+        // About a 12 matte pixel blur at this size.
+        var h = screenAndCamera(VideoProperties(cutout: Cutout(edgeFeather: 576)))
+        h.pictures["med_blue"] = CIImage(color: .white).cropped(to: CGRect(x: 140, y: 0, width: 180, height: 180))
+            .composited(over: CIImage(color: .blue).cropped(to: CGRect(x: 0, y: 0, width: 140, height: 180)))
+        h.mattes["med_blue"] = CIImage(color: .white).cropped(to: CGRect(x: 0, y: 0, width: 70, height: 90))
+            .composited(over: CIImage(color: .black).cropped(to: CGRect(x: 0, y: 0, width: 160, height: 90)))
+        let edge = h.render(at: t(1))[146, 90]
+        XCTAssertLessThan(edge[1], 20, "wall colour in a wide feathered edge: \(edge)")
+        XCTAssertGreaterThan(edge[2], 40, "the person's colour should carry to the edge: \(edge)")
+    }
+
     func testCutoutWithoutAMatteShowsTheWholeFrame() {
         let frame = screenAndCamera(VideoProperties(cutout: Cutout())).render(at: t(1))
         assertColor(frame[260, 90], blue)
