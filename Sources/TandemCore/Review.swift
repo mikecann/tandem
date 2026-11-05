@@ -66,18 +66,34 @@ public struct ReviewRemoval: Codable, Equatable, Sendable {
     /// Where the mark is in `project`: beside its anchor wherever that has
     /// moved, or where it was recorded when the anchor's gone.
     public func time(in project: Project) -> Time {
-        time(anchor: anchorClipID.flatMap { project.clip($0) })
+        time(anchor: anchorClipID.flatMap { project.clip($0) }, end: project.duration)
     }
 
     /// The same, with the project's clips by ID: `project.clip` searches
-    /// every track, which adds up over hundreds of cuts.
-    public func time(clips: [String: Clip]) -> Time {
-        time(anchor: anchorClipID.flatMap { clips[$0] })
+    /// every track, which adds up over hundreds of cuts. `end` is the
+    /// project's end (`Project.duration`).
+    public func time(clips: [String: Clip], end: Time) -> Time {
+        time(anchor: anchorClipID.flatMap { clips[$0] }, end: end)
     }
 
-    private func time(anchor clip: Clip?) -> Time {
-        guard let clip else { return time }
-        return (anchorEdge == .end ? clip.end : clip.start) + offset
+    /// Never past the end of the timeline. Cutting the ending off lifts
+    /// the pieces after the new end, and each lift's offset says where its
+    /// piece used to sit, which is now time that isn't there: the marks
+    /// floated off past the last frame, where play can't reach to clear
+    /// them. What was cut is cut from the end, so the mark goes there.
+    private func time(anchor clip: Clip?, end: Time) -> Time {
+        min(position(anchor: clip), end)
+    }
+
+    /// Where the mark would be with the end not in the way. Re-pinning a
+    /// mark whose anchor went uses this, so a mark held at the end goes
+    /// back to its own place if the timeline grows past it again.
+    func position(in project: Project) -> Time {
+        position(anchor: anchorClipID.flatMap { project.clip($0) })
+    }
+
+    private func position(anchor clip: Clip?) -> Time {
+        clip.map { (anchorEdge == .end ? $0.end : $0.start) + offset } ?? time
     }
 }
 
@@ -372,7 +388,7 @@ public struct ReviewLog: Codable, Equatable, Sendable {
                 let removal = entries[index].removals[slot]
                 guard let anchor = removal.anchorClipID, !remaining.contains(anchor) else { continue }
                 var moved = removal
-                moved.time = c.map.start(removal.time(in: before))
+                moved.time = c.map.start(removal.position(in: before))
                 entries[index].removals[slot] = ReviewDiff.pinned(moved, in: after)
                 changed = true
             }
@@ -447,6 +463,7 @@ extension ReviewLog {
             for clip in track.clips { clips[clip.id] = clip }
             for transition in track.transitions { transitions[transition.id] = transition }
         }
+        let end = clips.values.map(\.end).max() ?? .zero
         var found: [Change] = []
         for entry in entries {
             for id in entry.clipIDs {
@@ -458,12 +475,7 @@ extension ReviewLog {
                 found.append(Change(subject: .transition(id), start: span.start, end: span.end, entry: entry))
             }
             for removal in entry.removals {
-                let time: Time
-                if let anchor = removal.anchorClipID.flatMap({ clips[$0] }) {
-                    time = (removal.anchorEdge == .end ? anchor.end : anchor.start) + removal.offset
-                } else {
-                    time = removal.time
-                }
+                let time = removal.time(clips: clips, end: end)
                 found.append(Change(subject: .removal(trackID: removal.trackID), start: time, end: time, entry: entry))
             }
         }
@@ -510,6 +522,7 @@ extension ReviewLog {
             for clip in track.clips { clips[clip.id] = clip }
             for transition in track.transitions { transitions[transition.id] = transition }
         }
+        let end = project.duration
         var changed = false
         for index in entries.indices {
             var entry = entries[index]
@@ -523,10 +536,17 @@ extension ReviewLog {
             // A cut is a moment: watched when play went across it. This
             // runs every frame while playing, so the clips come from the
             // table above rather than a search of the project per cut.
+            // A cut at the very end can't be played across, only up to,
+            // so reaching the end is enough there, give or take a frame or
+            // two, as play can stop just short of the last one. A cut just
+            // before the end still has to be reached.
             entry.removals.removeAll { removal in
-                let at = removal.time(clips: clips)
+                let at = removal.time(clips: clips, end: end)
                 let reach = Time(seconds: 0.25)
-                return seen.contains { $0.start <= at - reach && at + reach <= $0.end }
+                let slack = Time(seconds: 0.1)
+                let before = max(at - reach, .zero)
+                let after = at >= end ? end - slack : min(at + reach, max(at, end - slack))
+                return seen.contains { $0.start <= before && after <= $0.end }
             }
             if entry != entries[index] {
                 entries[index] = entry

@@ -509,6 +509,66 @@ final class ReviewLogTests: XCTestCase {
         XCTAssertEqual(removal.time(in: c.project), t(17))
     }
 
+    /// Cutting the ending off a Short lifts everything after the new end,
+    /// so each piece's mark was pinned past the last clip on its track, in
+    /// time that's no longer on the timeline. Seth's BIOS Short (5 Nov)
+    /// showed 34 of them floating 25 s past its end, where play can never
+    /// reach to clear them. A mark past the end sits at the end instead,
+    /// and playing to the end clears it.
+    func testAMarkPastTheEndSitsAtTheEndAndPlayingToTheEndClearsIt() throws {
+        let (_, c) = try Fixture.edited()
+        let project = c.project
+        let end = project.duration
+        let location = try XCTUnwrap(project.trackLocations.first { project[$0].name == "Camera" })
+        let last = try XCTUnwrap(project[location].clips.last)
+        let removal = ReviewRemoval(trackID: project[location].id, time: end + t(10), duration: t(4), anchorClipID: last.id, anchorEdge: .end, offset: end - last.end + t(10), from: [])
+        XCTAssertEqual(removal.time(in: project), end)
+
+        var changes = ReviewChanges()
+        changes.removals = [removal]
+        var log = ReviewLog(entries: [ReviewEntry(revision: 1, label: "End on the reveal", author: "claude", date: Date(), changes: changes)])
+        XCTAssertEqual(log.changes(in: project).map(\.start), [end])
+        XCTAssertEqual(log.changedRegions(in: project).map(\.end), [end], "the ruler's band stops at the end too")
+
+        XCTAssertFalse(log.markWatched([TimeRange(start: end - t(5), end: end - t(1))], in: project), "stopping short of the end doesn't clear it")
+        XCTAssertTrue(log.markWatched([TimeRange(start: end - t(5), end: end)], in: project))
+        XCTAssertTrue(log.entries.isEmpty)
+    }
+
+    /// The slack at the end is only for a mark at the end: one just before
+    /// it still has to be reached.
+    func testAMarkJustBeforeTheEndStillHasToBeReached() throws {
+        let (_, c) = try Fixture.edited()
+        let project = c.project
+        let end = project.duration
+        let location = try XCTUnwrap(project.trackLocations.first { project[$0].name == "Camera" })
+        let last = try XCTUnwrap(project[location].clips.last)
+        let at = end - t(0.05)
+        var changes = ReviewChanges()
+        changes.removals = [ReviewRemoval(trackID: project[location].id, time: at, duration: t(1), anchorClipID: last.id, anchorEdge: .end, offset: at - last.end, from: [])]
+        var log = ReviewLog(entries: [ReviewEntry(revision: 1, label: "Cut", author: "claude", date: Date(), changes: changes)])
+        XCTAssertFalse(log.markWatched([TimeRange(start: end - t(1), end: end - t(0.1))], in: project))
+        XCTAssertTrue(log.markWatched([TimeRange(start: end - t(1), end: at)], in: project))
+    }
+
+    /// A Short trimmed to a few frames: watching all of it clears the mark
+    /// at its end, though there's no quarter second before it to play.
+    func testWatchingAVeryShortTimelineClearsItsEndMark() throws {
+        let (_, c) = try Fixture.edited()
+        var project = c.project
+        for location in project.trackLocations { project[location].clips = [] }
+        let location = try XCTUnwrap(project.trackLocations.first { project[$0].name == "Camera" })
+        var clip = try XCTUnwrap(c.project[location].clips.first)
+        clip.start = .zero
+        clip.duration = t(0.2)
+        clip.linkGroup = nil
+        project[location].clips = [clip]
+        var changes = ReviewChanges()
+        changes.removals = [ReviewRemoval(trackID: project[location].id, time: t(5), duration: t(5), anchorClipID: clip.id, anchorEdge: .end, offset: t(4.8), from: [])]
+        var log = ReviewLog(entries: [ReviewEntry(revision: 1, label: "Trim", author: "claude", date: Date(), changes: changes)])
+        XCTAssertTrue(log.markWatched([TimeRange(start: .zero, end: t(0.2))], in: project))
+    }
+
     /// When the clip a mark was pinned to goes, the mark is pinned again
     /// where its join is now.
     func testAMarkWhoseClipWentIsPinnedAgain() throws {
