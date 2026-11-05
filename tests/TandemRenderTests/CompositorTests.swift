@@ -259,7 +259,7 @@ final class CompositorTests: XCTestCase {
     /// The edge should show the person's colour from just inside instead.
     func testCutoutEdgeShowsThePersonsColourNotTheWall() {
         XCTAssertNotNil(Kernels.cutoutCoreKernel)
-        XCTAssertNotNil(Kernels.cutoutSpread)
+        XCTAssertNotNil(Kernels.cutoutFlood)
         XCTAssertNotNil(Kernels.cutoutEdge)
         var h = screenAndCamera(VideoProperties(cutout: Cutout(edgeFeather: 0)))
         // Blue person to x 140, white wall beyond.
@@ -299,6 +299,48 @@ final class CompositorTests: XCTestCase {
             .composited(over: CIImage(color: .black).cropped(to: CGRect(x: 0, y: 0, width: 160, height: 90)))
         let detail = h.render(at: t(1))[106, 90]
         XCTAssertGreaterThan(detail[1], detail[2] + 60, "the detail took the person's blue: \(detail)")
+    }
+
+    /// The colour can't cross even a one pixel clear gap (review: blur
+    /// steps of a 2 px sigma reached over it).
+    func testCutoutEdgeColourDoesntCrossAOnePixelGap() {
+        var h = screenAndCamera(VideoProperties(cutout: Cutout(edgeFeather: 0)))
+        h.pictures["med_blue"] = CIImage(color: .green).cropped(to: CGRect(x: 122, y: 0, width: 4, height: 180))
+            .composited(over: CIImage(color: .blue).cropped(to: CGRect(x: 0, y: 0, width: 120, height: 180)))
+            .composited(over: CIImage(color: .white).cropped(to: CGRect(x: 0, y: 0, width: 320, height: 180)))
+        // Matte (half size): solid to 60, one clear pixel, the detail at 0.8.
+        h.mattes["med_blue"] = CIImage(color: CIColor(red: 0.8, green: 0.8, blue: 0.8)).cropped(to: CGRect(x: 61, y: 0, width: 2, height: 90))
+            .composited(over: CIImage(color: .white).cropped(to: CGRect(x: 0, y: 0, width: 60, height: 90)))
+            .composited(over: CIImage(color: .black).cropped(to: CGRect(x: 0, y: 0, width: 160, height: 90)))
+        let detail = h.render(at: t(1))[124, 90]
+        XCTAssertGreaterThan(detail[1], detail[2] + 100, "the colour crossed the gap: \(detail)")
+    }
+
+    /// A mostly solid detail touching the body keeps most of its own colour.
+    func testCutoutEdgeLeavesATouchingDetailMostlyItsOwnColour() {
+        var h = screenAndCamera(VideoProperties(cutout: Cutout(edgeFeather: 0)))
+        h.pictures["med_blue"] = CIImage(color: .green).cropped(to: CGRect(x: 120, y: 0, width: 4, height: 180))
+            .composited(over: CIImage(color: .blue).cropped(to: CGRect(x: 0, y: 0, width: 120, height: 180)))
+            .composited(over: CIImage(color: .white).cropped(to: CGRect(x: 0, y: 0, width: 320, height: 180)))
+        h.mattes["med_blue"] = CIImage(color: CIColor(red: 0.8, green: 0.8, blue: 0.8)).cropped(to: CGRect(x: 60, y: 0, width: 2, height: 90))
+            .composited(over: CIImage(color: .white).cropped(to: CGRect(x: 0, y: 0, width: 60, height: 90)))
+            .composited(over: CIImage(color: .black).cropped(to: CGRect(x: 0, y: 0, width: 160, height: 90)))
+        let detail = h.render(at: t(1))[122, 90]
+        XCTAssertGreaterThan(detail[1], detail[2] + 40, "the detail took the body's colour: \(detail)")
+    }
+
+    /// A negative choke grows the matte over the wall; those pixels take the
+    /// person's colour rather than showing the wall (review).
+    func testCutoutEdgeColourIgnoresWhatANegativeChokeAdds() {
+        // About 4 matte pixels of growth at this size.
+        var h = screenAndCamera(VideoProperties(cutout: Cutout(edgeFeather: 0, choke: -48)))
+        h.pictures["med_blue"] = CIImage(color: .white).cropped(to: CGRect(x: 100, y: 0, width: 220, height: 180))
+            .composited(over: CIImage(color: .blue).cropped(to: CGRect(x: 0, y: 0, width: 100, height: 180)))
+        h.mattes["med_blue"] = CIImage(color: .white).cropped(to: CGRect(x: 0, y: 0, width: 50, height: 90))
+            .composited(over: CIImage(color: .black).cropped(to: CGRect(x: 0, y: 0, width: 160, height: 90)))
+        let grown = h.render(at: t(1))[104, 90]
+        XCTAssertLessThan(grown[1], 40, "the grown band shows the wall: \(grown)")
+        XCTAssertGreaterThan(grown[2], 150, "the grown band should be the person's colour: \(grown)")
     }
 
     /// A wide edge setting on a small corner feathers the matte over many

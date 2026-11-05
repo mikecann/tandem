@@ -518,21 +518,26 @@ Notes on each:
   PiP's own pixels at 4K), which spread alpha back over the wall
   `cleanEdge` had cut; it's now the soft edge's width, a quarter of that
   as sigma. And wherever the matte is soft, the colour comes from the
-  solid person just inside (matte 0.85 and up, before feathering), spread
-  outward in eight steps of a 2 matte pixel blur, each kept only where the
-  matte covers the pixel, and fading back to the picture's own colour as
-  alpha rises from 0.7. On six frames of that take the extra light at the
-  edge fell from 3.4 to about 0.5 (0 to 255, mean over the soft edge), and
-  a 720p review render takes about 4 ms a frame longer.
+  solid person just inside (matte 0.85 and up, before feathering or a
+  negative choke), flooded outward a pixel a step for 12 steps (more with a
+  wide feather) through pixels the matte covers, and fading back to the
+  picture's own colour as the matte rises from 0.5. On six frames of that
+  take the extra light at the edge fell from 3.4 to about 0.9 (0 to 255,
+  mean over the soft edge), the edge flickered less between still frames
+  (1.4 against 1.9), and a 720p review render takes about 4 ms a frame
+  longer.
 
-  Free blurs carried the colour further (0.3) but jumped clear gaps: a
-  thin detail that's never solid (a motion-blurred finger beside the
-  jacket) took the jacket's colour, and with the core taken after
-  feathering a wide edge setting shrank it out of reach (Codex's review, 5
-  Nov 2026; both are tests in `CompositorTests`). RVM's own foreground
-  output was worse than doing nothing (4.3): it carries the wall too.
-  Solving for the colour against a blurred estimate of the wall behind
-  took it only to 2.4.
+  Blurs carried the colour further (down to 0.3) but jumped clear gaps,
+  free or in small steps: a thin detail that's never solid (a
+  motion-blurred finger beside the jacket) took the jacket's colour. A
+  pixel-a-step diffusion couldn't jump them but only reached the square
+  root of its steps (1.4 after 16). Fading from 0.7 cut the rim a little
+  more (0.7) but left a touching detail at 0.8 only 29% of its own colour.
+  Codex's reviews (5 Nov 2026) found those, and taking the core after
+  feathering, which a wide edge setting shrank out of reach; they're all
+  tests in `CompositorTests`. RVM's own foreground output was worse than
+  doing nothing (4.3): it carries the wall too. Solving for the colour
+  against a blurred estimate of the wall behind took it only to 2.4.
 
   Scores through the job on the two ranges (A / B): flicker 0.066 / 0.062
   (version 2: 0.17 / 0.20, RVM before the edge fix 0.082 / 0.070), pop

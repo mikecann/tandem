@@ -351,6 +351,7 @@ struct FrameComposer {
             }
         }
 
+        let unchoked = matte
         let choke = CGFloat(settings.choke) * unit * toMatte
         if abs(choke) >= 0.5 {
             matte = matte.clampedToExtent()
@@ -362,7 +363,9 @@ struct FrameComposer {
         // out over 8 px at 1080p, which spread alpha back over the wall that
         // `RVMMatte.cleanEdge` had just cut and left a glow round Mike in the
         // corner (a 4 px sigma on the PiP's own pixels at 4K).
-        let solid = matte
+        // Where the person's colour comes from: the matte before feathering,
+        // and before a negative choke grows it over the wall (review).
+        let solid = choke <= -0.5 ? unchoked : matte
         let feather = CGFloat(settings.edgeFeather) * unit * toMatte / 4
         if feather >= 0.25 {
             matte = matte.clampedToExtent().applyingGaussianBlur(sigma: Double(feather)).cropped(to: matteRect)
@@ -383,40 +386,39 @@ struct FrameComposer {
     /// Under a soft matte edge the camera's pixels are part background: a
     /// light wall showed as a pale rim round Mike's cap over dark UI, and
     /// the orange sofa cushions as a warm one on his shoulders. So the
-    /// colour where the matte is solid (`Kernels.cutoutCore`) is carried
+    /// colour where the matte is solid (`Kernels.cutoutCore`) is flooded
     /// outward and used wherever the matte is soft, fading back to the
     /// picture's own colour as alpha rises from `Kernels.cutoutKeepFrom`.
     /// Measured on the Threadbear launch take: the rim's extra light fell
-    /// from 3.4 to about 0.5 (0 to 255, mean over the soft edge).
+    /// from 3.4 to about 0.9 (0 to 255, mean over the soft edge).
     ///
-    /// The colour spreads in small steps, each kept only where the matte
-    /// covers the pixel, so it can't jump a clear gap to a finger or a prop
-    /// that isn't the same colour (free blurs did: review, 5 Nov 2026). The
-    /// core is taken from `solid`, the matte before feathering, so a wide
-    /// feather can't shrink it out of reach, and the steps grow with the
-    /// feather. The carried colour is smooth, so it's made at the matte's
-    /// size and scaled up. Nil if a kernel didn't compile; the caller then
-    /// cuts out with the picture's own colours as before.
+    /// The flood moves a pixel a step through pixels the matte covers, so
+    /// it can't cross a clear gap to a finger or a prop that isn't the same
+    /// colour: blurs did, even in small steps (review, 5 Nov 2026). The core
+    /// comes from `solid`, the matte before feathering, so a wide feather
+    /// can't shrink it out of reach, and the flood runs further with the
+    /// feather. It's made at the matte's size and scaled up. Nil if a
+    /// kernel didn't compile; the caller then cuts out with the picture's
+    /// own colours as before.
     static func cutoutEdgeColour(_ image: CIImage, matte: CIImage, solid: CIImage, feather: CGFloat, matteRect: CGRect, toImage: CGAffineTransform) -> CIImage? {
-        guard let coreKernel = Kernels.cutoutCoreKernel, let spreadKernel = Kernels.cutoutSpread,
+        guard let coreKernel = Kernels.cutoutCoreKernel, let floodKernel = Kernels.cutoutFlood,
               let edgeKernel = Kernels.cutoutEdge else { return nil }
         let (low, high) = Kernels.cutoutCore
         let small = image.transformed(by: toImage.inverted())
-        guard let core = coreKernel.apply(extent: matteRect, arguments: [small, solid, low, high]) else { return nil }
-        // Eight steps of a 2 matte pixel blur reach about 10 pixels out,
-        // past RVM's soft edge (a few of its own pixels at any matte size)
-        // and the soft hand of a fast gesture. A wide feather spreads the
-        // edge further, so the steps grow with it.
-        let step = max(2, Double(feather) / 2)
-        var carried = core
-        for _ in 0..<8 {
-            let blurred = carried.clampedToExtent().applyingGaussianBlur(sigma: step).cropped(to: matteRect)
-            guard let next = spreadKernel.apply(extent: matteRect, arguments: [blurred, core, matte]) else { return nil }
-            carried = next
+        guard var flood = coreKernel.apply(extent: matteRect, arguments: [small, solid, low, high]) else { return nil }
+        // 12 matte pixels is past RVM's soft edge (a few of its own pixels
+        // at any matte size) and the soft hand of a fast gesture; a feather
+        // spreads the edge about two sigmas further.
+        let steps = min(64, 12 + Int((2 * feather).rounded(.up)))
+        let mean = CIVector(values: [CGFloat](repeating: 1.0 / 9, count: 9), count: 9)
+        for _ in 0..<steps {
+            let around = flood.applyingFilter("CIConvolution3X3", parameters: ["inputWeights": mean, "inputBias": 0]).cropped(to: matteRect)
+            guard let next = floodKernel.apply(extent: matteRect, arguments: [flood, around, matte]) else { return nil }
+            flood = next
         }
-        let carriedUp = carried.clampedToExtent().transformed(by: toImage).cropped(to: image.extent)
+        let floodUp = flood.clampedToExtent().transformed(by: toImage).cropped(to: image.extent)
         return edgeKernel.apply(extent: image.extent, arguments: [
-            image, carriedUp, matte.transformed(by: toImage), solid.transformed(by: toImage),
+            image, floodUp, matte.transformed(by: toImage), solid.transformed(by: toImage),
             low, high, Kernels.cutoutKeepFrom
         ])
     }
