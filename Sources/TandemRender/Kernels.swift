@@ -230,6 +230,66 @@ enum Kernels {
         }
     }()
 
+    // MARK: Cutout edge colour
+    //
+    // The camera's pixels under a soft matte edge are part wall, so a light
+    // wall left a pale rim round Mike's cap and shoulders over dark UI. These
+    // three give the edge the person's own colour from just inside the
+    // outline instead (`FrameComposer.cutoutEdgeColour`).
+
+    /// Where the matte counts as solid person: their colour is taken from
+    /// here. Just below 1 so a matte that never quite reaches 1 still has a
+    /// core; 0.85 and up is solid on RVM's mattes of Mike.
+    static let cutoutCore = (low: Float(0.85), high: Float(0.98))
+
+    static let cutoutCoreSource = header + """
+    extern "C" { namespace coreimage {
+    // The picture weighted by how solid the matte is there, premultiplied,
+    // so a blur of it divided by its alpha is the core's average colour.
+    [[stitchable]] float4 tandemCutoutCore(sample_t s, sample_t m, float low, float high) {
+        // Times the picture's alpha: outside a crop there's no colour to take.
+        float core = smoothstep(low, high, m.r) * s.a;
+        float3 c = s.a > 0.0 ? s.rgb / s.a : float3(0.0);
+        return float4(c * core, core);
+    }
+    }}
+    """
+
+    static let cutoutFillSource = header + """
+    extern "C" { namespace coreimage {
+    // The core's colour carried outward: the widest blur's colour where it
+    // reaches, then each narrower one over it, so a pixel takes its colour
+    // from the nearest part of the person (the black of the cap's rim, not
+    // the white logo further in). Out of reach of all of them: the picture.
+    inline float3 lay(float3 under, float4 b) {
+        if (b.a <= 0.0001) return under;
+        return mix(under, b.rgb / b.a, clamp(b.a * 8.0, 0.0, 1.0));
+    }
+    [[stitchable]] float4 tandemCutoutFill(sample_t s, sample_t b1, sample_t b2, sample_t b3, sample_t b4) {
+        float3 c = s.a > 0.0 ? s.rgb / s.a : float3(0.0);
+        c = lay(lay(lay(lay(c, b4), b3), b2), b1);
+        return float4(c, 1.0);
+    }
+    }}
+    """
+
+    static let cutoutEdgeSource = header + """
+    extern "C" { namespace coreimage {
+    // The cut-out layer, premultiplied: the picture where the matte is
+    // solid, the carried colour where it's soft.
+    [[stitchable]] float4 tandemCutoutEdge(sample_t s, sample_t fill, sample_t m, float low, float high) {
+        float core = smoothstep(low, high, m.r);
+        float3 c = s.a > 0.0 ? s.rgb / s.a : float3(0.0);
+        float a = m.r * s.a;
+        return float4(mix(fill.rgb, c, core) * a, a);
+    }
+    }}
+    """
+
+    static let cutoutCoreKernel = compile(cutoutCoreSource, "tandemCutoutCore")
+    static let cutoutFill = compile(cutoutFillSource, "tandemCutoutFill")
+    static let cutoutEdge = compile(cutoutEdgeSource, "tandemCutoutEdge")
+
     private static func compile(_ source: String, _ name: String) -> CIColorKernel? {
         do {
             return try CIKernel.kernels(withMetalString: source).first { $0.name == name } as? CIColorKernel

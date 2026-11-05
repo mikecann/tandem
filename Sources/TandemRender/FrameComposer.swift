@@ -357,15 +357,57 @@ struct FrameComposer {
                 .applyingFilter(choke > 0 ? "CIMorphologyMinimum" : "CIMorphologyMaximum", parameters: [kCIInputRadiusKey: abs(choke)])
                 .cropped(to: matteRect)
         }
-        let feather = CGFloat(settings.edgeFeather) * unit * toMatte
+        // The edge setting is the soft edge's width, about four blur sigmas.
+        // It used to be the sigma itself: the default 2 px blurred the matte
+        // out over 8 px at 1080p, which spread alpha back over the wall that
+        // `RVMMatte.cleanEdge` had just cut and left a glow round Mike in the
+        // corner (a 4 px sigma on the PiP's own pixels at 4K).
+        let feather = CGFloat(settings.edgeFeather) * unit * toMatte / 4
         if feather >= 0.25 {
             matte = matte.clampedToExtent().applyingGaussianBlur(sigma: Double(feather)).cropped(to: matteRect)
         }
-        matte = matte.transformed(by: CGAffineTransform(scaleX: size.width / matteRect.width, y: size.height / matteRect.height))
+        let toImage = CGAffineTransform(scaleX: size.width / matteRect.width, y: size.height / matteRect.height)
+        if let cut = cutoutEdgeColour(image, matte: matte, matteRect: matteRect, toImage: toImage) {
+            return cut.cropped(to: image.extent)
+        }
+        matte = matte.transformed(by: toImage)
         return image.applyingFilter("CIBlendWithMask", parameters: [
             kCIInputBackgroundImageKey: CIImage.clear,
             kCIInputMaskImageKey: matte
         ]).cropped(to: image.extent)
+    }
+
+    /// The cut-out layer with its soft edge in the person's own colour.
+    ///
+    /// Under a soft matte edge the camera's pixels are part background: a
+    /// light wall showed as a pale rim round Mike's cap over dark UI, and
+    /// the orange sofa cushions as a warm one on his shoulders. So the
+    /// colour where the matte is solid (`Kernels.cutoutCore`) is carried
+    /// outward with four blurs, nearest first, and used wherever the matte
+    /// is soft. Measured on the Threadbear launch take: the rim's extra
+    /// light fell from 3.4 to 0.2 (0 to 255, mean over the edge), and the
+    /// edge flickered less (1.5 against 1.9 between still frames), since
+    /// the wall's light flickered with it.
+    ///
+    /// The carried colour is smooth, so it's made at the matte's size and
+    /// scaled up. Nil if a kernel didn't compile; the caller then cuts out
+    /// with the picture's own colours as before.
+    static func cutoutEdgeColour(_ image: CIImage, matte: CIImage, matteRect: CGRect, toImage: CGAffineTransform) -> CIImage? {
+        guard let coreKernel = Kernels.cutoutCoreKernel, let fillKernel = Kernels.cutoutFill,
+              let edgeKernel = Kernels.cutoutEdge else { return nil }
+        let (low, high) = Kernels.cutoutCore
+        let small = image.transformed(by: toImage.inverted())
+        guard let core = coreKernel.apply(extent: matteRect, arguments: [small, matte, low, high]) else { return nil }
+        // In matte pixels, whatever the matte's size, since RVM's soft edge
+        // is a few of its own pixels wide: the nearest reaches the first
+        // pixel or two of the edge, the widest the soft hand of a fast
+        // gesture.
+        let blurs = [1.0, 2.0, 4.0, 8.0].map {
+            core.clampedToExtent().applyingGaussianBlur(sigma: $0).cropped(to: matteRect)
+        }
+        guard let fill = fillKernel.apply(extent: matteRect, arguments: [small] + blurs) else { return nil }
+        let fillUp = fill.clampedToExtent().transformed(by: toImage).cropped(to: image.extent)
+        return edgeKernel.apply(extent: image.extent, arguments: [image, fillUp, matte.transformed(by: toImage), low, high])
     }
 
     static func repairShape(_ shape: Mask, rect: CGRect, radius: CGFloat) -> CIImage {

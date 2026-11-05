@@ -571,7 +571,9 @@ public struct Cutout: Codable, Equatable, Sendable {
     /// `personAndProps` blends the person mask with the person-instance mask
     /// so a handheld mic is kept. `person` is the plain person mask.
     public var mode: CutoutMode
-    /// Softens the matte edge, in pixels at 1080p.
+    /// How wide the matte's soft edge is, in pixels at 1080p (a blur of a
+    /// quarter of this). Until November 2026 it was the blur itself, four
+    /// times as soft; projects keep the number and get the tighter edge.
     public var edgeFeather: Double
     /// Shrinks (positive) or grows (negative) the matte, in pixels at 1080p.
     public var choke: Double

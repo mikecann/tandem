@@ -254,6 +254,36 @@ final class CompositorTests: XCTestCase {
         assertColor(frame[260, 90], red)
     }
 
+    /// Where the matte is soft, the camera's own pixels there are part wall
+    /// (Mike's light grey wall made a pale rim round his cap over dark UI).
+    /// The edge should show the person's colour from just inside instead.
+    func testCutoutEdgeShowsThePersonsColourNotTheWall() {
+        XCTAssertNotNil(Kernels.cutoutCoreKernel)
+        XCTAssertNotNil(Kernels.cutoutFill)
+        XCTAssertNotNil(Kernels.cutoutEdge)
+        var h = screenAndCamera(VideoProperties(cutout: Cutout(edgeFeather: 0)))
+        // Blue person to x 140, white wall beyond.
+        h.pictures["med_blue"] = CIImage(color: .white).cropped(to: CGRect(x: 140, y: 0, width: 180, height: 180))
+            .composited(over: CIImage(color: .blue).cropped(to: CGRect(x: 0, y: 0, width: 140, height: 180)))
+        // The matte (half size) is solid to x 68, just inside the person's
+        // edge at 70, then ramps to clear by 76: a soft edge reaching over
+        // the wall, the way RVM's do.
+        let ramp = CIFilter(name: "CILinearGradient", parameters: [
+            "inputPoint0": CIVector(x: 68, y: 0), "inputColor0": CIColor.white,
+            "inputPoint1": CIVector(x: 76, y: 0), "inputColor1": CIColor.black
+        ])!.outputImage!.cropped(to: CGRect(x: 0, y: 0, width: 160, height: 90))
+        h.mattes["med_blue"] = ramp
+        let frame = h.render(at: t(1))
+        // A third alpha over the red screen there: pink in the wall's
+        // colour, purple with the person's, no green at all.
+        let edge = frame[146, 90]
+        XCTAssertLessThan(edge[1], 20, "wall colour in the cutout's edge: \(edge)")
+        XCTAssertGreaterThan(edge[2], 40, "the person's colour should carry to the edge: \(edge)")
+        // Inside, the person is untouched; outside, the screen is.
+        assertColor(frame[60, 90], blue)
+        assertColor(frame[300, 90], red)
+    }
+
     func testCutoutWithoutAMatteShowsTheWholeFrame() {
         let frame = screenAndCamera(VideoProperties(cutout: Cutout())).render(at: t(1))
         assertColor(frame[260, 90], blue)
