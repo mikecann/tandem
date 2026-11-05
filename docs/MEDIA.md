@@ -509,9 +509,30 @@ Notes on each:
   than the person just inside, where the picture is still) drops to 32% and
   33% on the two ranges; 98% of the alpha where hands move stays, and fast
   swipes keep their motion blur. A 2 px choke took the rim to 26% but shaved
-  the ear; a higher floor would start on fine hair. Using RVM's own
-  foreground output to decontaminate the colour would need the renderer to
-  carry a second picture, so it isn't done.
+  the ear; a higher floor would start on fine hair.
+
+  The renderer does the rest (`FrameComposer.cutoutEdgeColour`, November
+  2026). Mike still saw a pale glow round his cap and a warm rim on his
+  shoulders in the Threadbear launch video's corner. The edge feather was
+  a Gaussian with the setting as its sigma (2 px at 1080p, so 4 px on the
+  PiP's own pixels at 4K), which spread alpha back over the wall
+  `cleanEdge` had cut; it's now the soft edge's width, a quarter of that
+  as sigma. And wherever the matte is soft, the colour comes from the
+  solid person just inside (matte 0.85 and up, before feathering), spread
+  outward in eight steps of a 2 matte pixel blur, each kept only where the
+  matte covers the pixel, and fading back to the picture's own colour as
+  alpha rises from 0.7. On six frames of that take the extra light at the
+  edge fell from 3.4 to about 0.5 (0 to 255, mean over the soft edge), and
+  a 720p review render takes about 4 ms a frame longer.
+
+  Free blurs carried the colour further (0.3) but jumped clear gaps: a
+  thin detail that's never solid (a motion-blurred finger beside the
+  jacket) took the jacket's colour, and with the core taken after
+  feathering a wide edge setting shrank it out of reach (Codex's review, 5
+  Nov 2026; both are tests in `CompositorTests`). RVM's own foreground
+  output was worse than doing nothing (4.3): it carries the wall too.
+  Solving for the colour against a blurred estimate of the wall behind
+  took it only to 2.4.
 
   Scores through the job on the two ranges (A / B): flicker 0.066 / 0.062
   (version 2: 0.17 / 0.20, RVM before the edge fix 0.082 / 0.070), pop

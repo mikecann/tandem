@@ -362,12 +362,13 @@ struct FrameComposer {
         // out over 8 px at 1080p, which spread alpha back over the wall that
         // `RVMMatte.cleanEdge` had just cut and left a glow round Mike in the
         // corner (a 4 px sigma on the PiP's own pixels at 4K).
+        let solid = matte
         let feather = CGFloat(settings.edgeFeather) * unit * toMatte / 4
         if feather >= 0.25 {
             matte = matte.clampedToExtent().applyingGaussianBlur(sigma: Double(feather)).cropped(to: matteRect)
         }
         let toImage = CGAffineTransform(scaleX: size.width / matteRect.width, y: size.height / matteRect.height)
-        if let cut = cutoutEdgeColour(image, matte: matte, matteRect: matteRect, toImage: toImage) {
+        if let cut = cutoutEdgeColour(image, matte: matte, solid: solid, feather: feather, matteRect: matteRect, toImage: toImage) {
             return cut.cropped(to: image.extent)
         }
         matte = matte.transformed(by: toImage)
@@ -383,31 +384,41 @@ struct FrameComposer {
     /// light wall showed as a pale rim round Mike's cap over dark UI, and
     /// the orange sofa cushions as a warm one on his shoulders. So the
     /// colour where the matte is solid (`Kernels.cutoutCore`) is carried
-    /// outward with four blurs, nearest first, and used wherever the matte
-    /// is soft. Measured on the Threadbear launch take: the rim's extra
-    /// light fell from 3.4 to 0.2 (0 to 255, mean over the edge), and the
-    /// edge flickered less (1.5 against 1.9 between still frames), since
-    /// the wall's light flickered with it.
+    /// outward and used wherever the matte is soft, fading back to the
+    /// picture's own colour as alpha rises from `Kernels.cutoutKeepFrom`.
+    /// Measured on the Threadbear launch take: the rim's extra light fell
+    /// from 3.4 to about 0.5 (0 to 255, mean over the soft edge).
     ///
-    /// The carried colour is smooth, so it's made at the matte's size and
-    /// scaled up. Nil if a kernel didn't compile; the caller then cuts out
-    /// with the picture's own colours as before.
-    static func cutoutEdgeColour(_ image: CIImage, matte: CIImage, matteRect: CGRect, toImage: CGAffineTransform) -> CIImage? {
-        guard let coreKernel = Kernels.cutoutCoreKernel, let fillKernel = Kernels.cutoutFill,
+    /// The colour spreads in small steps, each kept only where the matte
+    /// covers the pixel, so it can't jump a clear gap to a finger or a prop
+    /// that isn't the same colour (free blurs did: review, 5 Nov 2026). The
+    /// core is taken from `solid`, the matte before feathering, so a wide
+    /// feather can't shrink it out of reach, and the steps grow with the
+    /// feather. The carried colour is smooth, so it's made at the matte's
+    /// size and scaled up. Nil if a kernel didn't compile; the caller then
+    /// cuts out with the picture's own colours as before.
+    static func cutoutEdgeColour(_ image: CIImage, matte: CIImage, solid: CIImage, feather: CGFloat, matteRect: CGRect, toImage: CGAffineTransform) -> CIImage? {
+        guard let coreKernel = Kernels.cutoutCoreKernel, let spreadKernel = Kernels.cutoutSpread,
               let edgeKernel = Kernels.cutoutEdge else { return nil }
         let (low, high) = Kernels.cutoutCore
         let small = image.transformed(by: toImage.inverted())
-        guard let core = coreKernel.apply(extent: matteRect, arguments: [small, matte, low, high]) else { return nil }
-        // In matte pixels, whatever the matte's size, since RVM's soft edge
-        // is a few of its own pixels wide: the nearest reaches the first
-        // pixel or two of the edge, the widest the soft hand of a fast
-        // gesture.
-        let blurs = [1.0, 2.0, 4.0, 8.0].map {
-            core.clampedToExtent().applyingGaussianBlur(sigma: $0).cropped(to: matteRect)
+        guard let core = coreKernel.apply(extent: matteRect, arguments: [small, solid, low, high]) else { return nil }
+        // Eight steps of a 2 matte pixel blur reach about 10 pixels out,
+        // past RVM's soft edge (a few of its own pixels at any matte size)
+        // and the soft hand of a fast gesture. A wide feather spreads the
+        // edge further, so the steps grow with it.
+        let step = max(2, Double(feather) / 2)
+        var carried = core
+        for _ in 0..<8 {
+            let blurred = carried.clampedToExtent().applyingGaussianBlur(sigma: step).cropped(to: matteRect)
+            guard let next = spreadKernel.apply(extent: matteRect, arguments: [blurred, core, matte]) else { return nil }
+            carried = next
         }
-        guard let fill = fillKernel.apply(extent: matteRect, arguments: [small] + blurs) else { return nil }
-        let fillUp = fill.clampedToExtent().transformed(by: toImage).cropped(to: image.extent)
-        return edgeKernel.apply(extent: image.extent, arguments: [image, fillUp, matte.transformed(by: toImage), low, high])
+        let carriedUp = carried.clampedToExtent().transformed(by: toImage).cropped(to: image.extent)
+        return edgeKernel.apply(extent: image.extent, arguments: [
+            image, carriedUp, matte.transformed(by: toImage), solid.transformed(by: toImage),
+            low, high, Kernels.cutoutKeepFrom
+        ])
     }
 
     static func repairShape(_ shape: Mask, rect: CGRect, radius: CGFloat) -> CIImage {

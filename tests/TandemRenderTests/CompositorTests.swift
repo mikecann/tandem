@@ -259,7 +259,7 @@ final class CompositorTests: XCTestCase {
     /// The edge should show the person's colour from just inside instead.
     func testCutoutEdgeShowsThePersonsColourNotTheWall() {
         XCTAssertNotNil(Kernels.cutoutCoreKernel)
-        XCTAssertNotNil(Kernels.cutoutFill)
+        XCTAssertNotNil(Kernels.cutoutSpread)
         XCTAssertNotNil(Kernels.cutoutEdge)
         var h = screenAndCamera(VideoProperties(cutout: Cutout(edgeFeather: 0)))
         // Blue person to x 140, white wall beyond.
@@ -282,6 +282,39 @@ final class CompositorTests: XCTestCase {
         // Inside, the person is untouched; outside, the screen is.
         assertColor(frame[60, 90], blue)
         assertColor(frame[300, 90], red)
+    }
+
+    /// A thin detail that's never solid in the matte (a motion-blurred
+    /// finger, a strand of hair) keeps its own colour rather than taking the
+    /// nearest solid part's across a gap (found in review).
+    func testCutoutEdgeLeavesAMostlySolidDetailItsOwnColour() {
+        var h = screenAndCamera(VideoProperties(cutout: Cutout(edgeFeather: 0)))
+        // Blue person to x 96, a green detail at 104...108.
+        h.pictures["med_blue"] = CIImage(color: .green).cropped(to: CGRect(x: 104, y: 0, width: 4, height: 180))
+            .composited(over: CIImage(color: .blue).cropped(to: CGRect(x: 0, y: 0, width: 96, height: 180)))
+            .composited(over: CIImage(color: .white).cropped(to: CGRect(x: 0, y: 0, width: 320, height: 180)))
+        // Matte (half size): solid to 48, a 4 px clear gap, the detail at 0.8.
+        h.mattes["med_blue"] = CIImage(color: CIColor(red: 0.8, green: 0.8, blue: 0.8)).cropped(to: CGRect(x: 52, y: 0, width: 2, height: 90))
+            .composited(over: CIImage(color: .white).cropped(to: CGRect(x: 0, y: 0, width: 48, height: 90)))
+            .composited(over: CIImage(color: .black).cropped(to: CGRect(x: 0, y: 0, width: 160, height: 90)))
+        let detail = h.render(at: t(1))[106, 90]
+        XCTAssertGreaterThan(detail[1], detail[2] + 60, "the detail took the person's blue: \(detail)")
+    }
+
+    /// A wide edge setting on a small corner feathers the matte over many
+    /// matte pixels; the edge still mustn't fall back to the wall's colour
+    /// (found in review: the solid core was taken after feathering, so it
+    /// shrank out of the fill's reach).
+    func testCutoutEdgeColourHoldsWithAWideFeather() {
+        // About a 12 matte pixel blur at this size.
+        var h = screenAndCamera(VideoProperties(cutout: Cutout(edgeFeather: 576)))
+        h.pictures["med_blue"] = CIImage(color: .white).cropped(to: CGRect(x: 140, y: 0, width: 180, height: 180))
+            .composited(over: CIImage(color: .blue).cropped(to: CGRect(x: 0, y: 0, width: 140, height: 180)))
+        h.mattes["med_blue"] = CIImage(color: .white).cropped(to: CGRect(x: 0, y: 0, width: 70, height: 90))
+            .composited(over: CIImage(color: .black).cropped(to: CGRect(x: 0, y: 0, width: 160, height: 90)))
+        let edge = h.render(at: t(1))[146, 90]
+        XCTAssertLessThan(edge[1], 20, "wall colour in a wide feathered edge: \(edge)")
+        XCTAssertGreaterThan(edge[2], 40, "the person's colour should carry to the edge: \(edge)")
     }
 
     func testCutoutWithoutAMatteShowsTheWholeFrame() {
