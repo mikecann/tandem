@@ -498,7 +498,8 @@ Notes on each:
   `~/Library/Application Support/Tandem/Models/rvm/` and checks its
   SHA-256. Tests never download it (the store refuses while XCTest is
   loaded). Both cutout modes share one RVM matte; its cache key has its own
-  version (`RVMMatte.version`, 2 since the edge fix). Making RVM the default
+  version (`RVMMatte.version`: 2 since the edge fix, 3 since the clean
+  plate below). Making RVM the default
   changed the matte key, so existing Vision mattes rebuild with RVM.
 
   RVM's soft edge took some of the wall with it: a light rim around the cap
@@ -551,6 +552,40 @@ Notes on each:
   (version 2: 0.17 / 0.20, RVM before the edge fix 0.082 / 0.070), pop
   frames 0 / 1, the mic kept on 99.1% of B. Speed: 40 fps on a quiet
   machine before the edge fix, 36 to 38 with it while other work ran.
+
+  RVM version 3 (November 2026) tightens the matte against a clean plate
+  of the room (`CleanPlate`). RVM sees the frame at 480x270, and next to
+  something the wall's colour (the white logo on Mike's cap against his
+  light grey wall) its matte bulged out over about 20 px of wall, which
+  the cutout showed as a pale smudge whatever colour it gave the edge. The
+  camera doesn't move, so before the main pass the job mattes 80 frames
+  spread across the take on their own (no recurrent state), at half the
+  model's size, and takes the per-pixel median of the ones where the
+  matte, grown a little, says wall. A pixel needs three sightings. No plate
+  if under 30% of the frame is ever seen, or if under 75% of the wall
+  sightings sit within 14 levels of the median once each sample's exposure
+  offset is taken off (a moving camera or a busy background); the job then
+  says why in its status and the matte is the RVM matte without a plate. Then each
+  frame's alpha, before `cleanEdge`, loses what looks like the plate (a
+  colour distance from 10 to 30 of 441, after matching the frame's
+  exposure to the plate from the wall it shows), but only where the plate
+  is light (lightness 0.35 to 0.5) and seen, and never in the solid core
+  eroded by 8 px at 1080p. Against the dark sofa and chair his navy jacket
+  matched the plate as closely as the wall did and the edge went jagged,
+  hence light only.
+
+  On the Threadbear launch take: the bulge over the logo went, a gap of
+  wall between thumb and sleeve that RVM had kept half solid came out, and
+  the edge flickered less between still frames (1.2 to 1.3 against 1.4 to
+  1.5 on 0 to 255, bench). A light, shiny thing at the edge can lose a
+  little: his silver ring on a fast-moving finger. The plate's 80 frames
+  and the per-frame comparison made a 28 s test file's matte take 45 s
+  against 26 s on tinker-desk; on an hour's take the per-frame part is most
+  of it, about half again as long. `matteCleanPlate: false` turns it off
+  and has its own cache key; `CleanPlateRealTests` runs a file both ways.
+  The version change rebuilds every existing RVM matte once, in the
+  background, as version 2 did; the old matte serves until the new one is
+  done.
 
   If the model can't be downloaded or loaded, the job makes the version 2
   Vision matte instead and says so: its status keeps "Made with Vision: RVM

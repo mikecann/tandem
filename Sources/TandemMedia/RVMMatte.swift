@@ -27,8 +27,8 @@ import VideoToolbox
 /// ~/Library/Application Support/Tandem/Models/rvm/, and checks the SHA-256.
 enum RVMMatte {
     /// Bump when RVM mattes change; it's in their cache key, apart from
-    /// Vision's. 2: `cleanEdge`.
-    static let version = 2
+    /// Vision's. 2: `cleanEdge`. 3: tightened against a `CleanPlate`.
+    static let version = 3
     static let modelFile = "rvm_mobilenetv3_1280x720_s0.375_fp16.mlmodel"
     static let modelURL = URL(string: "https://github.com/PeterL1n/RobustVideoMatting/releases/download/v1.0.0/rvm_mobilenetv3_1280x720_s0.375_fp16.mlmodel")!
     static let modelSHA256 = "b1b60ff93d57ba4c3c0eeedd1d38590ccbd498144d4ddcdaf8624dbe69e901ad"
@@ -90,6 +90,14 @@ enum RVMMatte {
         let size = fittedSize(width: width, height: height, maxWidth: settings.matteMaxWidth, maxHeight: settings.matteMaxHeight)
         let writer = try MatteJob.makeWriter(reader: reader, width: size.width, height: size.height, folder: folder)
         let runner = try RVMRunner(model: loaded.model, sourceWidth: width, sourceHeight: height, outputWidth: size.width, outputHeight: size.height)
+        // The empty room first, from frames across the take; a take whose
+        // camera moves gets none, and says so.
+        if settings.matteCleanPlate {
+            switch try await runner.makePlate(source: source, timeRange: timeRange ?? CMTimeRange(start: .zero, end: reader.endTime), context: context) {
+            case .success(let plate): runner.plate = plate
+            case .failure(let refusal): context.note("No clean plate: \(refusal)")
+            }
+        }
         let frames = FramePrefetcher(reader: reader)
         frames.start()
         defer { frames.stop() }
@@ -233,6 +241,8 @@ final class RVMRunner: @unchecked Sendable {
     private let outputWidth: Int
     private let outputHeight: Int
     private var state: [String: MLMultiArray] = [:]
+    /// Tightens each frame's matte where the room is light (`CleanPlate`).
+    var plate: CleanPlate?
     private var last: [UInt8]?
     private(set) var done = 0
     private(set) var failures = 0
@@ -284,6 +294,34 @@ final class RVMRunner: @unchecked Sendable {
     /// One frame: fitted into the model's input, the alpha cropped back out
     /// and scaled to the matte size. Nil if Core ML failed.
     func matte(for frame: CVPixelBuffer) -> [UInt8]? {
+        guard let (input, alpha, result) = predict(frame, state: state) else { return nil }
+        for index in 1...4 {
+            if let next = result.featureValue(for: "r\(index)o")?.multiArrayValue { state["r\(index)i"] = next }
+        }
+        guard var cut = Self.contentAlpha(alpha, content: content) else { return nil }
+        if let plate, let picture = Self.contentPicture(input, content: content) {
+            plate.refine(&cut, frame: picture)
+        }
+        let contentWidth = Int(content.width), contentHeight = Int(content.height)
+        var out = [UInt8](repeating: 0, count: outputWidth * outputHeight)
+        if contentWidth == outputWidth, contentHeight == outputHeight {
+            out = cut
+        } else {
+            let error = MatteBlender.withImage(&cut, contentWidth, contentHeight) { source in
+                MatteBlender.withImage(&out, outputWidth, outputHeight) { destination in
+                    vImageScale_Planar8(&source, &destination, nil, vImage_Flags(kvImageHighQualityResampling))
+                }
+            }
+            guard error == kvImageNoError else { return nil }
+        }
+        RVMMatte.cleanEdge(&out, width: outputWidth, height: outputHeight)
+        return out
+    }
+
+    /// The frame fitted into the model's input and run through it with
+    /// `state` (empty for a frame on its own): the input it saw, its alpha
+    /// and the whole result. Nil if Core ML failed or the alpha isn't 8-bit.
+    private func predict(_ frame: CVPixelBuffer, state: [String: MLMultiArray]) -> (input: CVPixelBuffer, alpha: CVPixelBuffer, result: MLFeatureProvider)? {
         var input: CVPixelBuffer?
         CVPixelBufferPoolCreatePixelBuffer(nil, inputPool, &input)
         guard let input else { return nil }
@@ -296,31 +334,93 @@ final class RVMRunner: @unchecked Sendable {
               let result = try? model.prediction(from: provider),
               let alpha = result.featureValue(for: "pha")?.imageBufferValue,
               CVPixelBufferGetPixelFormatType(alpha) == kCVPixelFormatType_OneComponent8 else { return nil }
-        for index in 1...4 {
-            if let next = result.featureValue(for: "r\(index)o")?.multiArrayValue { state["r\(index)i"] = next }
-        }
+        return (input, alpha, result)
+    }
+
+    /// The model's alpha inside `content`, packed.
+    static func contentAlpha(_ alpha: CVPixelBuffer, content: CGRect) -> [UInt8]? {
         CVPixelBufferLockBaseAddress(alpha, .readOnly)
         defer { CVPixelBufferUnlockBaseAddress(alpha, .readOnly) }
         guard let base = CVPixelBufferGetBaseAddress(alpha) else { return nil }
         let stride = CVPixelBufferGetBytesPerRow(alpha)
-        var source = vImage_Buffer(
-            data: base + Int(content.minY) * stride + Int(content.minX), height: vImagePixelCount(content.height),
-            width: vImagePixelCount(content.width), rowBytes: stride
-        )
-        var out = [UInt8](repeating: 0, count: outputWidth * outputHeight)
-        if Int(content.width) == outputWidth, Int(content.height) == outputHeight {
-            out.withUnsafeMutableBytes { raw in
-                for row in 0..<outputHeight {
-                    memcpy(raw.baseAddress! + row * outputWidth, source.data + row * stride, outputWidth)
+        let x = Int(content.minX), y = Int(content.minY), w = Int(content.width), h = Int(content.height)
+        var out = [UInt8](repeating: 0, count: w * h)
+        out.withUnsafeMutableBytes { raw in
+            for row in 0..<h { memcpy(raw.baseAddress! + row * w, base + (y + row) * stride + x, w) }
+        }
+        return out
+    }
+
+    /// The model's input picture inside `content`, packed BGRA.
+    static func contentPicture(_ input: CVPixelBuffer, content: CGRect) -> [UInt8]? {
+        CVPixelBufferLockBaseAddress(input, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(input, .readOnly) }
+        guard let base = CVPixelBufferGetBaseAddress(input) else { return nil }
+        return CleanPlate.packed(base, rowBytes: CVPixelBufferGetBytesPerRow(input), rect: content)
+    }
+
+    /// Samples `CleanPlate.sampleCount` frames evenly across `range`, each
+    /// matted on its own (no recurrent state, so the running state is left
+    /// alone), at half the content size, and makes the plate from them.
+    func makePlate(source: URL, timeRange range: CMTimeRange, context: JobContext) async throws -> Result<CleanPlate, CleanPlate.Refusal> {
+        let count = CleanPlate.sampleCount
+        let contentWidth = Int(content.width), contentHeight = Int(content.height)
+        let sampleWidth = max(2, contentWidth / 2), sampleHeight = max(2, contentHeight / 2)
+        let duration = range.duration.seconds
+        guard duration > 0 else { return .failure(.tooFewSamples) }
+        var samples: [[UInt8]] = [], mattes: [[UInt8]] = []
+        for index in 0..<count {
+            try await context.checkpoint()
+            context.progress(0, message: "Clean plate: frame \(index + 1) of \(count)")
+            let at = range.start.seconds + (Double(index) + 0.5) * duration / Double(count)
+            // Inside the job's range, even for the last sample of a short one.
+            let window = CMTimeRange(start: CMTime(seconds: at, preferredTimescale: 600), duration: CMTime(seconds: 0.2, preferredTimescale: 600))
+                .intersection(range)
+            guard !window.isEmpty, let reader = try? await VideoFrameReader(url: source, timeRange: window, countingFrames: false) else { continue }
+            defer { reader.cancel() }
+            // Decoding and the model block: off the cooperative pool, as the
+            // main pass's steps are.
+            let made: (picture: [UInt8], alpha: [UInt8])? = try await Blocking.run(qos: context.qos) { [self] in
+                guard let frame = try? reader.next() else { return nil }
+                return autoreleasepool {
+                    guard let (input, alpha, _) = predict(frame.buffer, state: [:]),
+                          let cut = Self.contentAlpha(alpha, content: content),
+                          let picture = Self.contentPicture(input, content: content) else { return nil }
+                    return (Self.halved(picture, contentWidth, contentHeight, to: sampleWidth, sampleHeight, channels: 4),
+                            Self.halved(cut, contentWidth, contentHeight, to: sampleWidth, sampleHeight, channels: 1))
                 }
             }
-        } else {
-            let error = MatteBlender.withImage(&out, outputWidth, outputHeight) { destination in
-                vImageScale_Planar8(&source, &destination, nil, vImage_Flags(kvImageHighQualityResampling))
-            }
-            guard error == kvImageNoError else { return nil }
+            guard let made else { continue }
+            samples.append(made.picture)
+            mattes.append(made.alpha)
         }
-        RVMMatte.cleanEdge(&out, width: outputWidth, height: outputHeight)
+        // A second or so of medians: off the cooperative pool, and it stops
+        // when the job is cancelled.
+        let made = try await Blocking.run(qos: context.qos) {
+            try CleanPlate.make(samples: samples, mattes: mattes, width: sampleWidth, height: sampleHeight, shouldStop: { context.isCancelled })
+        }
+        switch made {
+        case .success(let made):
+            return .success(CleanPlate(plate: made.plate, seen: made.seen, sampleWidth: sampleWidth, sampleHeight: sampleHeight, width: contentWidth, height: contentHeight))
+        case .failure(let refusal):
+            return .failure(refusal)
+        }
+    }
+
+    /// `pixels` (width x height, 1 or 4 channels) scaled to the sample size.
+    static func halved(_ pixels: [UInt8], _ width: Int, _ height: Int, to outWidth: Int, _ outHeight: Int, channels: Int) -> [UInt8] {
+        var source = pixels, out = [UInt8](repeating: 0, count: outWidth * outHeight * channels)
+        source.withUnsafeMutableBytes { input in
+            out.withUnsafeMutableBytes { output in
+                var a = vImage_Buffer(data: input.baseAddress, height: vImagePixelCount(height), width: vImagePixelCount(width), rowBytes: width * channels)
+                var b = vImage_Buffer(data: output.baseAddress, height: vImagePixelCount(outHeight), width: vImagePixelCount(outWidth), rowBytes: outWidth * channels)
+                if channels == 4 {
+                    _ = vImageScale_ARGB8888(&a, &b, nil, vImage_Flags(kvImageHighQualityResampling))
+                } else {
+                    _ = vImageScale_Planar8(&a, &b, nil, vImage_Flags(kvImageHighQualityResampling))
+                }
+            }
+        }
         return out
     }
 }

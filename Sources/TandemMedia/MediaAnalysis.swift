@@ -138,14 +138,50 @@ public final class MediaAnalysis: @unchecked Sendable {
     /// Greyscale HEVC matte with the source's exact frame times: the luma
     /// of full-range frames is the alpha (0 background, 255 person).
     public func matteURL(for item: MediaItem) -> URL? {
-        entryFolder(.matte, for: item)?.appendingPathComponent(MatteJob.file)
+        matte(for: item, settings: settings)
     }
 
     /// The matte made in a particular mode, if it has been.
     public func matteURL(for item: MediaItem, mode: CutoutMode) -> URL? {
         var settings = self.settings
         settings.matteMode = mode
-        return entryFolder(.matte, for: item, settings: settings)?.appendingPathComponent(MatteJob.file)
+        return matte(for: item, settings: settings)
+    }
+
+    /// True while the matte served is the one from before an RVM version
+    /// change (the new one is still being made); exports say so.
+    public func matteIsStandIn(for item: MediaItem) -> Bool {
+        entryFolder(.matte, for: item) == nil && matteURL(for: item) != nil
+    }
+
+    /// Which mattes are served for `item`, in both cutout modes, so a cached
+    /// check knows the picture changed when a stand-in or the new one
+    /// arrives. Each by its entry folder's inode and creation time as well as
+    /// its name: a fallback rebuilt under the same key commits a new folder
+    /// (as `decodedResult` tells them apart).
+    public func servedMatte(for item: MediaItem) -> String? {
+        let mattes = [matteURL(for: item), matteURL(for: item, mode: .person)].map { url -> String in
+            guard let folder = url?.deletingLastPathComponent() else { return "-" }
+            var info = stat()
+            guard stat(folder.path, &info) == 0 else { return folder.lastPathComponent }
+            return "\(folder.lastPathComponent)/\(info.st_ino)-\(info.st_birthtimespec.tv_sec).\(info.st_birthtimespec.tv_nsec)"
+        }
+        return mattes == ["-", "-"] ? nil : mattes.joined(separator: "|")
+    }
+
+    /// The matte for these settings, or while it's being made after an RVM
+    /// version change, the one the version before made. Version 3 (the
+    /// clean plate) rebuilds every RVM matte, an hour or more for a long
+    /// take, and without this the corner showed the whole camera frame,
+    /// wall and all, until it was done.
+    private func matte(for item: MediaItem, settings: AnalysisSettings) -> URL? {
+        if let folder = entryFolder(.matte, for: item, settings: settings) {
+            return folder.appendingPathComponent(MatteJob.file)
+        }
+        guard settings.matteModel == .robustVideoMatting, settings.matteCleanPlate, RVMMatte.version > 2 else { return nil }
+        var previous = settings
+        previous.matteVersion = RVMMatte.version - 1
+        return entryFolder(.matte, for: item, settings: previous)?.appendingPathComponent(MatteJob.file)
     }
 
     /// 48 kHz ALAC, same length as the source audio and lined up to the

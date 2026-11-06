@@ -21,7 +21,9 @@ struct CheckCache: Sendable {
     /// changes. 2: clip edges within a millisecond of a frame are on it
     /// (`RenderPlanner.onFrames`), so frames scanned black at such cuts
     /// before aren't any more.
-    static let version = 2
+    /// 3: keyed by the matte served too (an older RVM matte stands in
+    /// while a new version is made).
+    static let version = 3
     /// The newest pieces are kept up to this many bytes.
     static let sizeLimit: Int64 = 256 * 1024 * 1024
 
@@ -69,6 +71,9 @@ struct CheckCache: Sendable {
         var media: [MediaItem]
         /// Proxy, matte and converted copy ready, by media ID.
         var ready: [String: [Bool]]
+        /// The matte served, by media ID: a stand-in renders differently
+        /// from none, though neither is "ready".
+        var mattes: [String: String]
     }
 
     func key(for piece: TimeRange, project: Project, analysis: AnalysisSource, width: Int, scanlines: Bool) -> String {
@@ -86,13 +91,14 @@ struct CheckCache: Sendable {
             return copy
         }
         let media = project.media.filter { used.contains($0.id) }.sorted { $0.id < $1.id }
-        var ready: [String: [Bool]] = [:]
+        var ready: [String: [Bool]] = [:], mattes: [String: String] = [:]
         for item in media {
             ready[item.id] = [AnalysisKind.proxy, .matte, .converted].map { analysis.isReady($0, for: item) }
+            mattes[item.id] = analysis.servedMatte(for: item) ?? ""
         }
         let inputs = Inputs(
             version: Self.version, width: width, scanlines: scanlines, start: piece.start.flicks, end: piece.end.flicks,
-            settings: project.settings, tracks: tracks, media: media, ready: ready
+            settings: project.settings, tracks: tracks, media: media, ready: ready, mattes: mattes
         )
         let encoder = JSONEncoder()
         encoder.outputFormatting = .sortedKeys

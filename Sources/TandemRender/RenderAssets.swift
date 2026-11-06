@@ -26,12 +26,15 @@ public protocol RenderAssets: Sendable {
     /// A screen recording's twice-the-size copy covering a stretch of its
     /// media time, for a zoom (`ZoomUpscaling`).
     func upscaledURL(for item: MediaItem, covering range: TimeRange) -> URL?
+    /// True while the matte is a stand-in from before an RVM version change.
+    func matteIsStandIn(for item: MediaItem) -> Bool
 }
 
 extension RenderAssets {
     public func convertedURL(for item: MediaItem) -> URL? { nil }
     public func separation(for item: MediaItem, prompt: String) -> SeparationStems? { nil }
     public func upscaledURL(for item: MediaItem, covering range: TimeRange) -> URL? { nil }
+    public func matteIsStandIn(for item: MediaItem) -> Bool { false }
 
     /// Providers without per-mode mattes have one matte for every mode.
     public func matteURL(for item: MediaItem, mode: CutoutMode) -> URL? {

@@ -109,7 +109,7 @@ final class RVMMatteTests: XCTestCase {
     func testRVMIsTheDefaultWithItsOwnCacheKey() {
         let rvm = AnalysisSettings()
         XCTAssertEqual(rvm.matteModel, .robustVideoMatting, "Mike picked RVM")
-        XCTAssertEqual(RVMMatte.version, 2, "version 1 RVM mattes had the light rim; they rebuild")
+        XCTAssertEqual(RVMMatte.version, 3, "version 2 RVM mattes bulged over a light wall without the clean plate; they rebuild")
         var standard = rvm
         standard.matteModel = .vision
         XCTAssertNotEqual(rvm.canonical(for: .matte), standard.canonical(for: .matte), "Vision mattes rebuild as RVM ones")
