@@ -294,18 +294,7 @@ final class RVMRunner: @unchecked Sendable {
     /// One frame: fitted into the model's input, the alpha cropped back out
     /// and scaled to the matte size. Nil if Core ML failed.
     func matte(for frame: CVPixelBuffer) -> [UInt8]? {
-        var input: CVPixelBuffer?
-        CVPixelBufferPoolCreatePixelBuffer(nil, inputPool, &input)
-        guard let input else { return nil }
-        // The source's colour tags say how to turn its YCbCr into RGB.
-        CVBufferPropagateAttachments(frame, input)
-        guard VTPixelTransferSessionTransferImage(session, from: frame, to: input) == noErr else { return nil }
-        var features: [String: MLFeatureValue] = ["src": MLFeatureValue(pixelBuffer: input)]
-        for (name, value) in state { features[name] = MLFeatureValue(multiArray: value) }
-        guard let provider = try? MLDictionaryFeatureProvider(dictionary: features),
-              let result = try? model.prediction(from: provider),
-              let alpha = result.featureValue(for: "pha")?.imageBufferValue,
-              CVPixelBufferGetPixelFormatType(alpha) == kCVPixelFormatType_OneComponent8 else { return nil }
+        guard let (input, alpha, result) = predict(frame, state: state) else { return nil }
         for index in 1...4 {
             if let next = result.featureValue(for: "r\(index)o")?.multiArrayValue { state["r\(index)i"] = next }
         }
@@ -327,6 +316,25 @@ final class RVMRunner: @unchecked Sendable {
         }
         RVMMatte.cleanEdge(&out, width: outputWidth, height: outputHeight)
         return out
+    }
+
+    /// The frame fitted into the model's input and run through it with
+    /// `state` (empty for a frame on its own): the input it saw, its alpha
+    /// and the whole result. Nil if Core ML failed or the alpha isn't 8-bit.
+    private func predict(_ frame: CVPixelBuffer, state: [String: MLMultiArray]) -> (input: CVPixelBuffer, alpha: CVPixelBuffer, result: MLFeatureProvider)? {
+        var input: CVPixelBuffer?
+        CVPixelBufferPoolCreatePixelBuffer(nil, inputPool, &input)
+        guard let input else { return nil }
+        // The source's colour tags say how to turn its YCbCr into RGB.
+        CVBufferPropagateAttachments(frame, input)
+        guard VTPixelTransferSessionTransferImage(session, from: frame, to: input) == noErr else { return nil }
+        var features: [String: MLFeatureValue] = ["src": MLFeatureValue(pixelBuffer: input)]
+        for (name, value) in state { features[name] = MLFeatureValue(multiArray: value) }
+        guard let provider = try? MLDictionaryFeatureProvider(dictionary: features),
+              let result = try? model.prediction(from: provider),
+              let alpha = result.featureValue(for: "pha")?.imageBufferValue,
+              CVPixelBufferGetPixelFormatType(alpha) == kCVPixelFormatType_OneComponent8 else { return nil }
+        return (input, alpha, result)
     }
 
     /// The model's alpha inside `content`, packed.
@@ -365,26 +373,26 @@ final class RVMRunner: @unchecked Sendable {
             try await context.checkpoint()
             context.progress(0, message: "Clean plate: frame \(index + 1) of \(count)")
             let at = range.start.seconds + (Double(index) + 0.5) * duration / Double(count)
+            // Inside the job's range, even for the last sample of a short one.
             let window = CMTimeRange(start: CMTime(seconds: at, preferredTimescale: 600), duration: CMTime(seconds: 0.2, preferredTimescale: 600))
-            guard let reader = try? await VideoFrameReader(url: source, timeRange: window, countingFrames: false) else { continue }
+                .intersection(range)
+            guard !window.isEmpty, let reader = try? await VideoFrameReader(url: source, timeRange: window, countingFrames: false) else { continue }
             defer { reader.cancel() }
-            guard let frame = try? reader.next() else { continue }
-            let made: (picture: [UInt8], alpha: [UInt8])? = autoreleasepool {
-                var input: CVPixelBuffer?
-                CVPixelBufferPoolCreatePixelBuffer(nil, inputPool, &input)
-                guard let input else { return nil }
-                CVBufferPropagateAttachments(frame.buffer, input)
-                guard VTPixelTransferSessionTransferImage(session, from: frame.buffer, to: input) == noErr,
-                      let provider = try? MLDictionaryFeatureProvider(dictionary: ["src": MLFeatureValue(pixelBuffer: input)]),
-                      let result = try? model.prediction(from: provider),
-                      let alpha = result.featureValue(for: "pha")?.imageBufferValue,
-                      let cut = Self.contentAlpha(alpha, content: content),
-                      let picture = Self.contentPicture(input, content: content) else { return nil }
-                return (picture, cut)
+            // Decoding and the model block: off the cooperative pool, as the
+            // main pass's steps are.
+            let made: (picture: [UInt8], alpha: [UInt8])? = try await Blocking.run(qos: context.qos) { [self] in
+                guard let frame = try? reader.next() else { return nil }
+                return autoreleasepool {
+                    guard let (input, alpha, _) = predict(frame.buffer, state: [:]),
+                          let cut = Self.contentAlpha(alpha, content: content),
+                          let picture = Self.contentPicture(input, content: content) else { return nil }
+                    return (Self.halved(picture, contentWidth, contentHeight, to: sampleWidth, sampleHeight, channels: 4),
+                            Self.halved(cut, contentWidth, contentHeight, to: sampleWidth, sampleHeight, channels: 1))
+                }
             }
             guard let made else { continue }
-            samples.append(Self.halved(made.picture, contentWidth, contentHeight, to: sampleWidth, sampleHeight, channels: 4))
-            mattes.append(Self.halved(made.alpha, contentWidth, contentHeight, to: sampleWidth, sampleHeight, channels: 1))
+            samples.append(made.picture)
+            mattes.append(made.alpha)
         }
         // A second or so of medians: off the cooperative pool, and it stops
         // when the job is cancelled.

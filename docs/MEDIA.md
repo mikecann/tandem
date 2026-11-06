@@ -498,7 +498,8 @@ Notes on each:
   `~/Library/Application Support/Tandem/Models/rvm/` and checks its
   SHA-256. Tests never download it (the store refuses while XCTest is
   loaded). Both cutout modes share one RVM matte; its cache key has its own
-  version (`RVMMatte.version`, 2 since the edge fix). Making RVM the default
+  version (`RVMMatte.version`: 2 since the edge fix, 3 since the clean
+  plate below). Making RVM the default
   changed the matte key, so existing Vision mattes rebuild with RVM.
 
   RVM's soft edge took some of the wall with it: a light rim around the cap
@@ -564,7 +565,7 @@ Notes on each:
   if under 30% of the frame is ever seen, or if under 75% of the wall
   sightings sit within 14 levels of the median once each sample's exposure
   offset is taken off (a moving camera or a busy background); the job then
-  says why in its status and the matte is as version 2's. Then each
+  says why in its status and the matte is the RVM matte without a plate. Then each
   frame's alpha, before `cleanEdge`, loses what looks like the plate (a
   colour distance from 10 to 30 of 441, after matching the frame's
   exposure to the plate from the wall it shows), but only where the plate
@@ -582,6 +583,9 @@ Notes on each:
   against 26 s on tinker-desk; on an hour's take the per-frame part is most
   of it, about half again as long. `matteCleanPlate: false` turns it off
   and has its own cache key; `CleanPlateRealTests` runs a file both ways.
+  The version change rebuilds every existing RVM matte once, in the
+  background, as version 2 did; the old matte serves until the new one is
+  done.
 
   If the model can't be downloaded or loaded, the job makes the version 2
   Vision matte instead and says so: its status keeps "Made with Vision: RVM

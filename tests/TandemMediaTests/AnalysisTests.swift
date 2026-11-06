@@ -375,6 +375,35 @@ final class AnalysisTests: TempFolderTestCase {
         XCTAssertNotEqual(analysis.matteURL(for: camera, mode: .person), analysis.matteURL(for: camera))
     }
 
+    /// After the clean plate (RVM version 3) every RVM matte rebuilds; the
+    /// version 2 matte keeps the corner cut out until the new one is done,
+    /// rather than the whole camera frame showing for an hour.
+    func testTheMatteBeforeAVersionChangeServesUntilTheNewOneIsMade() async throws {
+        try await SyntheticMedia.writeMovie(to: file("source/take-camera.mov"), .init(width: 320, height: 180, duration: 0.5))
+        let camera = try await item("source/take-camera.mov")
+        let analysis = analysis()
+        XCTAssertEqual(analysis.settings.matteModel, .robustVideoMatting)
+        XCTAssertNil(analysis.matteURL(for: camera), "nothing made yet")
+        var previous = analysis.settings
+        previous.matteVersion = RVMMatte.version - 1
+        let fingerprint = try XCTUnwrap(analysis.fingerprint(for: camera))
+        let canonical = previous.canonical(for: .matte, item: camera)
+        let key = AnalysisCache.key(fingerprint: fingerprint, kind: .matte, algorithmVersion: AnalysisKind.matte.algorithmVersion, settings: canonical)
+        XCTAssertEqual(key, analysis.cacheKey(.matte, for: camera, settings: previous))
+        XCTAssertNotEqual(key, analysis.cacheKey(.matte, for: camera), "version 3 has its own key")
+        let pending = try analysis.cache.begin(kind: .matte, key: key)
+        try Data([1]).write(to: pending.folder.appendingPathComponent(MatteJob.file))
+        let old = try analysis.cache.commit(pending, fingerprint: fingerprint, algorithmVersion: AnalysisKind.matte.algorithmVersion, settings: canonical, source: camera.path)
+
+        XCTAssertEqual(analysis.state(.matte, for: camera), .missing, "version 3 still has to be made")
+        XCTAssertEqual(analysis.matteURL(for: camera), old.appendingPathComponent(MatteJob.file), "the version 2 matte serves meanwhile")
+        XCTAssertEqual(analysis.matteURL(for: camera, mode: .personAndProps), old.appendingPathComponent(MatteJob.file))
+        var off = analysis.settings
+        off.matteCleanPlate = false
+        analysis.settings = off
+        XCTAssertNil(analysis.matteURL(for: camera), "with the plate off it's a different key, and no stand-in")
+    }
+
     func testTheMatteFallsBackToVisionSayingSoAndRebuildsOnceWhenRVMArrives() async throws {
         try await SyntheticMedia.writeMovie(to: file("source/take-camera.mov"), .init(width: 320, height: 180, duration: 0.5))
         let camera = try await item("source/take-camera.mov")

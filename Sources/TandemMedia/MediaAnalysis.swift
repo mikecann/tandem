@@ -138,14 +138,29 @@ public final class MediaAnalysis: @unchecked Sendable {
     /// Greyscale HEVC matte with the source's exact frame times: the luma
     /// of full-range frames is the alpha (0 background, 255 person).
     public func matteURL(for item: MediaItem) -> URL? {
-        entryFolder(.matte, for: item)?.appendingPathComponent(MatteJob.file)
+        matte(for: item, settings: settings)
     }
 
     /// The matte made in a particular mode, if it has been.
     public func matteURL(for item: MediaItem, mode: CutoutMode) -> URL? {
         var settings = self.settings
         settings.matteMode = mode
-        return entryFolder(.matte, for: item, settings: settings)?.appendingPathComponent(MatteJob.file)
+        return matte(for: item, settings: settings)
+    }
+
+    /// The matte for these settings, or while it's being made after an RVM
+    /// version change, the one the version before made. Version 3 (the
+    /// clean plate) rebuilds every RVM matte, an hour or more for a long
+    /// take, and without this the corner showed the whole camera frame,
+    /// wall and all, until it was done.
+    private func matte(for item: MediaItem, settings: AnalysisSettings) -> URL? {
+        if let folder = entryFolder(.matte, for: item, settings: settings) {
+            return folder.appendingPathComponent(MatteJob.file)
+        }
+        guard settings.matteModel == .robustVideoMatting, settings.matteCleanPlate, RVMMatte.version > 2 else { return nil }
+        var previous = settings
+        previous.matteVersion = RVMMatte.version - 1
+        return entryFolder(.matte, for: item, settings: previous)?.appendingPathComponent(MatteJob.file)
     }
 
     /// 48 kHz ALAC, same length as the source audio and lined up to the

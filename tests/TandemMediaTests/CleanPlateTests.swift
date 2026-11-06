@@ -97,6 +97,17 @@ final class CleanPlateTests: XCTestCase {
         XCTAssertEqual(made.seen[18 * width + 53], 255, "wall seen only in the darker half was dropped")
     }
 
+    /// He fills most of the frame and never moves: too little of the room
+    /// is ever seen to be worth a plate.
+    func testTooLittleOfTheRoomSeenGivesNone() throws {
+        let still = CGRect(x: 0, y: 0, width: 50, height: 36)
+        let samples = (0..<20).map { _ in frame(person: still) }
+        let mattes = (0..<20).map { _ in matte(still) }
+        guard case .failure(.tooLittleSeen) = try CleanPlate.make(samples: samples, mattes: mattes, width: width, height: height) else {
+            return XCTFail("a room hardly ever seen made a plate")
+        }
+    }
+
     func testMakingThePlateStopsWhenAsked() {
         let samples = (0..<20).map { frame(person: person($0)) }
         let mattes = (0..<20).map { matte(person($0)) }

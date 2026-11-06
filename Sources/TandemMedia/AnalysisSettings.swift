@@ -61,6 +61,9 @@ public struct AnalysisSettings: Codable, Equatable, Sendable {
     /// RVM mattes are tightened against a clean plate of the room where it's
     /// light (`CleanPlate`). Off only to compare with and without it.
     public var matteCleanPlate: Bool
+    /// Names an older RVM matte's key (`RVMMatte.version` otherwise), so one
+    /// made before a version change can serve until the new one is built.
+    var matteVersion: Int?
     public var voiceModel: VoiceIsolationModel
 
     public init(
@@ -138,7 +141,7 @@ public struct AnalysisSettings: Codable, Equatable, Sendable {
         case .matte where matteModel == .robustVideoMatting:
             // RVM keeps what the person holds either way, so both cutout
             // modes share one matte; its own version rebuilds only RVM mattes.
-            var rvm = ["box": "\(matteMaxWidth)x\(matteMaxHeight)", "model": matteModel.rawValue, "rvm": "\(RVMMatte.version)"]
+            var rvm = ["box": "\(matteMaxWidth)x\(matteMaxHeight)", "model": matteModel.rawValue, "rvm": "\(matteVersion ?? RVMMatte.version)"]
             // The default has no key of its own, so the plate's mattes are
             // the ones version 3 names.
             if !matteCleanPlate { rvm["plate"] = "off" }
