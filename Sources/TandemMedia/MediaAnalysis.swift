@@ -154,10 +154,19 @@ public final class MediaAnalysis: @unchecked Sendable {
         entryFolder(.matte, for: item) == nil && matteURL(for: item) != nil
     }
 
-    /// Which matte is served for `item` (its cache entry), so a cached check
-    /// knows the picture changed when a stand-in or the new one arrives.
+    /// Which mattes are served for `item`, in both cutout modes, so a cached
+    /// check knows the picture changed when a stand-in or the new one
+    /// arrives. Each by its entry folder's inode and creation time as well as
+    /// its name: a fallback rebuilt under the same key commits a new folder
+    /// (as `decodedResult` tells them apart).
     public func servedMatte(for item: MediaItem) -> String? {
-        matteURL(for: item)?.deletingLastPathComponent().lastPathComponent
+        let mattes = [matteURL(for: item), matteURL(for: item, mode: .person)].map { url -> String in
+            guard let folder = url?.deletingLastPathComponent() else { return "-" }
+            var info = stat()
+            guard stat(folder.path, &info) == 0 else { return folder.lastPathComponent }
+            return "\(folder.lastPathComponent)/\(info.st_ino)-\(info.st_birthtimespec.tv_sec).\(info.st_birthtimespec.tv_nsec)"
+        }
+        return mattes == ["-", "-"] ? nil : mattes.joined(separator: "|")
     }
 
     /// The matte for these settings, or while it's being made after an RVM
