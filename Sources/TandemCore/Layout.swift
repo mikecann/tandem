@@ -35,9 +35,13 @@ public enum LayoutPreset: String, Codable, CaseIterable, Sendable {
     public static let pipLeftPosition = Point(x: 0.13, y: 0.77)
 
     /// Filmora's default drop shadow, which Mike never changed.
+    /// A soft dark glow all round him rather than Filmora's small offset
+    /// shadow (4 px, blur 5, 60%), which hardly showed over dark UI. Mike
+    /// picked it from four looks on the Threadbear launch video (6 Nov 2026),
+    /// the way his pre-Filmora videos framed him.
     public static func pipShadow(id: String) -> Effect {
         Effect(id: id, type: "dropShadow", params: [
-            "distance": .number(4), "blur": .number(5), "opacity": .number(60)
+            "distance": .number(0), "blur": .number(30), "opacity": .number(100)
         ])
     }
 
