@@ -92,9 +92,11 @@ enum RVMMatte {
         let runner = try RVMRunner(model: loaded.model, sourceWidth: width, sourceHeight: height, outputWidth: size.width, outputHeight: size.height)
         // The empty room first, from frames across the take; a take whose
         // camera moves gets none, and says so.
-        switch try await runner.makePlate(source: source, timeRange: timeRange ?? CMTimeRange(start: .zero, end: reader.endTime), context: context) {
-        case .success(let plate): runner.plate = plate
-        case .failure(let refusal): context.note("No clean plate: \(refusal)")
+        if settings.matteCleanPlate {
+            switch try await runner.makePlate(source: source, timeRange: timeRange ?? CMTimeRange(start: .zero, end: reader.endTime), context: context) {
+            case .success(let plate): runner.plate = plate
+            case .failure(let refusal): context.note("No clean plate: \(refusal)")
+            }
         }
         let frames = FramePrefetcher(reader: reader)
         frames.start()

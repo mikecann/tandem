@@ -58,6 +58,9 @@ public struct AnalysisSettings: Codable, Equatable, Sendable {
     /// The matte fits inside this box, like proxies.
     public var matteMaxWidth: Int
     public var matteMaxHeight: Int
+    /// RVM mattes are tightened against a clean plate of the room where it's
+    /// light (`CleanPlate`). Off only to compare with and without it.
+    public var matteCleanPlate: Bool
     public var voiceModel: VoiceIsolationModel
 
     public init(
@@ -77,6 +80,7 @@ public struct AnalysisSettings: Codable, Equatable, Sendable {
         matteSmoothing: MatteSmoothing = .steady,
         matteMaxWidth: Int = 1920,
         matteMaxHeight: Int = 1080,
+        matteCleanPlate: Bool = true,
         voiceModel: VoiceIsolationModel = .voice
     ) {
         self.thumbnailInterval = thumbnailInterval
@@ -95,6 +99,7 @@ public struct AnalysisSettings: Codable, Equatable, Sendable {
         self.matteSmoothing = matteSmoothing
         self.matteMaxWidth = matteMaxWidth
         self.matteMaxHeight = matteMaxHeight
+        self.matteCleanPlate = matteCleanPlate
         self.voiceModel = voiceModel
     }
 
@@ -133,7 +138,11 @@ public struct AnalysisSettings: Codable, Equatable, Sendable {
         case .matte where matteModel == .robustVideoMatting:
             // RVM keeps what the person holds either way, so both cutout
             // modes share one matte; its own version rebuilds only RVM mattes.
-            values = ["box": "\(matteMaxWidth)x\(matteMaxHeight)", "model": matteModel.rawValue, "rvm": "\(RVMMatte.version)"]
+            var rvm = ["box": "\(matteMaxWidth)x\(matteMaxHeight)", "model": matteModel.rawValue, "rvm": "\(RVMMatte.version)"]
+            // The default has no key of its own, so the plate's mattes are
+            // the ones version 3 names.
+            if !matteCleanPlate { rvm["plate"] = "off" }
+            values = rvm
         case .matte:
             var matte = ["box": "\(matteMaxWidth)x\(matteMaxHeight)", "mode": matteMode.rawValue, "quality": matteQuality.rawValue, "smoothing": matteSmoothing.rawValue]
             // A person-only matte has no props to find.
