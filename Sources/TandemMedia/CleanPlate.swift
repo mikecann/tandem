@@ -108,15 +108,25 @@ struct CleanPlate {
         // Is it steady? Each sample's exposure drifts over a long take (the
         // light through a window), so its mean difference from the plate
         // comes off first; then a wall pixel should sit near the plate.
+        // The median difference, not the mean: a patch that changed a lot
+        // (the case below) would drag a mean and make steady wall look off.
         var shifts: [[Int]?] = []
         for s in 0..<samples.count {
             if shouldStop() { throw CancellationError() }
-            var offset = [Double](repeating: 0, count: 3), n = 0
+            var histograms = [[Int]](repeating: [Int](repeating: 0, count: 511), count: 3), n = 0
             for pixel in 0..<count where walls[s][pixel] && seen[pixel] != 0 {
-                for c in 0..<3 { offset[c] += Double(samples[s][pixel * 4 + c]) - Double(plate[pixel * 4 + c]) }
+                for c in 0..<3 { histograms[c][Int(samples[s][pixel * 4 + c]) - Int(plate[pixel * 4 + c]) + 255] += 1 }
                 n += 1
             }
-            shifts.append(n > 0 ? offset.map { Int(($0 / Double(n)).rounded()) } : nil)
+            guard n > 0 else { shifts.append(nil); continue }
+            shifts.append(histograms.map { histogram in
+                var total = 0
+                for (bin, k) in histogram.enumerated() {
+                    total += k
+                    if total * 2 >= n { return bin - 255 }
+                }
+                return 0
+            })
         }
         // The medians again, of the exposure-matched sightings: wall he only
         // uncovers while the light is lower would otherwise keep a darker
