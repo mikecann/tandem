@@ -118,6 +118,21 @@ struct CleanPlate {
             }
             shifts.append(n > 0 ? offset.map { Int(($0 / Double(n)).rounded()) } : nil)
         }
+        // The medians again, of the exposure-matched sightings: wall he only
+        // uncovers while the light is lower would otherwise keep a darker
+        // median than its matched sightings, and look unsteady (review).
+        for pixel in 0..<count where seen[pixel] != 0 {
+            if pixel % 8192 == 0, shouldStop() { throw CancellationError() }
+            for channel in 0..<3 {
+                var n = 0
+                for s in 0..<samples.count where walls[s][pixel] {
+                    guard let shift = shifts[s] else { continue }
+                    values[n] = UInt8(max(0, min(255, Int(samples[s][pixel * 4 + channel]) - shift[channel])))
+                    n += 1
+                }
+                if n > 0 { plate[pixel * 4 + channel] = median(&values, n) }
+            }
+        }
         // Per pixel too: a patch that changed partway (a lamp switched on, a
         // door opened) has a median that matches neither look, and a prop
         // the colour of that median would lose alpha against it. Such a

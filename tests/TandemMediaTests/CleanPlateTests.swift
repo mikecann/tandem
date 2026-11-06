@@ -81,6 +81,22 @@ final class CleanPlateTests: XCTestCase {
         XCTAssertEqual(made.seen[18 * width + 50], 255, "the steady wall beside it should count")
     }
 
+    /// Wall he only uncovers while the light is lower still counts: the
+    /// medians are of exposure-matched sightings (review: against a median
+    /// of the raw ones, its matched sightings looked unsteady).
+    func testWallSeenOnlyInOneLightIsKept() throws {
+        // Darker for the first half, lighter after; the patch at x 50...58
+        // is behind him while it's lighter.
+        let samples: [[UInt8]] = (0..<20).map { s in
+            frame(wall: s < 10 ? 180 : 220, person: s < 10 ? CGRect(x: Double(s % 4) * 6, y: 8, width: 14, height: 28) : CGRect(x: 44, y: 0, width: 16, height: 36))
+        }
+        let mattes: [[UInt8]] = (0..<20).map { s in
+            matte(s < 10 ? CGRect(x: Double(s % 4) * 6, y: 8, width: 14, height: 28) : CGRect(x: 44, y: 0, width: 16, height: 36))
+        }
+        let made = try CleanPlate.make(samples: samples, mattes: mattes, width: width, height: height).get()
+        XCTAssertEqual(made.seen[18 * width + 53], 255, "wall seen only in the darker half was dropped")
+    }
+
     func testMakingThePlateStopsWhenAsked() {
         let samples = (0..<20).map { frame(person: person($0)) }
         let mattes = (0..<20).map { matte(person($0)) }
