@@ -33,7 +33,11 @@ final class VideoFrameReader: @unchecked Sendable {
     private let access = NSRecursiveLock()
     private var cancelled = false
 
-    init(url: URL, timeRange: CMTimeRange? = nil, keepingAlpha: Bool = false) async throws {
+    /// `countingFrames: false` skips reading the whole sample table for
+    /// `frameCount` (it's estimated from the frame rate instead): the clean
+    /// plate opens a reader for each of its 80 frames, and on an hour's take
+    /// each count walked 108,000 samples (review, 6 Nov 2026).
+    init(url: URL, timeRange: CMTimeRange? = nil, keepingAlpha: Bool = false, countingFrames: Bool = true) async throws {
         let asset = AVURLAsset(url: url, options: [AVURLAssetPreferPreciseDurationAndTimingKey: true])
         guard let track = try await asset.loadTracks(withMediaType: .video).first else {
             throw MediaError.notApplicable("\(url.lastPathComponent) has no video")
@@ -56,7 +60,7 @@ final class VideoFrameReader: @unchecked Sendable {
         endTime = range.end
 
         // Count frames from the sample table for progress; no decoding.
-        if let times = MediaProbe.presentationTimes(of: track) {
+        if countingFrames, let times = MediaProbe.presentationTimes(of: track) {
             let start = CMTimeConvertScale(range.start, timescale: timescale, method: .roundTowardNegativeInfinity).value
             let end = CMTimeConvertScale(range.end, timescale: timescale, method: .roundTowardPositiveInfinity).value
             frameCount = times.filter { $0 >= start && $0 < end }.count

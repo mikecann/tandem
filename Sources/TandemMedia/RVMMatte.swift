@@ -366,7 +366,7 @@ final class RVMRunner: @unchecked Sendable {
             context.progress(0, message: "Clean plate: frame \(index + 1) of \(count)")
             let at = range.start.seconds + (Double(index) + 0.5) * duration / Double(count)
             let window = CMTimeRange(start: CMTime(seconds: at, preferredTimescale: 600), duration: CMTime(seconds: 0.2, preferredTimescale: 600))
-            guard let reader = try? await VideoFrameReader(url: source, timeRange: window) else { continue }
+            guard let reader = try? await VideoFrameReader(url: source, timeRange: window, countingFrames: false) else { continue }
             defer { reader.cancel() }
             guard let frame = try? reader.next() else { continue }
             let made: (picture: [UInt8], alpha: [UInt8])? = autoreleasepool {
@@ -386,7 +386,12 @@ final class RVMRunner: @unchecked Sendable {
             samples.append(Self.halved(made.picture, contentWidth, contentHeight, to: sampleWidth, sampleHeight, channels: 4))
             mattes.append(Self.halved(made.alpha, contentWidth, contentHeight, to: sampleWidth, sampleHeight, channels: 1))
         }
-        switch CleanPlate.make(samples: samples, mattes: mattes, width: sampleWidth, height: sampleHeight) {
+        // A second or so of medians: off the cooperative pool, and it stops
+        // when the job is cancelled.
+        let made = try await Blocking.run(qos: context.qos) {
+            try CleanPlate.make(samples: samples, mattes: mattes, width: sampleWidth, height: sampleHeight, shouldStop: { context.isCancelled })
+        }
+        switch made {
         case .success(let made):
             return .success(CleanPlate(plate: made.plate, seen: made.seen, sampleWidth: sampleWidth, sampleHeight: sampleHeight, width: contentWidth, height: contentHeight))
         case .failure(let refusal):

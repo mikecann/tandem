@@ -45,11 +45,11 @@ final class CleanPlateTests: XCTestCase {
         }
     }
 
-    func testABackgroundThatKeepsChangingGivesNone() {
+    func testABackgroundThatKeepsChangingGivesNone() throws {
         // A camera moving: the "wall" is different noise in every sample.
         let samples = (0..<20).map { s in frame(person: person(s), noise: { ($0 * 7919 + s * 104729) % 61 - 30 }) }
         let mattes = (0..<20).map { matte(person($0)) }
-        guard case .failure(.notSteady) = CleanPlate.make(samples: samples, mattes: mattes, width: width, height: height) else {
+        guard case .failure(.notSteady) = try CleanPlate.make(samples: samples, mattes: mattes, width: width, height: height) else {
             return XCTFail("a changing background made a plate")
         }
     }
@@ -61,8 +61,36 @@ final class CleanPlateTests: XCTestCase {
         XCTAssertNoThrow(try CleanPlate.make(samples: samples, mattes: mattes, width: width, height: height).get())
     }
 
-    func testTooFewSamplesGiveNone() {
-        guard case .failure(.tooFewSamples) = CleanPlate.make(samples: [frame(person: nil)], mattes: [matte(.zero)], width: width, height: height) else {
+    /// A patch of the room that changes partway (a lamp switched on, a door
+    /// opened) isn't trusted, though the rest of the plate is (review: its
+    /// median matched neither look, and a prop could match it).
+    func testAPatchThatChangesIsNotTrusted() throws {
+        let patch = CGRect(x: 56, y: 0, width: 8, height: 36)
+        let samples: [[UInt8]] = (0..<20).map { s in
+            var f = frame(person: person(s))
+            for y in 0..<height {
+                for x in 56..<64 where patch.contains(CGPoint(x: Double(x) + 0.5, y: Double(y) + 0.5)) {
+                    for c in 0..<3 { f[(y * width + x) * 4 + c] = s < 10 ? 80 : 240 }
+                }
+            }
+            return f
+        }
+        let mattes = (0..<20).map { matte(person($0)) }
+        let made = try CleanPlate.make(samples: samples, mattes: mattes, width: width, height: height).get()
+        XCTAssertEqual(made.seen[18 * width + 60], 0, "the changing patch counts as seen")
+        XCTAssertEqual(made.seen[18 * width + 50], 255, "the steady wall beside it should count")
+    }
+
+    func testMakingThePlateStopsWhenAsked() {
+        let samples = (0..<20).map { frame(person: person($0)) }
+        let mattes = (0..<20).map { matte(person($0)) }
+        XCTAssertThrowsError(try CleanPlate.make(samples: samples, mattes: mattes, width: width, height: height, shouldStop: { true })) { error in
+            XCTAssertTrue(error is CancellationError)
+        }
+    }
+
+    func testTooFewSamplesGiveNone() throws {
+        guard case .failure(.tooFewSamples) = try CleanPlate.make(samples: [frame(person: nil)], mattes: [matte(.zero)], width: width, height: height) else {
             return XCTFail("one frame made a plate")
         }
     }

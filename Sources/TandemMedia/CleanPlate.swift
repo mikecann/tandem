@@ -45,6 +45,9 @@ struct CleanPlate {
     /// `steadyLevel` of its median, on average.
     static let steadyShare = 0.75
     static let steadyLevel = 14
+    /// And a pixel whose own sightings mostly disagree with its median is
+    /// left out of the plate.
+    static let pixelSteadyShare = 0.6
     /// And too little of the frame seen to be worth it.
     static let minimumSeen = 0.3
     /// Colour distance (0...441) from the plate where a pixel goes from
@@ -72,7 +75,10 @@ struct CleanPlate {
     /// The plate (BGRA) and where it saw the wall (0 or 255) from `samples`
     /// (BGRA, width x height) and their mattes (0...255), at that size.
     /// Sampled at half the model's size: 80 frames at 640x360 are 74 MB.
-    static func make(samples: [[UInt8]], mattes: [[UInt8]], width: Int, height: Int) -> Result<(plate: [UInt8], seen: [UInt8]), Refusal> {
+    /// `shouldStop` is asked as it goes, so a cancelled job doesn't wait
+    /// for the medians; it throws `CancellationError` then.
+    static func make(samples: [[UInt8]], mattes: [[UInt8]], width: Int, height: Int,
+                     shouldStop: () -> Bool = { false }) throws -> Result<(plate: [UInt8], seen: [UInt8]), Refusal> {
         let count = width * height
         guard samples.count >= 8, samples.count == mattes.count else { return .failure(.tooFewSamples) }
         // Wall pixels in each sample: the matte grown, then under wallAlpha.
@@ -86,6 +92,7 @@ struct CleanPlate {
         var which = [Int](repeating: 0, count: samples.count)
         var seenCount = 0
         for pixel in 0..<count {
+            if pixel % 8192 == 0, shouldStop() { throw CancellationError() }
             var n = 0
             for s in 0..<samples.count where walls[s][pixel] { which[n] = s; n += 1 }
             // Three sightings at least: one could be a passing shadow.
@@ -98,30 +105,45 @@ struct CleanPlate {
             }
             plate[pixel * 4 + 3] = 255
         }
-        let seenShare = Double(seenCount) / Double(max(1, count))
-        guard seenShare >= minimumSeen else { return .failure(.tooLittleSeen(seenShare)) }
-
         // Is it steady? Each sample's exposure drifts over a long take (the
         // light through a window), so its mean difference from the plate
         // comes off first; then a wall pixel should sit near the plate.
-        var steady = 0, sightings = 0
+        var shifts: [[Int]?] = []
         for s in 0..<samples.count {
+            if shouldStop() { throw CancellationError() }
             var offset = [Double](repeating: 0, count: 3), n = 0
             for pixel in 0..<count where walls[s][pixel] && seen[pixel] != 0 {
                 for c in 0..<3 { offset[c] += Double(samples[s][pixel * 4 + c]) - Double(plate[pixel * 4 + c]) }
                 n += 1
             }
-            guard n > 0 else { continue }
-            let shift = offset.map { Int(($0 / Double(n)).rounded()) }
-            for pixel in 0..<count where walls[s][pixel] && seen[pixel] != 0 {
+            shifts.append(n > 0 ? offset.map { Int(($0 / Double(n)).rounded()) } : nil)
+        }
+        // Per pixel too: a patch that changed partway (a lamp switched on, a
+        // door opened) has a median that matches neither look, and a prop
+        // the colour of that median would lose alpha against it. Such a
+        // pixel counts as never seen (review, 6 Nov 2026).
+        var steady = 0, sightings = 0
+        for pixel in 0..<count where seen[pixel] != 0 {
+            if pixel % 8192 == 0, shouldStop() { throw CancellationError() }
+            var near = 0, n = 0
+            for s in 0..<samples.count where walls[s][pixel] {
+                guard let shift = shifts[s] else { continue }
                 var far = 0
                 for c in 0..<3 { far = max(far, abs(Int(samples[s][pixel * 4 + c]) - shift[c] - Int(plate[pixel * 4 + c]))) }
-                if far <= steadyLevel { steady += 1 }
-                sightings += 1
+                if far <= steadyLevel { near += 1 }
+                n += 1
+            }
+            steady += near
+            sightings += n
+            if n == 0 || Double(near) / Double(n) < pixelSteadyShare {
+                seen[pixel] = 0
+                seenCount -= 1
             }
         }
         let steadyShare = Double(steady) / Double(max(1, sightings))
         guard steadyShare >= self.steadyShare else { return .failure(.notSteady(steadyShare)) }
+        let seenShare = Double(seenCount) / Double(max(1, count))
+        guard seenShare >= minimumSeen else { return .failure(.tooLittleSeen(seenShare)) }
         return .success((plate, seen))
     }
 

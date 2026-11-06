@@ -14,6 +14,8 @@ final class CleanPlateRealTests: XCTestCase {
         let environment = ProcessInfo.processInfo.environment
         guard let path = environment["TANDEM_CLEAN_PLATE_FILE"] else { throw XCTSkip("set TANDEM_CLEAN_PLATE_FILE to a camera take") }
         let source = URL(fileURLWithPath: path)
+        try XCTSkipUnless((try? RVMModelStore.checksum(of: RVMModelStore.standard.folder.appendingPathComponent(RVMMatte.modelFile))) == RVMMatte.modelSHA256,
+                          "the RVM model isn't installed, and tests never download it")
         let out = URL(fileURLWithPath: environment["TANDEM_CLEAN_PLATE_OUT"] ?? "/private/tmp/tandem-clean-plate")
         var report: [String] = []
         for (name, plate) in [("with", true), ("without", false)] {
@@ -24,6 +26,9 @@ final class CleanPlateRealTests: XCTestCase {
             let start = Date()
             try await MatteJob.run(source: source, settings: AnalysisSettings(matteCleanPlate: plate), into: folder, context: context)
             report.append(String(format: "%@: %.1f s, notes: %@", name, Date().timeIntervalSince(start), context.lastNote ?? "none (plate made, or off)"))
+            // RVM ran (no Vision fallback note), and with the plate on, it
+            // made one (no "No clean plate" note).
+            XCTAssertNil(context.lastNote, "\(name): \(context.lastNote ?? "")")
         }
         try report.joined(separator: "\n").write(to: out.appendingPathComponent("report.txt"), atomically: true, encoding: .utf8)
         print(report.joined(separator: "\n"))
