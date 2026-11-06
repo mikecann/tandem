@@ -218,6 +218,9 @@ enum RenderPlanner {
                         matte.role = .matte
                         matte.alpha = false
                         videoSegments.append(matte)
+                        if assets?.matteIsStandIn(for: item) == true {
+                            warnings.add("The cutout matte for \(item.path) is still being remade with the clean plate; this uses the one before it.")
+                        }
                     } else {
                         warnings.add("No cutout matte for \(item.path) yet, showing the full frame.")
                     }

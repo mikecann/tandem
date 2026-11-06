@@ -148,6 +148,18 @@ public final class MediaAnalysis: @unchecked Sendable {
         return matte(for: item, settings: settings)
     }
 
+    /// True while the matte served is the one from before an RVM version
+    /// change (the new one is still being made); exports say so.
+    public func matteIsStandIn(for item: MediaItem) -> Bool {
+        entryFolder(.matte, for: item) == nil && matteURL(for: item) != nil
+    }
+
+    /// Which matte is served for `item` (its cache entry), so a cached check
+    /// knows the picture changed when a stand-in or the new one arrives.
+    public func servedMatte(for item: MediaItem) -> String? {
+        matteURL(for: item)?.deletingLastPathComponent().lastPathComponent
+    }
+
     /// The matte for these settings, or while it's being made after an RVM
     /// version change, the one the version before made. Version 3 (the
     /// clean plate) rebuilds every RVM matte, an hour or more for a long

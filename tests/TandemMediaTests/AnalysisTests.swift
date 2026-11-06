@@ -398,6 +398,8 @@ final class AnalysisTests: TempFolderTestCase {
         XCTAssertEqual(analysis.state(.matte, for: camera), .missing, "version 3 still has to be made")
         XCTAssertEqual(analysis.matteURL(for: camera), old.appendingPathComponent(MatteJob.file), "the version 2 matte serves meanwhile")
         XCTAssertEqual(analysis.matteURL(for: camera, mode: .personAndProps), old.appendingPathComponent(MatteJob.file))
+        XCTAssertTrue(analysis.matteIsStandIn(for: camera), "exports say so")
+        XCTAssertEqual(analysis.servedMatte(for: camera), old.lastPathComponent, "checks key on the matte served")
         var off = analysis.settings
         off.matteCleanPlate = false
         analysis.settings = off

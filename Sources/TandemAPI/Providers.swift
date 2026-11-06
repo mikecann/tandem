@@ -12,6 +12,8 @@ public protocol AnalysisSource: AnyObject, Sendable {
     func loudness(for item: MediaItem) -> Loudness?
     /// True when a result for `kind` is cached and ready to use.
     func isReady(_ kind: AnalysisKind, for item: MediaItem) -> Bool
+    /// Which matte the renderer would use for `item`, nil for none.
+    func servedMatte(for item: MediaItem) -> String?
     var jobs: [JobStatus] { get }
     /// Calls `handler` whenever job status changes. Returns a token for
     /// `removeJobsObserver`.
@@ -28,6 +30,9 @@ public protocol AnalysisSource: AnyObject, Sendable {
 }
 
 extension AnalysisSource {
+    /// Sources without mattes (test doubles) serve none.
+    public func servedMatte(for item: MediaItem) -> String? { nil }
+
     public func needs(for project: Project) -> [AnalysisNeeds.Need] {
         AnalysisNeeds.needs(for: project)
     }
@@ -62,6 +67,8 @@ public final class MediaAnalysisSource: AnalysisSource, @unchecked Sendable {
     public func isReady(_ kind: AnalysisKind, for item: MediaItem) -> Bool {
         analysis.isCached(kind, for: item)
     }
+
+    public func servedMatte(for item: MediaItem) -> String? { analysis.servedMatte(for: item) }
 
     public var jobs: [JobStatus] { analysis.jobs }
 

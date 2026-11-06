@@ -13,6 +13,9 @@ final class FakeAssets: RenderAssets, @unchecked Sendable {
     var personMattes: [String: URL] = [:]
     var voices: [String: URL] = [:]
     var loudnesses: [String: Loudness] = [:]
+    /// Media whose matte is a stand-in from before an RVM version change.
+    var standInMattes: Set<String> = []
+    func matteIsStandIn(for item: MediaItem) -> Bool { standInMattes.contains(item.id) }
 
     func proxyURL(for item: MediaItem) -> URL? { proxies[item.id] }
     func matteURL(for item: MediaItem) -> URL? { mattes[item.id] }
@@ -324,6 +327,21 @@ final class RenderPlanTests: XCTestCase {
         let bare = RenderPlanner.plan(project(video: [Track(kind: .video, name: "Camera", clips: [pip])]), format: nil, assets: FakeAssets())
         XCTAssertEqual(bare.videoSegments.count, 1)
         XCTAssertFalse(bare.warnings.isEmpty)
+    }
+
+    /// An export while a matte is being remade uses the one before it, and
+    /// says so (review: the fallback had hidden the missing-matte warning).
+    func testAStandInMatteIsUsedAndSaysSo() {
+        var pip = mediaClip("clip_c", "med_cam", start: 1, duration: 3, source: 12)
+        pip.video = VideoProperties(transform: Transform(position: Point(x: 0.87, y: 0.77), scale: 0.5), cutout: Cutout())
+        let assets = FakeAssets()
+        assets.mattes["med_cam"] = URL(fileURLWithPath: "/tmp/matte.mov")
+        let current = RenderPlanner.plan(project(video: [Track(kind: .video, name: "Camera", clips: [pip])]), format: nil, assets: assets)
+        XCTAssertTrue(current.warnings.isEmpty, "\(current.warnings)")
+        assets.standInMattes = ["med_cam"]
+        let plan = RenderPlanner.plan(project(video: [Track(kind: .video, name: "Camera", clips: [pip])]), format: nil, assets: assets)
+        XCTAssertNotNil(plan.videoSegments.first { $0.role == .matte }, "the stand-in is still used")
+        XCTAssertTrue(plan.warnings.contains { $0.contains("clean plate") }, "\(plan.warnings)")
     }
 
     func testAPictureThatLagsItsSoundIsShownLaterInTheFile() {
