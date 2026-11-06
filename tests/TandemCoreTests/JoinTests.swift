@@ -102,9 +102,11 @@ final class JoinTests: XCTestCase {
         let shadows = c.clips("Camera").compactMap { $0.video?.effects.first?.id }
         XCTAssertEqual(shadows.count, 2)
         XCTAssertNotEqual(shadows[0], shadows[1])
-        // The second piece's shadow fades out later on.
+        // The second piece's shadow fades out later on, from the layout's
+        // own opacity, so both pieces still play the same before it.
+        let opacity = LayoutPreset.pipShadow(id: "x").params["opacity"]?.number ?? 0
         try c.run("Shadow", .setKeyframes(clipID: right, parameter: "video.effects.\(shadows[1]).opacity", keyframes: [
-            Keyframe(time: t(5), value: .number(60), interpolation: .linear),
+            Keyframe(time: t(5), value: .number(opacity), interpolation: .linear),
             Keyframe(time: t(8), value: .number(0))
         ]))
         let cut = c.project
