@@ -828,6 +828,52 @@ final class EditorBehaviourTests: XCTestCase {
         playback.setSpeed(1)
     }
 
+    /// The speed badge on the play button is always there, 1× included,
+    /// and a click on it opens the speeds; picking one sets what Space plays
+    /// at, and the badge says so.
+    func testTheSpeedBadgeShowsTheSpeedAndAClickOpensTheSpeeds() throws {
+        let playback = editor.model.playback
+        editor.settle(0.3)
+        // A SwiftUI menu has no AppKit view of its own, only the focus
+        // proxy SwiftUI puts over each control: the badge's is the small one
+        // over the play button's top right corner.
+        func badge() throws -> CGPoint {
+            var proxies: [NSRect] = []
+            func walk(_ view: NSView) {
+                if String(describing: type(of: view)).contains("KeyViewProxy") { proxies.append(view.convert(view.bounds, to: nil)) }
+                view.subviews.forEach(walk)
+            }
+            walk(editor.window.contentView!)
+            let play = try XCTUnwrap(proxies.first { abs($0.width - 32) < 1 && abs($0.height - 32) < 1 }, "the play button")
+            let found = try XCTUnwrap(proxies.first { $0.height < 20 && $0.minX > play.midX && $0.minX < play.maxX && $0.maxY > play.maxY }, "a speed badge on the play button")
+            return CGPoint(x: found.midX, y: editor.window.contentView!.bounds.height - found.midY)
+        }
+        let at = try badge()
+        // The click opens the menu, which runs its own loop until it's
+        // closed: picked from inside it, as a click on 1.5× would.
+        var titles: [String] = []
+        let opened = NotificationCenter.default.addObserver(forName: NSMenu.didBeginTrackingNotification, object: nil, queue: nil) { note in
+            guard let menu = note.object as? NSMenu else { return }
+            let timer = Timer(timeInterval: 0.1, repeats: false) { _ in
+                MainActor.assumeIsolated {
+                    titles = menu.items.map(\.title)
+                    if let index = menu.items.firstIndex(where: { $0.title == "1.5×" }) { menu.performActionForItem(at: index) }
+                    menu.cancelTracking()
+                }
+            }
+            RunLoop.main.add(timer, forMode: .common)
+        }
+        defer { NotificationCenter.default.removeObserver(opened) }
+        editor.click(at)
+        editor.settle(0.3)
+        XCTAssertEqual(titles.filter { $0.hasSuffix("×") }, ["0.5×", "0.75×", "1×", "1.25×", "1.5×", "1.75×", "2×"])
+        XCTAssertEqual(playback.speed, 1.5)
+        editor.press("space")
+        XCTAssertEqual(playback.rate, 1.5)
+        editor.press("space")
+        playback.setSpeed(1)
+    }
+
     func testRulerClickWhilePlayingJumpsAndKeepsPictureAndSoundPlaying() throws {
         let editor = try soundEditor()
         let playback = editor.model.playback
