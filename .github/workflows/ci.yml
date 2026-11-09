@@ -22,5 +22,26 @@ jobs:
             bash -n "$script"
           done
           bash tests/install-tests.sh
+      # Sentry's xcframeworks (and FluidAudio's) are GitHub release
+      # downloads of several hundred MB. Fetched fresh every run, they failed
+      # with 504s from the runners for hours on 9 Nov 2026 while they
+      # downloaded fine elsewhere, so they're cached, and fetched with retries.
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/Library/Caches/org.swift.swiftpm
+            ~/Library/org.swift.swiftpm
+            .build/artifacts
+            .build/repositories
+          key: spm-${{ runner.os }}-${{ hashFiles('Package.resolved') }}
+          restore-keys: spm-${{ runner.os }}-
+      - name: Fetch packages
+        run: |
+          for attempt in 1 2 3 4 5; do
+            swift package resolve && exit 0
+            echo "Fetching packages failed (attempt $attempt), trying again in $((attempt * 30)) s"
+            sleep $((attempt * 30))
+          done
+          exit 1
       - name: Build and test
         run: swift test
