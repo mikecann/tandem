@@ -90,7 +90,10 @@ public struct SpeechStretcher {
     /// cut so the whole output is `1 / rate` of the input to the frame.
     /// Passed through unchanged, as Poddle does, a stream shorter than
     /// `maxRequired` (a play started near the end of the timeline) came out
-    /// unstretched, ending 30 ms before the picture at 0.5x.
+    /// unstretched, ending 30 ms before the picture at 0.5x. If `process`
+    /// has already run past the target (it can, by a pitch period or so,
+    /// at speeds very close to 1x), that much stays: it's the end of the
+    /// timeline, where the sound is silence the picture stops in.
     public mutating func flush() -> [Float] {
         let target = Int((Double(inputTotal) / rate).rounded())
         let before = outputTotal

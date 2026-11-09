@@ -756,7 +756,7 @@ final class PlaybackController {
             MainActor.assumeIsolated {
                 guard let self else { return }
                 // Queued for the chosen speed, so Space starts at once.
-                let stretch = self.stretch(for: self.speed)
+                let stretch = ViewerAudio.stretch(for: self.speed)
                 guard self.rate == 0, self.hasComposition, !self.audio.isReady(at: self.time, reverse: false, stretch: stretch) else { return }
                 self.audio.prime(at: self.time, reverse: false, stretch: stretch)
             }
@@ -801,7 +801,12 @@ final class PlaybackController {
     }
 
     func togglePlay() {
-        if isPlaying { pause() } else { play(rate: speed) }
+        if isPlaying {
+            pause()
+        } else {
+            atSpeed = true
+            play(rate: speed)
+        }
     }
 
     /// Picked in the speed menu. Playing forwards, it changes speed there
@@ -810,18 +815,25 @@ final class PlaybackController {
     func setSpeed(_ newSpeed: Double) {
         speed = newSpeed
         if rate > 0 {
+            atSpeed = true
             play(rate: newSpeed)
         } else if rate == 0 {
             queueSound()
         }
     }
 
+    /// Whether what's playing (or plays next) came from Space, the play
+    /// button or the speed menu, rather than a J or L shuttle. It's kept
+    /// rather than worked out from the rate, because a shuttle can land on
+    /// the chosen speed: L's second press is 2x, and so may the speed be.
+    @ObservationIgnored private var atSpeed = true
+
     /// How much the sound is stretched playing at `rate`: only at the
     /// chosen playback speed, where it's listened to. J and L shuttles
     /// (1x, 2x, 4x, 8x, or doubling from the speed) aren't, so they keep
     /// changing speed on the fly, in step, as they always have.
     func stretch(for rate: Double) -> Double {
-        rate == speed ? ViewerAudio.stretch(for: rate) : 1
+        atSpeed ? ViewerAudio.stretch(for: rate) : 1
     }
 
     /// "1.5×", "0.75×", "2×", "−4×".
@@ -831,11 +843,13 @@ final class PlaybackController {
 
     /// L: play forwards, faster each press.
     func shuttleForward() {
+        atSpeed = false
         play(rate: rate > 0 ? min(rate * 2, 8) : 1)
     }
 
     /// J: play backwards, faster each press.
     func shuttleReverse() {
+        atSpeed = false
         play(rate: rate < 0 ? max(rate * 2, -8) : -1)
     }
 

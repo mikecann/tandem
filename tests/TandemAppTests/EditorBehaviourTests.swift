@@ -810,6 +810,21 @@ final class EditorBehaviourTests: XCTestCase {
         editor.settle(0.35)
         assertInStep(playback, "shuttling at 3x, unstretched")
         editor.press("k")
+
+        // A shuttle that lands on the chosen speed is still a shuttle: with
+        // the speed at 2x, L's 1x to 2x changes speed on the fly, unstretched.
+        playback.setSpeed(2)
+        editor.press("l")
+        editor.wait(for: "the 1x shuttle playing") { playback.audio.isPlaying }
+        editor.settle(0.35)
+        let starts = DrawTiming.samples("playback starts").count
+        editor.press("l")
+        XCTAssertEqual(playback.rate, 2)
+        editor.settle(0.35)
+        XCTAssertEqual(playback.audio.currentStretch, 1)
+        XCTAssertEqual(DrawTiming.samples("playback starts").count, starts, "L to 2x started playback again")
+        assertInStep(playback, "shuttling at 2x with the speed at 2x")
+        editor.press("k")
         playback.setSpeed(1)
     }
 
