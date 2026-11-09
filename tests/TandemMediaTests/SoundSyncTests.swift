@@ -35,6 +35,59 @@ final class SoundSyncTests: TempFolderTestCase {
         XCTAssertEqual(match.overlapEnd, 80.25, accuracy: 0.01)
     }
 
+    func testACameraMoviesSoundKeepsTimeAtTheMatchersRate() async throws {
+        // AVAssetReader's own resampling slips on a movie whose sound is
+        // interleaved with its picture: asked for 8 kHz, this one's sound
+        // ran 12 ms late by 120 s, and a real hour ran 0.33 s late, which
+        // put a guest's mic 151 ms out. Tandem resamples it itself.
+        let room = Room(seconds: 130, seed: 11)
+        let sound = try room.record(to: file("camera.wav"), from: 2, seconds: 120, seed: 12)
+        let camera = file("camera.mov")
+        var spec = SyntheticMedia.Video(width: 64, height: 36, fps: 30, duration: 120)
+        spec.audioFile = sound
+        try await SyntheticMedia.writeMovie(to: camera, spec)
+        let mic = try room.record(to: file("mic.wav"), from: 0.5, seconds: 125, seed: 13)
+
+        let match = try await SoundSync.match(reference: camera, file: mic)
+        XCTAssertEqual(match.offset, 1.5, accuracy: 0.0005)
+        XCTAssertEqual(try XCTUnwrap(match.drift), 0, accuracy: 0.0005, "no slip over the two minutes")
+        XCTAssertEqual(match.agreed, match.stretches, "every stretch agrees with the whole-file match")
+    }
+
+    func testAudioReaderResamplingKeepsEverySampleInPlace() async throws {
+        let room = Room(seconds: 100, seed: 14)
+        let sound = try room.record(to: file("camera.wav"), from: 0, seconds: 90, seed: 15)
+        let camera = file("camera.mov")
+        var spec = SyntheticMedia.Video(width: 64, height: 36, fps: 30, duration: 90)
+        spec.audioFile = sound
+        try await SyntheticMedia.writeMovie(to: camera, spec)
+
+        func read(_ rate: Double) async throws -> (samples: [Float], stamps: Bool) {
+            let reader = try await AudioReader(url: camera, sampleRate: rate, channels: 1)
+            var samples: [Float] = []
+            var stamps = true
+            while try reader.next({ chunk, frames, start in
+                if Int((start.seconds * rate).rounded()) != samples.count { stamps = false }
+                samples.append(contentsOf: chunk.prefix(frames))
+            }) {}
+            return (samples, stamps)
+        }
+        let native = try await read(48_000)
+        let low = try await read(8_000)
+        XCTAssertTrue(low.stamps, "each chunk is stamped where it lands")
+        XCTAssertEqual(Double(low.samples.count) / 8_000, Double(native.samples.count) / 48_000, accuracy: 0.001)
+        // A stretch near the end lines up with the file's own samples.
+        let start = 85 * 8_000, length = 8_000
+        var best = 0
+        var bestScore = -Float.infinity
+        for lag in -80...80 {
+            var score: Float = 0
+            for i in 0..<length { score += low.samples[start + i] * native.samples[(start + i + lag) * 6] }
+            if score > bestScore { bestScore = score; best = lag }
+        }
+        XCTAssertEqual(best, 0, "8 kHz sample n is 48 kHz sample 6n, 85 s in")
+    }
+
     func testFilesThatDontShareASoundAreRefused() async throws {
         let reference = try Room(seconds: 60, seed: 7).record(to: file("camera.wav"), from: 0, seconds: 60, seed: 8)
         let other = try Room(seconds: 60, seed: 9).record(to: file("other.wav"), from: 0, seconds: 40, seed: 10)
