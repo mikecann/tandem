@@ -341,6 +341,11 @@ final class PlayerHostView: NSView {
 final class ViewerOverlayView: NSView {
     weak var viewer: ViewerView?
 
+    // The picture runs up under the titlebar band, where a view that doesn't
+    // say otherwise lets the system move the window: a drag there moved the
+    // window as well as the clip (9 Nov 2026).
+    override var mouseDownCanMoveWindow: Bool { false }
+
     override init(frame: NSRect) {
         super.init(frame: frame)
         clipsToBounds = true

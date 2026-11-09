@@ -4,8 +4,8 @@ import TandemCore
 import TandemRender
 
 /// The export sheet: presets on the left, what they'll do on the right, and
-/// the output file. It drops from the top bar over a dimmed window, as in
-/// the design. Presets resolve through `ExportPreset.plan(for:)`, as they
+/// the output file. It drops from the top of the window, over a dimmed
+/// window, as in the design. Presets resolve through `ExportPreset.plan(for:)`, as they
 /// do for the CLI: each keeps the timeline's shape, and the sheet opens on
 /// the one that fits the timeline.
 struct ExportSheetOverlay: View {
@@ -54,7 +54,6 @@ struct ExportSheetOverlay: View {
                     .stroke(Theme.controlBorder.color, lineWidth: 1)
             )
             .shadow(color: .black.opacity(0.45), radius: 30, y: 12)
-            .padding(.top, Theme.Metrics.topBarHeight)
         }
         .onAppear {
             useRange = model.inOutRange != nil

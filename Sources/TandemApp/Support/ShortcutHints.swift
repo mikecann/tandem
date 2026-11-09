@@ -174,7 +174,7 @@ final class ShortcutHintsHostingView: NSHostingView<ShortcutHintsOverlay> {
     override var acceptsFirstResponder: Bool { false }
 }
 
-/// A key as the hints draw it: dark text on amber, like the Export button.
+/// A key as the hints draw it: dark text on amber.
 struct ShortcutKeyBadge: View {
     let symbol: String
 

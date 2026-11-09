@@ -11,6 +11,9 @@ struct ViewerPanel: View {
         VStack(spacing: 0) {
             ViewerRepresentable(model: model, zoom: $viewerZoom)
                 .overlay(alignment: .bottomLeading) { WalkthroughCard(model: model) }
+                // The viewer runs to the top of the window, so the margin
+                // over the picture is where it moves the window from.
+                .overlay(alignment: .top) { WindowDragArea().frame(height: CanvasGeometry.margin) }
             TransportBar(model: model, actions: actions, zoom: $viewerZoom)
         }
         .background(Theme.viewer.color)

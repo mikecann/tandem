@@ -15,7 +15,7 @@ enum Theme {
     /// Top bar, media panel and inspector.
     static let panel = Swatch(0x111315)
     static let statusBar = Swatch(0x0F1113)
-    /// Sheets, the agent chip and other raised surfaces.
+    /// Sheets and other raised surfaces.
     static let raised = Swatch(0x15171A)
     /// Search fields, chips, effect rows and the segmented control track.
     static let field = Swatch(0x1A1D21)
@@ -113,7 +113,9 @@ enum Theme {
     // MARK: - Sizes
 
     enum Metrics {
-        static let topBarHeight: CGFloat = 40
+        /// The strip over the media panel, and the inspector's tab row
+        /// beside it, at the very top of the window.
+        static let titleStripHeight: CGFloat = 40
         static let mediaPanelWidth: CGFloat = 300
         static let inspectorWidth: CGFloat = 330
         static let transportHeight: CGFloat = 46

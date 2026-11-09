@@ -2,9 +2,10 @@ import SwiftUI
 import TandemCore
 import TandemMedia
 
-/// The Graphite window: top bar, then media panel, viewer and inspector,
-/// then the timeline and status bar. The dividers between the panels drag
-/// (see `PanelSizes`), and a double-click puts one back.
+/// The Graphite window: media panel, viewer and inspector running to the
+/// top of the window, then the timeline and status bar. The dividers
+/// between the panels drag (see `PanelSizes`), and a double-click puts one
+/// back.
 struct EditorRootView: View {
     let model: EditorModel
     let actions: EditorActions
@@ -15,18 +16,26 @@ struct EditorRootView: View {
     var body: some View {
         GeometryReader { geometry in
             let width = geometry.size.width
-            let available = geometry.size.height - Theme.Metrics.topBarHeight - Theme.Metrics.statusBarHeight
+            // The saved workspace height has always been measured under the
+            // 40 points that are now the title strip, so it keeps meaning the
+            // same thing and the row below adds them back: the viewer and
+            // inspector get that height, and the timeline stays as it was
+            // (saved heights included).
+            let strip = Theme.Metrics.titleStripHeight
+            let available = geometry.size.height - strip - Theme.Metrics.statusBarHeight
             let workspace = clampedWorkspace(sizes.workspaceHeight ?? defaultWorkspace(available: available), available: available)
             let panels = sizes.fitted(windowWidth: width)
             VStack(spacing: 0) {
-                TopBar(model: model, actions: actions)
                 HStack(spacing: 0) {
                     // Leading, so nothing that asks for more room than the
                     // panel has can push the whole panel sideways.
-                    LibraryPanel(model: model, actions: actions)
-                        .frame(width: panels.library, alignment: .topLeading)
-                        .clipped()
-                    PanelDivider(axis: .vertical, help: "Drag to resize the media panel. Double-click for its standard width.") { travel in
+                    VStack(spacing: 0) {
+                        TitleStrip(model: model)
+                        LibraryPanel(model: model, actions: actions)
+                    }
+                    .frame(width: panels.library, alignment: .topLeading)
+                    .clipped()
+                    PanelDivider(axis: .vertical, help: "Drag to resize the media panel. Double-click for its standard width.", grabInset: strip) { travel in
                         sizes.libraryWidth = sizes.library(dragged: startDrag(panels.library) + travel, windowWidth: width)
                     } onEnd: {
                         endDrag()
@@ -38,7 +47,7 @@ struct EditorRootView: View {
                         .frame(maxWidth: .infinity)
                         // Space over the asset browser previews here.
                         .overlay { AssetPreviewLayer(model: model) }
-                    PanelDivider(axis: .vertical, help: "Drag to resize the inspector. Double-click for its standard width.") { travel in
+                    PanelDivider(axis: .vertical, help: "Drag to resize the inspector. Double-click for its standard width.", grabInset: strip) { travel in
                         sizes.inspectorWidth = sizes.inspector(dragged: startDrag(panels.inspector) - travel, windowWidth: width)
                     } onEnd: {
                         endDrag()
@@ -49,7 +58,7 @@ struct EditorRootView: View {
                     InspectorPanel(model: model, actions: actions)
                         .frame(width: panels.inspector - 1)
                 }
-                .frame(height: workspace)
+                .frame(height: workspace + strip)
                 .clipped()
                 PanelDivider(axis: .horizontal, help: "Drag to share the height between the viewer and the timeline. Double-click to fit every track.") { travel in
                     sizes.workspaceHeight = clampedWorkspace(startDrag(workspace) + travel, available: available)
@@ -111,6 +120,13 @@ private struct PanelDivider: View {
     /// `.vertical` runs top to bottom and drags sideways.
     let axis: Axis
     let help: String
+    /// How far from the top the drag handle starts. The side dividers run
+    /// up into the window's titlebar band, where the system moves the
+    /// window from anything that isn't a control, even with a gesture on
+    /// it (a divider dragged there moved the window, 9 Nov 2026), so they
+    /// start grabbing below it and the top of the line moves the window
+    /// like the rest of the band.
+    var grabInset: CGFloat = 0
     /// How far the pointer has moved along the drag since it started.
     let onDrag: (CGFloat) -> Void
     let onEnd: () -> Void
@@ -151,6 +167,7 @@ private struct PanelDivider: View {
                         .tip(help)
                 }
                 .animation(.easeOut(duration: 0.12), value: hovering || dragging)
+                .padding(.top, grabInset)
             }
             // Above the panels either side, so the band over their edges
             // gets the pointer rather than them.
@@ -158,43 +175,34 @@ private struct PanelDivider: View {
     }
 }
 
-// MARK: - Top bar
+// MARK: - Title strip
 
-struct TopBar: View {
+/// The top of the media panel: the window's traffic lights and the video's
+/// name, which is the only title the window shows. It autosaves, and the
+/// status bar says when a save fails. Every part of it moves the window.
+struct TitleStrip: View {
     let model: EditorModel
-    let actions: EditorActions
 
     var body: some View {
-        // The library's tabs are on the library panel, which is all they
-        // change; the bar keeps the name and the buttons for the project.
         HStack(spacing: 14) {
-            // The window's own traffic lights sit here.
-            Color.clear.frame(width: 52, height: 12)
-            // The video's name and, dimmer, which file it is: it autosaves,
-            // and the status bar says when a save fails.
-            HStack(alignment: .firstTextBaseline, spacing: 10) {
-                Text(model.project.name)
-                    .font(.ui(13, .bold))
-                    .foregroundStyle(Theme.text.color)
-                    .lineLimit(1)
-                Text(model.shortPath)
-                    .font(.ui(11.5))
-                    .foregroundStyle(Theme.textFaint.color)
-                    .lineLimit(1)
-                    .truncationMode(.head)
+            // The window's own traffic lights sit here, except in full
+            // screen, where they're gone.
+            if !model.windowIsFullScreen {
+                Color.clear.frame(width: 52, height: 12)
             }
-            .frame(maxWidth: 520, alignment: .leading)
-            // The title drags the window like the rest of the bar.
-            .allowsHitTesting(false)
-            Spacer(minLength: 12)
-            AgentChip(model: model)
-            ExportButton { model.showExportSheet = true }
+            Text(model.project.name)
+                .font(.ui(13, .bold))
+                .foregroundStyle(Theme.text.color)
+                .lineLimit(1)
+                // So the name drags the window like the rest of the strip.
+                // The tooltip goes on after, and doesn't take clicks.
+                .allowsHitTesting(false)
+                .tip(model.shortPath)
+            Spacer(minLength: 0)
         }
         .padding(.leading, 16)
         .padding(.trailing, 14)
-        .frame(height: Theme.Metrics.topBarHeight)
-        // Every empty part of the bar moves the window; the buttons and
-        // tabs sit in front and keep their clicks.
+        .frame(height: Theme.Metrics.titleStripHeight)
         .background {
             ZStack {
                 Theme.panel.color
@@ -202,28 +210,6 @@ struct TopBar: View {
             }
         }
         .overlay(alignment: .bottom) { Rectangle().fill(Theme.border.color).frame(height: 1).allowsHitTesting(false) }
-    }
-}
-
-/// The amber Export button, a shade lighter under the pointer.
-private struct ExportButton: View {
-    let action: () -> Void
-    @State private var hovering = false
-
-    var body: some View {
-        Button(action: action) {
-            Text("Export")
-                .font(.ui(12.5, .bold))
-                .foregroundStyle(Theme.onAmber.color)
-                .padding(.horizontal, 14)
-                .frame(height: 28)
-                .background(RoundedRectangle(cornerRadius: 7).fill(Theme.amber.color))
-                .brightness(hovering ? 0.08 : 0)
-        }
-        .buttonStyle(.plain)
-        .pointerHover { hovering = $0 }
-        .tip(Shortcuts.help("Export the video", .export))
-        .shortcutHint(.export)
     }
 }
 
@@ -357,50 +343,6 @@ struct LibraryIcon: View {
     }
 }
 
-/// Shows which agent last edited, and opens the activity feed.
-private struct AgentChip: View {
-    let model: EditorModel
-
-    var body: some View {
-        // Ticks over every few seconds, so "is editing" settles into
-        // "connected" and then "edited" without any new events.
-        SwiftUI.TimelineView(.periodic(from: .now, by: 5)) { context in
-            let state = AgentChipState.of(model.agentPresence, serving: model.apiProblem == nil, watching: model.agentsWatching, now: context.date)
-            Button {
-                model.inspectorTab = .activity
-            } label: {
-                HStack(spacing: 7) {
-                    Circle()
-                        .fill(state.isActive ? Theme.green.color : Theme.textFainter.color)
-                        .frame(width: 7, height: 7)
-                    Text(state.name)
-                        .font(.ui(12, .semibold))
-                        .foregroundStyle(Theme.text.color)
-                    if !state.detail.isEmpty {
-                        Text(state.detail)
-                            .font(.ui(12))
-                            .foregroundStyle(Theme.textMuted.color)
-                    }
-                }
-                .padding(.horizontal, 11)
-                .frame(height: 28)
-                .background(Capsule().fill(Theme.raised.color))
-                .overlay(Capsule().stroke(Theme.controlBorder.color, lineWidth: 1))
-            }
-            .buttonStyle(.plain)
-            .tip(help)
-        }
-    }
-
-    private var help: String {
-        if let port = model.apiPort {
-            return "Agents reach this project through the local API on port \(port). Their edits show in the activity feed."
-        }
-        if let problem = model.apiProblem { return "The local API couldn't start: \(problem)" }
-        return "Starting the local API"
-    }
-}
-
 // MARK: - Status bar
 
 struct StatusBar: View {
@@ -445,6 +387,18 @@ struct StatusBar: View {
                         .lineLimit(1)
                 }
                 .tip(SaveProblem.message(file: model.fileName, reason: problem))
+            }
+            // Agents can't reach the project: it was only ever said in a
+            // message that goes, and the chip's tooltip before it went.
+            if let problem = model.apiProblem {
+                HStack(spacing: 6) {
+                    Circle().fill(Theme.amber.color).frame(width: 6, height: 6)
+                    Text("Local API off")
+                        .font(.ui(11, .semibold))
+                        .foregroundStyle(Theme.amber.color)
+                        .lineLimit(1)
+                }
+                .tip("The local API couldn't start: \(problem)")
             }
             // The last agent edit stays here once its status message has
             // gone, so the bar never says the same thing twice.

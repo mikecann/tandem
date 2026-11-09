@@ -28,8 +28,12 @@ struct InspectorPanel: View {
             }
             .padding(.horizontal, 16)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .frame(height: 40)
-            .overlay(alignment: .bottom) { Rectangle().fill(Theme.border.color).frame(height: 1) }
+            .frame(height: Theme.Metrics.titleStripHeight)
+            // The row is at the very top of the window: the tabs sit in
+            // front and keep their clicks, and the rest of it moves the
+            // window.
+            .background { WindowDragArea() }
+            .overlay(alignment: .bottom) { Rectangle().fill(Theme.border.color).frame(height: 1).allowsHitTesting(false) }
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {

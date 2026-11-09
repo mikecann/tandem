@@ -176,13 +176,12 @@ final class EditorModel {
     /// it's committed.
     var videoPreview: [String: VideoProperties] = [:]
 
+    /// Full screen has no traffic lights to leave room for.
+    var windowIsFullScreen = false
+
     // Agents
-    /// Who last reached the project over the API, for the agent chip.
-    private(set) var agentPresence: AgentPresence?
-    /// The API's port while it serves, for the agent chip.
-    private(set) var apiPort: Int?
     /// Why the API isn't serving, when it couldn't start.
-    private(set) var apiProblem: String?
+    var apiProblem: String?
     @ObservationIgnored private var apiHost: TandemAPIHost?
     @ObservationIgnored private var apiStopped = false
 
@@ -391,15 +390,10 @@ final class EditorModel {
     // MARK: - Change handling
 
     private func handle(_ event: ProjectCoordinator.ChangeEvent) {
-        let before = project
         activity.record(event.kind, revision: event.revision, label: event.label, author: event.author)
         refresh()
         guard !ActivityLog.isPerson(event.author), event.author != ActivityLog.systemAuthor else { return }
         // An agent's edit, undo or redo, through the API.
-        let section = ChangeRegion.between(before, project).flatMap { ChangeRegion.section(at: $0.start, in: project) }
-        var presence = agentPresence ?? AgentPresence(author: event.author, lastSeen: Date())
-        presence.edited(by: event.author, section: section, at: Date())
-        agentPresence = presence
         if event.kind == .edit {
             show(.info, "\(ActivityLog.displayName(event.author)): \(event.label)")
         }
@@ -419,13 +413,7 @@ final class EditorModel {
                 // The window may have closed while the server started.
                 guard !self.apiStopped else { return host.stop() }
                 host.service.screenshotProvider = screenshot
-                // Every call an agent makes, reads included, so the chip
-                // knows who's connected.
-                host.service.onCall = { [weak self] _, author in
-                    Task { @MainActor in self?.agentCalled(author: author) }
-                }
                 self.apiHost = host
-                self.apiPort = host.port
                 self.apiProblem = nil
             } catch {
                 self.apiProblem = Self.describe(error)
@@ -439,21 +427,6 @@ final class EditorModel {
         apiStopped = true
         apiHost?.stop()
         apiHost = nil
-        apiPort = nil
-    }
-
-    /// An agent called the API. Edits also arrive through the coordinator,
-    /// which records where they landed.
-    private func agentCalled(author: String) {
-        var presence = agentPresence ?? AgentPresence(author: author, lastSeen: Date())
-        presence.looked(by: author, at: Date())
-        agentPresence = presence
-    }
-
-    /// True while an agent keeps a watch stream open. Read by the agent
-    /// chip on its own clock, as the count isn't observable.
-    var agentsWatching: Bool {
-        (apiHost?.service.events.subscriberCount ?? 0) > 0
     }
 
     /// Pulls the latest project from the coordinator.
