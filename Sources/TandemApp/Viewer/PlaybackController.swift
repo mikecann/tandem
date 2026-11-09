@@ -677,7 +677,11 @@ final class PlaybackController {
         }
         clock?.invalidate()
         clock = nil
-        if previous != 0, (previous < 0) == (newRate < 0), pendingStart == nil, player.rate != 0, audio.isPlaying {
+        // A change of speed carries on in step while the sound's stretch
+        // stays the same (from 4× to 8×, say). Into or out of a stretched
+        // speed, the sound has to be queued again, stretched the new way.
+        if previous != 0, (previous < 0) == (newRate < 0), ViewerAudio.stretch(for: previous) == ViewerAudio.stretch(for: newRate),
+           pendingStart == nil, player.rate != 0, audio.isPlaying {
             changeSpeed(to: newRate)
         } else {
             startTogether()
@@ -705,8 +709,9 @@ final class PlaybackController {
             seekPlayer(to: time)
         }
         let reverse = rate < 0
-        if !audio.isReady(at: time, reverse: reverse) {
-            audio.prime(at: time, reverse: reverse) { [weak self] in
+        let stretch = ViewerAudio.stretch(for: rate)
+        if !audio.isReady(at: time, reverse: reverse, stretch: stretch) {
+            audio.prime(at: time, reverse: reverse, stretch: stretch) { [weak self] in
                 MainActor.assumeIsolated { self?.startIfReady(start) }
             }
         }
@@ -714,7 +719,7 @@ final class PlaybackController {
     }
 
     private func startIfReady(_ start: Int) {
-        guard pendingStart == start, soundStarting != start, playingTogether, !seeking, audio.isReady(at: time, reverse: rate < 0) else { return }
+        guard pendingStart == start, soundStarting != start, playingTogether, !seeking, audio.isReady(at: time, reverse: rate < 0, stretch: ViewerAudio.stretch(for: rate)) else { return }
         soundStarting = start
         audio.start(rate: rate, at: time) { [weak self] host in
             MainActor.assumeIsolated { self?.startPicture(start, at: host) }
@@ -749,8 +754,11 @@ final class PlaybackController {
         guard hasComposition, rate == 0 else { return }
         let work = DispatchWorkItem { [weak self] in
             MainActor.assumeIsolated {
-                guard let self, self.rate == 0, self.hasComposition, !self.audio.isReady(at: self.time, reverse: false) else { return }
-                self.audio.prime(at: self.time, reverse: false)
+                guard let self else { return }
+                // Queued for the chosen speed, so Space starts at once.
+                let stretch = ViewerAudio.stretch(for: self.speed)
+                guard self.rate == 0, self.hasComposition, !self.audio.isReady(at: self.time, reverse: false, stretch: stretch) else { return }
+                self.audio.prime(at: self.time, reverse: false, stretch: stretch)
             }
         }
         soundWork = work
@@ -801,7 +809,11 @@ final class PlaybackController {
     /// backwards it's left alone until the next play.
     func setSpeed(_ newSpeed: Double) {
         speed = newSpeed
-        if rate > 0 { play(rate: newSpeed) }
+        if rate > 0 {
+            play(rate: newSpeed)
+        } else if rate == 0 {
+            queueSound()
+        }
     }
 
     /// "1.5×", "0.75×", "2×", "−4×".

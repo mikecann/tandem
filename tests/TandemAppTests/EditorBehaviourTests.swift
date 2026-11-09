@@ -784,6 +784,39 @@ final class EditorBehaviourTests: XCTestCase {
         XCTAssertEqual(PlaybackController.label(-4), "−4×")
     }
 
+    /// At the transport's speeds the viewer stretches the sound itself (so
+    /// voices don't go robotic) and plays it at 1x while the picture runs
+    /// at the speed: the two still keep time.
+    func testAtAPlaybackSpeedTheStretchedSoundKeepsTimeWithThePicture() throws {
+        let editor = try soundEditor()
+        let playback = editor.model.playback
+        editor.click(editor.rulerPoint(at: 4))
+        playback.setSpeed(1.5)
+        editor.wait(for: "the sound queued, stretched for 1.5x") {
+            playback.audio.isReady(at: playback.time, reverse: false, stretch: 1.5)
+        }
+        editor.press("space")
+        let started = playback.time
+        editor.wait(for: "picture and sound playing at 1.5x") {
+            playback.time > started + t(1.5) && playback.audio.isPlaying
+        }
+        assertInStep(playback, "at 1.5x")
+        // L from a stop goes 1x, 2x (stretched) then 4x (not), each one
+        // queueing the sound again the new way.
+        editor.press("k")
+        editor.press("l")
+        editor.press("l")
+        XCTAssertEqual(playback.rate, 2)
+        editor.wait(for: "the 2x shuttle playing, stretched") { playback.audio.isPlaying }
+        assertInStep(playback, "shuttling at 2x, stretched")
+        editor.press("l")
+        XCTAssertEqual(playback.rate, 4)
+        editor.wait(for: "the 4x shuttle playing") { playback.audio.isPlaying }
+        assertInStep(playback, "shuttling at 4x, unstretched")
+        editor.press("k")
+        playback.setSpeed(1)
+    }
+
     func testRulerClickWhilePlayingJumpsAndKeepsPictureAndSoundPlaying() throws {
         let editor = try soundEditor()
         let playback = editor.model.playback

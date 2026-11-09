@@ -384,7 +384,17 @@ frames of a three-track mix arrive in about 10 ms.
 - Pausing stops the picture where it is and primes again from there,
   rather than trusting what the renderer kept. The sound runs on for up
   to 40 ms after the picture stops, as the synchronizer stops.
-- J and L at 2x, 4x and 8x change both at the same host time,
+- The playback speeds (0.5x to 2x, from the play button's right-click,
+  and L's first two presses) stretch the sound in the viewer itself with
+  `SpeechStretcher` (the TandemSpeech module, ported from Poddle), which
+  drops or repeats whole pitch periods, so voices stay natural where
+  Apple's spectral time-pitch made them robotic. The synchronizer plays
+  the stretched sound at 1x while the picture runs at the speed; frame
+  `origin + n` of its time is timeline frame `origin + n x speed`
+  (`ViewerAudio.timeline`). The stretcher carries the fractions it rounds
+  off, so it can't drift from the picture. Going into or out of a
+  stretched speed while playing queues the sound again, a short gap.
+- J and L at 4x and 8x change both at the same host time,
   `ViewerAudio.startLead` (0.1 s) ahead, with spectral time-pitch, as
   AVPlayer played them: sound at every speed, pitch kept.
 - Backwards, AVPlayer played these compositions with the sound reversed.

@@ -59,7 +59,7 @@ public final class ViewerAudio: @unchecked Sendable {
     /// Where the sound waiting in the renderer starts, with nothing
     /// moving: `start` can begin there at once. Nil while playing, before
     /// a prime has queued enough, and after the mix changes.
-    public private(set) var readyAt: (time: Time, reverse: Bool)?
+    public private(set) var readyAt: (time: Time, reverse: Bool, stretch: Double)?
     public private(set) var isPlaying = false
     /// Called on the main queue when the renderer throws away what it was
     /// given (an output device change, say): what's ready has gone, so
@@ -74,13 +74,18 @@ public final class ViewerAudio: @unchecked Sendable {
     private let format: CMAudioFormatDescription?
     private var mix: ViewerMix?
     private var reverse = false
-    /// Played backwards, the timeline frame the synchronizer's zero is.
+    /// The speed the sound is stretched to for the transport's playback
+    /// speeds (`stretch(for:)`), or 1 when it isn't and the synchronizer's
+    /// rate sets the speed instead.
+    private var stretch: Double = 1
+    /// Played backwards, the timeline frame the synchronizer's zero is;
+    /// stretched, the timeline frame both start from.
     private var origin = 0
     private var primes = 0
     /// Once invalidated it neither primes nor plays.
     private var invalidated = false
     /// The prime under way, and who's waiting for it.
-    private var priming: (time: Time, reverse: Bool)?
+    private var priming: (time: Time, reverse: Bool, stretch: Double)?
     private var waiting: [() -> Void] = []
     /// Where the synchronizer is told what to do, in order.
     private let control = DispatchQueue(label: "com.mikerosoft.tandem.viewer-audio.control", qos: .userInteractive)
@@ -159,35 +164,50 @@ public final class ViewerAudio: @unchecked Sendable {
         forgetPrime()
     }
 
+    /// The speed a play at `rate` stretches its sound to, 1 for none.
+    /// Forwards at up to 2× (the transport's playback speeds, and L's
+    /// first two presses), the viewer stretches the sound itself with a
+    /// `SpeechStretcher`, which keeps voices natural; Apple's spectral
+    /// time-pitch made them robotic. Faster shuttles and backwards play are
+    /// for finding a place rather than listening, so the synchronizer's
+    /// rate still does those.
+    public static func stretch(for rate: Double) -> Double {
+        rate > 0 && rate <= 2 && rate != 1 ? rate : 1
+    }
+
     /// Stops, throws away what's queued and queues the sound from `time`,
-    /// forwards or backwards, ready for `start`. `ready` runs on the main
+    /// forwards or backwards (and stretched to `stretch`), ready for `start`. `ready` runs on the main
     /// queue once a quarter of a second is queued (or all there is), unless
     /// another prime, a load or a stop comes first. Asked again for the
     /// same place while a prime is under way, it waits for that one.
-    public func prime(at time: Time, reverse: Bool, ready: @escaping () -> Void = {}) {
+    public func prime(at time: Time, reverse: Bool, stretch: Double = 1, ready: @escaping () -> Void = {}) {
         guard !invalidated else { return }
-        if let priming, priming.reverse == reverse, Self.frame(of: priming.time) == Self.frame(of: time) {
+        let stretch = reverse ? 1 : stretch
+        if let priming, priming.reverse == reverse, priming.stretch == stretch, Self.frame(of: priming.time) == Self.frame(of: time) {
             waiting.append(ready)
             return
         }
         primes += 1
         let prime = primes
-        priming = (time, reverse)
+        priming = (time, reverse, stretch)
         waiting = [ready]
         readyAt = nil
         isPlaying = false
         self.reverse = reverse
+        self.stretch = stretch
         origin = Self.frame(of: time)
         let position = position(of: time)
         let start = origin
         let mix = self.mix ?? ViewerMix.silence(until: start)
         let feed = Feed(readyFrames: Self.readyFrames) {
-            reverse ? ReverseSound(mix, from: start) as ViewerSound : ForwardSound(mix, from: start)
+            if reverse { return ReverseSound(mix, from: start) as ViewerSound }
+            let forward = ForwardSound(mix, from: start)
+            return stretch == 1 ? forward : StretchedSound(forward, rate: stretch, from: start)
         }
         feed.onReady = { [weak self] in
             DispatchQueue.main.async {
                 guard let self, self.primes == prime else { return }
-                self.readyAt = (time, reverse)
+                self.readyAt = (time, reverse, stretch)
                 let waiting = self.waiting
                 self.forgetPrime()
                 for ready in waiting { ready() }
@@ -224,8 +244,8 @@ public final class ViewerAudio: @unchecked Sendable {
     }
 
     /// Whether `start` can begin at `time` without priming first.
-    public func isReady(at time: Time, reverse: Bool) -> Bool {
-        guard let readyAt, readyAt.reverse == reverse else { return false }
+    public func isReady(at time: Time, reverse: Bool, stretch: Double = 1) -> Bool {
+        guard let readyAt, readyAt.reverse == reverse, readyAt.stretch == (reverse ? 1 : stretch) else { return false }
         return abs(Self.frame(of: readyAt.time) - Self.frame(of: time)) <= 1
     }
 
@@ -247,7 +267,7 @@ public final class ViewerAudio: @unchecked Sendable {
         readyAt = nil
         isPlaying = true
         let position = position(of: time)
-        let speed = Float(abs(rate))
+        let speed = synchronizerRate(for: rate)
         control.async { [weak self] in
             guard let self else { return }
             let host = startSoon(speed, at: position)
@@ -269,10 +289,16 @@ public final class ViewerAudio: @unchecked Sendable {
         readyAt = nil
         isPlaying = true
         let position = position(of: time)
-        let speed = Float(abs(rate))
+        let speed = synchronizerRate(for: rate)
         control.async { [synchronizer] in
             synchronizer.setRate(speed, time: position, atHostTime: hostTime)
         }
+    }
+
+    /// Stretched sound already runs at the speed it was primed for, so the
+    /// synchronizer plays it at 1×.
+    private func synchronizerRate(for rate: Double) -> Float {
+        Float(abs(rate) / stretch)
     }
 
     /// On `control`: starts the synchronizer when it's ready and returns
@@ -329,14 +355,26 @@ public final class ViewerAudio: @unchecked Sendable {
     }
 
     private func timeline(_ position: CMTime) -> Time {
+        if stretch != 1 {
+            // Each frame played is `stretch` frames of the timeline.
+            let frames = CMTimeConvertScale(position, timescale: 48_000, method: .roundHalfAwayFromZero).value
+            let timeline = Double(origin) + Double(frames - Int64(origin)) * stretch
+            return Time(flicks: Int64(timeline.rounded()) * Time.flicksPerSample48k)
+        }
         let frames = Int(CMTimeConvertScale(position, timescale: 48_000, method: .roundHalfAwayFromZero).value)
         return Time(flicks: Int64(reverse ? origin - frames : frames) * Time.flicksPerSample48k)
     }
 
     /// The synchronizer's own time for a timeline time: the timeline time
-    /// going forwards, and the time since reverse play began going back.
+    /// going forwards, the time since reverse play began going back, and
+    /// stretched, the timeline time it started from plus the time played
+    /// since.
     func position(of time: Time) -> CMTime {
         let frame = Self.frame(of: time)
+        if stretch != 1 {
+            let played = (Double(frame - origin) / stretch).rounded()
+            return CMTime(value: Int64(origin) + Int64(played), timescale: 48_000)
+        }
         return CMTime(value: Int64(reverse ? max(origin - frame, 0) : frame), timescale: 48_000)
     }
 
