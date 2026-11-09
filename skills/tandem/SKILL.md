@@ -1285,18 +1285,15 @@ file.
   and don't bleed into each other. Put them on Voice and Voice 2, mute the
   composite, `normalizeSpeech` (it adds the compressor and limiter). Do it
   in the first cut, not after he hears it.
-- **Check the mics against the picture in Tandem, not in ffmpeg.** `tandem
-  sync` placed the first mic 151 ms out (its 8 kHz reader drifted on the
-  Restream mp4) and refused a second mic (Tandem thread ebef2df4, being
-  fixed). A by-hand ffmpeg cross-correlation was 44 ms out the other way:
-  ffmpeg keeps an AAC .m4a's 2112-sample encoder padding at the start and
-  Tandem (AVFoundation) drops it, so every ffmpeg time in the m4a reads
-  44 ms late. The test that settles it: `tandem clip T T+30 --tracks Voice
-  --audio-only`, cross-correlate it with the camera file's own audio at
-  the same source time, and slip each voice clip until the lag is 0 (S2E7
-  ended at camera +4.4154 s, James and Jamie within 2 ms). The same padding
-  bites `tandem media replace` with an ffmpeg-processed copy: trim the
-  44 ms off the start, not the end, and re-measure.
+- **Sync the mics with `tandem sync`, then check them against the picture.**
+  Since mikecann/tandem#105 it places each mic (a second one on "Voice 2")
+  at the right offset (S2E7: James +4.4154 s, Jamie +4.4171 s). Before
+  that it was 151 ms out on this mp4, and an ffmpeg cross-correlation by
+  hand was 44 ms out the other way: ffmpeg keeps an AAC .m4a's 2112-sample
+  encoder padding at the start and Tandem drops it. So don't measure
+  offsets in ffmpeg. The check that settles it: `tandem clip T T+30
+  --tracks Voice --audio-only`, cross-correlated with the camera file's own
+  audio at the same source time, should be within a few ms.
 - **Restream's picture has no webcam lag:** `tandem sync 0` on the mp4.
 - **Keep what the founders say.** Swears, other companies named, Convex's
   own incidents: it's their podcast, so it stays unless they say in the
