@@ -57,7 +57,6 @@ struct TransportBar: View {
                 Text("/ " + Timecode.string(model.project.duration, rate: model.frameRate))
                     .font(.ui(12).monospacedDigit())
                     .foregroundStyle(Theme.textFainter.color)
-                SpeedMenu(playback: playback)
                 // A J or L shuttle away from the chosen speed.
                 if playback.isPlaying && playback.rate != playback.speed {
                     Text(PlaybackController.label(playback.rate))
@@ -80,7 +79,11 @@ struct TransportBar: View {
                         .background(Circle().fill(Theme.text.color))
                 }
                 .buttonStyle(.plain)
-                .tip(Shortcuts.help("Play or pause", .playPause) + ". J, K and L shuttle backwards, stop and forwards.")
+                // The playback speed lives on the play button: a badge
+                // when it isn't 1×, and the speeds on a right-click.
+                .overlay(alignment: .topLeading) { SpeedBadge(speed: playback.speed) }
+                .contextMenu { SpeedPicker(playback: playback) }
+                .tip(Shortcuts.help("Play or pause", .playPause) + ". Right-click for the playback speed. J, K and L shuttle backwards, stop and forwards.")
                 .shortcutHint(.playPause, edge: .top)
                 TransportIcon(name: "forward.end.fill", help: Shortcuts.help("Next edit", .nextEdit), shortcut: .nextEdit) { actions.perform(.nextEdit) }
             }
@@ -127,34 +130,41 @@ struct TransportBar: View {
     }
 }
 
-/// The playback speed beside the timecode: what Space plays at.
-private struct SpeedMenu: View {
+/// The speeds Space and the play button can play at, as a checked list.
+private struct SpeedPicker: View {
     let playback: PlaybackController
 
     var body: some View {
-        Menu {
-            Picker("Speed", selection: Binding(get: { playback.speed }, set: { playback.setSpeed($0) })) {
-                ForEach(PlaybackController.speeds, id: \.self) { speed in
-                    Text(PlaybackController.label(speed)).tag(speed)
-                }
+        Picker("Playback speed", selection: Binding(get: { playback.speed }, set: { playback.setSpeed($0) })) {
+            ForEach(PlaybackController.speeds, id: \.self) { speed in
+                Text(PlaybackController.label(speed)).tag(speed)
             }
-            .pickerStyle(.inline)
-            .labelsHidden()
-        } label: {
-            Text(PlaybackController.label(playback.speed))
-                .font(.ui(11.5).monospacedDigit())
-                // Faint at 1×, so it's there without shouting; brighter
-                // when it's playing at another speed.
-                .foregroundStyle(playback.speed == 1 ? Theme.textFainter.color : Theme.text.color)
-                .padding(.horizontal, 7)
-                .padding(.vertical, 2)
-                .overlay(RoundedRectangle(cornerRadius: 5).stroke(Theme.controlBorder.color, lineWidth: 1))
         }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .fixedSize()
-        .padding(.leading, 6)
-        .tip("Playback speed for Space and the play button. The sound keeps its pitch.")
+        .pickerStyle(.inline)
+    }
+}
+
+/// The chosen speed on the play button's corner, only when it isn't 1×.
+/// Clicks go through to the button underneath.
+private struct SpeedBadge: View {
+    let speed: Double
+
+    var body: some View {
+        if speed != 1 {
+            Text(PlaybackController.label(speed))
+                .font(.ui(9.5, .semibold).monospacedDigit())
+                .foregroundStyle(Theme.text.color)
+                .padding(.horizontal, 4)
+                .padding(.vertical, 1)
+                .background(Capsule().fill(Theme.tabSelected.color))
+                .overlay(Capsule().stroke(Theme.controlBorder.color, lineWidth: 1))
+                .fixedSize()
+                // Starts just inside the button's right edge and grows
+                // rightwards, so 0.75× doesn't cover the play symbol; low
+                // enough to stay clear of the bar's top edge.
+                .offset(x: 22, y: -3)
+                .allowsHitTesting(false)
+        }
     }
 }
 
