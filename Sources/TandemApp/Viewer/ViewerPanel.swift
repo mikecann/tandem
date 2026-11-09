@@ -81,9 +81,9 @@ struct TransportBar: View {
                 .buttonStyle(.plain)
                 // The playback speed lives on the play button: a badge
                 // when it isn't 1×, and the speeds on a right-click.
-                .overlay(alignment: .topLeading) { SpeedBadge(speed: playback.speed) }
+                .overlay(alignment: .topLeading) { SpeedBadge(playback: playback) }
                 .contextMenu { SpeedPicker(playback: playback) }
-                .tip(Shortcuts.help("Play or pause", .playPause) + ". Right-click for the playback speed. J, K and L shuttle backwards, stop and forwards.")
+                .tip(Shortcuts.help("Play or pause", .playPause) + ". J, K and L shuttle backwards, stop and forwards.")
                 .shortcutHint(.playPause, edge: .top)
                 TransportIcon(name: "forward.end.fill", help: Shortcuts.help("Next edit", .nextEdit), shortcut: .nextEdit) { actions.perform(.nextEdit) }
             }
@@ -144,27 +144,38 @@ private struct SpeedPicker: View {
     }
 }
 
-/// The chosen speed on the play button's corner, only when it isn't 1×.
-/// Clicks go through to the button underneath.
+/// The chosen speed on the play button's corner, always showing (1× too),
+/// so it's plain where the speed is set: a click opens the speeds. A
+/// right-click on the play button opens them as well.
 private struct SpeedBadge: View {
-    let speed: Double
+    let playback: PlaybackController
 
     var body: some View {
-        if speed != 1 {
-            Text(PlaybackController.label(speed))
+        Menu {
+            SpeedPicker(playback: playback)
+        } label: {
+            Text(PlaybackController.label(playback.speed))
                 .font(.ui(9.5, .semibold).monospacedDigit())
-                .foregroundStyle(Theme.text.color)
+                // Quieter at 1×, so it's there without competing with the
+                // play button until a speed is chosen.
+                .foregroundStyle(playback.speed == 1 ? Theme.textMuted.color : Theme.text.color)
                 .padding(.horizontal, 4)
                 .padding(.vertical, 1)
                 .background(Capsule().fill(Theme.tabSelected.color))
                 .overlay(Capsule().stroke(Theme.controlBorder.color, lineWidth: 1))
-                .fixedSize()
-                // Starts just inside the button's right edge and grows
-                // rightwards, so 0.75× doesn't cover the play symbol; low
-                // enough to stay clear of the bar's top edge.
-                .offset(x: 22, y: -3)
-                .allowsHitTesting(false)
+                .contentShape(Capsule())
         }
+        // The plain button style keeps the capsule; the borderless menu
+        // style draws only the label's text.
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .tip("Playback speed for Space and the play button. The sound keeps its pitch.")
+        // Starts just inside the play button's right edge and grows
+        // rightwards, so 0.75× doesn't cover the play symbol; low enough to
+        // stay clear of the bar's top edge.
+        .offset(x: 22, y: -3)
     }
 }
 
