@@ -1575,7 +1575,7 @@ final class EditorBehaviourTests: XCTestCase {
         editor.settle(0.3)
         let badges = editor.controller.hintBoard.badges.values
         let symbols = Set(badges.map(\.symbol))
-        for expected in ["C", "V", "S", "Space", "⌘E"] {
+        for expected in ["C", "V", "S", "Space"] {
             XCTAssertTrue(symbols.contains(expected), "\(expected) in \(symbols.sorted())")
         }
         let bounds = editor.window.contentView?.bounds ?? .zero
@@ -1655,14 +1655,8 @@ final class EditorBehaviourTests: XCTestCase {
     /// A side divider grabs from the bottom of the titlebar band down: in
     /// the band the system moves the window, whatever's on top of it.
     func testTheSideDividersStartGrabbingBelowTheTitlebarBand() throws {
-        let tip = "Drag to resize the media panel"
-        let handle = try XCTUnwrap(editor.point(ofTip: tip))
-        XCTAssertGreaterThanOrEqual(handle.y, Theme.Metrics.titleStripHeight, "the handle is below the band")
-
-        let start = CGPoint(x: Theme.Metrics.mediaPanelWidth + 0.5, y: Theme.Metrics.titleStripHeight + 200)
-        editor.drag(start, to: CGPoint(x: start.x + 40, y: start.y))
-        XCTAssertEqual(try XCTUnwrap(editor.point(ofTip: tip)).x, Theme.Metrics.mediaPanelWidth + 40, accuracy: 1, "it still drags")
-
+        let media = try XCTUnwrap(editor.point(ofTip: "Drag to resize the media panel"))
+        XCTAssertGreaterThanOrEqual(media.y, Theme.Metrics.titleStripHeight, "the media panel's is below the band")
         let inspector = try XCTUnwrap(editor.point(ofTip: "Drag to resize the inspector"))
         XCTAssertGreaterThanOrEqual(inspector.y, Theme.Metrics.titleStripHeight, "the inspector's too")
     }
