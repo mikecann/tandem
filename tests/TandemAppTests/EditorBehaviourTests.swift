@@ -784,6 +784,50 @@ final class EditorBehaviourTests: XCTestCase {
         XCTAssertEqual(PlaybackController.label(-4), "−4×")
     }
 
+    /// At the transport's speeds the viewer stretches the sound itself (so
+    /// voices don't go robotic) and plays it at 1x while the picture runs
+    /// at the speed: the two still keep time.
+    func testAtAPlaybackSpeedTheStretchedSoundKeepsTimeWithThePicture() throws {
+        let editor = try soundEditor()
+        let playback = editor.model.playback
+        editor.click(editor.rulerPoint(at: 4))
+        playback.setSpeed(1.5)
+        editor.wait(for: "the sound queued, stretched for 1.5x") {
+            playback.audio.isReady(at: playback.time, reverse: false, stretch: 1.5)
+        }
+        editor.press("space")
+        let started = playback.time
+        editor.wait(for: "picture and sound playing at 1.5x") {
+            playback.time > started + t(1.5) && playback.audio.isPlaying
+        }
+        assertInStep(playback, "at 1.5x")
+        XCTAssertEqual(playback.audio.currentStretch, 1.5)
+        XCTAssertEqual(CMTimebaseGetRate(playback.audio.synchronizer.timebase), 1, accuracy: 0.001, "stretched sound plays at 1x")
+        // L from there shuttles at 3x, unstretched, as shuttles always were.
+        editor.press("l")
+        XCTAssertEqual(playback.rate, 3)
+        editor.wait(for: "the 3x shuttle playing") { playback.audio.isPlaying && playback.audio.currentStretch == 1 }
+        editor.settle(0.35)
+        assertInStep(playback, "shuttling at 3x, unstretched")
+        editor.press("k")
+
+        // A shuttle that lands on the chosen speed is still a shuttle: with
+        // the speed at 2x, L's 1x to 2x changes speed on the fly, unstretched.
+        playback.setSpeed(2)
+        editor.press("l")
+        editor.wait(for: "the 1x shuttle playing") { playback.audio.isPlaying }
+        editor.settle(0.35)
+        let starts = DrawTiming.samples("playback starts").count
+        editor.press("l")
+        XCTAssertEqual(playback.rate, 2)
+        editor.settle(0.35)
+        XCTAssertEqual(playback.audio.currentStretch, 1)
+        XCTAssertEqual(DrawTiming.samples("playback starts").count, starts, "L to 2x started playback again")
+        assertInStep(playback, "shuttling at 2x with the speed at 2x")
+        editor.press("k")
+        playback.setSpeed(1)
+    }
+
     func testRulerClickWhilePlayingJumpsAndKeepsPictureAndSoundPlaying() throws {
         let editor = try soundEditor()
         let playback = editor.model.playback

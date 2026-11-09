@@ -677,7 +677,11 @@ final class PlaybackController {
         }
         clock?.invalidate()
         clock = nil
-        if previous != 0, (previous < 0) == (newRate < 0), pendingStart == nil, player.rate != 0, audio.isPlaying {
+        // A change of speed carries on in step while the sound's stretch
+        // stays the same (from 4× to 8×, say). Into or out of a stretched
+        // speed, the sound has to be queued again, stretched the new way.
+        if previous != 0, (previous < 0) == (newRate < 0), audio.currentStretch == stretch(for: newRate),
+           pendingStart == nil, player.rate != 0, audio.isPlaying {
             changeSpeed(to: newRate)
         } else {
             startTogether()
@@ -705,8 +709,9 @@ final class PlaybackController {
             seekPlayer(to: time)
         }
         let reverse = rate < 0
-        if !audio.isReady(at: time, reverse: reverse) {
-            audio.prime(at: time, reverse: reverse) { [weak self] in
+        let stretch = stretch(for: rate)
+        if !audio.isReady(at: time, reverse: reverse, stretch: stretch) {
+            audio.prime(at: time, reverse: reverse, stretch: stretch) { [weak self] in
                 MainActor.assumeIsolated { self?.startIfReady(start) }
             }
         }
@@ -714,7 +719,7 @@ final class PlaybackController {
     }
 
     private func startIfReady(_ start: Int) {
-        guard pendingStart == start, soundStarting != start, playingTogether, !seeking, audio.isReady(at: time, reverse: rate < 0) else { return }
+        guard pendingStart == start, soundStarting != start, playingTogether, !seeking, audio.isReady(at: time, reverse: rate < 0, stretch: stretch(for: rate)) else { return }
         soundStarting = start
         audio.start(rate: rate, at: time) { [weak self] host in
             MainActor.assumeIsolated { self?.startPicture(start, at: host) }
@@ -749,8 +754,11 @@ final class PlaybackController {
         guard hasComposition, rate == 0 else { return }
         let work = DispatchWorkItem { [weak self] in
             MainActor.assumeIsolated {
-                guard let self, self.rate == 0, self.hasComposition, !self.audio.isReady(at: self.time, reverse: false) else { return }
-                self.audio.prime(at: self.time, reverse: false)
+                guard let self else { return }
+                // Queued for the chosen speed, so Space starts at once.
+                let stretch = ViewerAudio.stretch(for: self.speed)
+                guard self.rate == 0, self.hasComposition, !self.audio.isReady(at: self.time, reverse: false, stretch: stretch) else { return }
+                self.audio.prime(at: self.time, reverse: false, stretch: stretch)
             }
         }
         soundWork = work
@@ -793,7 +801,12 @@ final class PlaybackController {
     }
 
     func togglePlay() {
-        if isPlaying { pause() } else { play(rate: speed) }
+        if isPlaying {
+            pause()
+        } else {
+            atSpeed = true
+            play(rate: speed)
+        }
     }
 
     /// Picked in the speed menu. Playing forwards, it changes speed there
@@ -801,7 +814,26 @@ final class PlaybackController {
     /// backwards it's left alone until the next play.
     func setSpeed(_ newSpeed: Double) {
         speed = newSpeed
-        if rate > 0 { play(rate: newSpeed) }
+        if rate > 0 {
+            atSpeed = true
+            play(rate: newSpeed)
+        } else if rate == 0 {
+            queueSound()
+        }
+    }
+
+    /// Whether what's playing (or plays next) came from Space, the play
+    /// button or the speed menu, rather than a J or L shuttle. It's kept
+    /// rather than worked out from the rate, because a shuttle can land on
+    /// the chosen speed: L's second press is 2x, and so may the speed be.
+    @ObservationIgnored private var atSpeed = true
+
+    /// How much the sound is stretched playing at `rate`: only at the
+    /// chosen playback speed, where it's listened to. J and L shuttles
+    /// (1x, 2x, 4x, 8x, or doubling from the speed) aren't, so they keep
+    /// changing speed on the fly, in step, as they always have.
+    func stretch(for rate: Double) -> Double {
+        atSpeed ? ViewerAudio.stretch(for: rate) : 1
     }
 
     /// "1.5×", "0.75×", "2×", "−4×".
@@ -811,11 +843,13 @@ final class PlaybackController {
 
     /// L: play forwards, faster each press.
     func shuttleForward() {
+        atSpeed = false
         play(rate: rate > 0 ? min(rate * 2, 8) : 1)
     }
 
     /// J: play backwards, faster each press.
     func shuttleReverse() {
+        atSpeed = false
         play(rate: rate < 0 ? max(rate * 2, -8) : -1)
     }
 
