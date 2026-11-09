@@ -1266,7 +1266,7 @@ final class EditorBehaviourTests: XCTestCase {
     func testExportingKeepsTheMacAwakeUntilItsDone() {
         XCTAssertFalse(systemSleepHeld(), "nothing held before exporting")
         // A small timeline of its own, through the window's export queue as
-        // the Export button sends it: the harness's media are only names.
+        // the export sheet sends it: the harness's media are only names.
         let black = Clip(content: .solid(color: .black), start: .zero, duration: t(3))
         let project = Project(name: "Awake", settings: ProjectSettings(width: 320, height: 180), videoTracks: [Track(kind: .video, name: "V1", clips: [black])])
         let preset = ExportPreset(name: "Test", codec: .h264, videoBitrate: 2_000_000, loudnessTarget: nil, truePeakCeiling: nil)
@@ -1605,4 +1605,104 @@ final class EditorBehaviourTests: XCTestCase {
         XCTAssertEqual(editor.clip("B-roll").end.seconds, 32, accuracy: 0.1, "held past the end")
         XCTAssertNotNil(editor.project.heldStretches(of: editor.clip("B-roll")).tail)
     }
+
+    // MARK: - The top of the window
+
+    /// There's no bar across the top any more. Its 40 points go to the
+    /// viewer and inspector, and the timeline stays the height it was, also
+    /// for someone who has dragged the split and has it saved.
+    func testTheTopOfTheWindowGoesToTheViewerAndNotTheTimeline() throws {
+        let saved = PanelSizes.load()
+        defer { saved.save() }
+        var sizes = saved
+        sizes.workspaceHeight = 480
+        sizes.save()
+        let harness = try EditorHarness()
+        defer { harness.close() }
+
+        let viewer = try XCTUnwrap(harness.view(ViewerView.self))
+        let viewerTop = harness.windowPoint(CGPoint(x: 0, y: viewer.isFlipped ? 0 : viewer.bounds.maxY), in: viewer).y
+        XCTAssertEqual(viewerTop, 0, accuracy: 0.5, "the viewer runs to the top of the window")
+        XCTAssertEqual(viewer.bounds.height, Theme.Metrics.titleStripHeight + 480 - Theme.Metrics.transportHeight, accuracy: 0.5)
+
+        // The timeline starts where it always did: under the old bar, the
+        // saved workspace, the divider and its toolbar.
+        let timeline = try XCTUnwrap(harness.view(TimelineContainerView.self))
+        let timelineTop = harness.windowPoint(CGPoint(x: 0, y: timeline.isFlipped ? 0 : timeline.bounds.maxY), in: timeline).y
+        XCTAssertEqual(timelineTop, Theme.Metrics.titleStripHeight + 480 + 1 + Theme.Metrics.timelineToolbarHeight, accuracy: 0.5)
+    }
+
+    func testTheInspectorTabsAtTheTopOfTheWindowTakeClicks() throws {
+        XCTAssertNotEqual(editor.model.inspectorTab, .activity)
+        let tab = try XCTUnwrap(editor.point(ofTip: "Activity:"))
+        XCTAssertLessThan(tab.y, Theme.Metrics.titleStripHeight, "the tab row is at the very top")
+        editor.click(tab)
+        XCTAssertEqual(editor.model.inspectorTab, .activity)
+    }
+
+    /// The media strip, the margin over the viewer and the empty part of
+    /// the inspector's tab row move the window, as the bar did.
+    func testTheTopOfTheWindowStillMovesIt() throws {
+        let width = try XCTUnwrap(editor.window.contentView).bounds.width
+        for start in [CGPoint(x: 200, y: 20), CGPoint(x: width / 2, y: 6), CGPoint(x: width - 6, y: 20)] {
+            let before = editor.window.frame.origin
+            editor.drag(start, to: CGPoint(x: start.x + 30, y: start.y + 12))
+            XCTAssertEqual(editor.window.frame.origin.x, before.x + 30, accuracy: 0.5, "dragging from \(start)")
+            XCTAssertEqual(editor.window.frame.origin.y, before.y - 12, accuracy: 0.5, "dragging from \(start)")
+        }
+    }
+
+    /// A side divider grabs from the bottom of the titlebar band down: in
+    /// the band the system moves the window, whatever's on top of it.
+    func testTheSideDividersStartGrabbingBelowTheTitlebarBand() throws {
+        let tip = "Drag to resize the media panel"
+        let handle = try XCTUnwrap(editor.point(ofTip: tip))
+        XCTAssertGreaterThanOrEqual(handle.y, Theme.Metrics.titleStripHeight, "the handle is below the band")
+
+        let start = CGPoint(x: Theme.Metrics.mediaPanelWidth + 0.5, y: Theme.Metrics.titleStripHeight + 200)
+        editor.drag(start, to: CGPoint(x: start.x + 40, y: start.y))
+        XCTAssertEqual(try XCTUnwrap(editor.point(ofTip: tip)).x, Theme.Metrics.mediaPanelWidth + 40, accuracy: 1, "it still drags")
+
+        let inspector = try XCTUnwrap(editor.point(ofTip: "Drag to resize the inspector"))
+        XCTAssertGreaterThanOrEqual(inspector.y, Theme.Metrics.titleStripHeight, "the inspector's too")
+    }
+
+    /// The name's tooltip says which file it is, now the path isn't shown,
+    /// and full screen doesn't keep a gap where the traffic lights were.
+    func testTheStripNamesTheProjectAndClosesUpInFullScreen() throws {
+        let name = try XCTUnwrap(editor.point(ofTip: editor.model.shortPath), "the file's path is the name's tooltip")
+        editor.model.windowIsFullScreen = true
+        editor.settle()
+        let inFullScreen = try XCTUnwrap(editor.point(ofTip: editor.model.shortPath))
+        XCTAssertLessThan(inFullScreen.x, name.x - 40, "no gap for the lights")
+    }
+
+    /// The buttons have gone; File > Export… and its key still open the sheet.
+    func testExportOpensFromTheMenuBarAndTheKeyboard() throws {
+        XCTAssertNil(editor.point(ofTip: "Export the video"), "no Export button")
+        let keymap = editor.controller.keymap
+        let main = MainMenu.build(keymap: keymap, recentDelegate: ExportMenuDelegate())
+        let file = try XCTUnwrap(main.item(withTitle: "File")?.submenu)
+        let item = try XCTUnwrap(file.items.first { MainMenu.command(of: $0) == .export })
+        XCTAssertEqual(item.title, "Export…")
+        XCTAssertEqual(item.keyEquivalent, "e")
+        XCTAssertTrue(editor.controller.validateMenuItem(item))
+        editor.controller.performEditorCommand(item)
+        XCTAssertTrue(editor.model.showExportSheet)
+
+        editor.model.showExportSheet = false
+        editor.settle()
+        editor.press("cmd+e")
+        XCTAssertTrue(editor.model.showExportSheet)
+    }
+
+    /// The chip's tooltip was the only lasting sign the API hadn't started.
+    func testTheStatusBarSaysWhenTheLocalAPICouldntStart() {
+        XCTAssertNil(editor.point(ofTip: "The local API couldn't start"), "nothing while it's fine")
+        editor.model.apiProblem = "the port is taken"
+        editor.settle()
+        XCTAssertNotNil(editor.point(ofTip: "The local API couldn't start: the port is taken"))
+    }
 }
+
+private final class ExportMenuDelegate: NSObject, NSMenuDelegate {}

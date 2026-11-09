@@ -61,7 +61,7 @@ struct ActivityLog: Equatable {
         return done.count - index
     }
 
-    /// The last edit an agent made, for the top bar chip.
+    /// The last edit an agent made, for the status bar.
     var lastAgentEntry: ActivityEntry? {
         done.last { $0.isAgent }
     }

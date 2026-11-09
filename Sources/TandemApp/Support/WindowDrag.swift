@@ -18,7 +18,8 @@ final class WindowDragView: NSView {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     override func mouseDown(with event: NSEvent) {
-        guard let window else { return }
+        // Full screen has no window to move or zoom.
+        guard let window, !window.styleMask.contains(.fullScreen) else { return }
         if event.clickCount == 2 {
             TitleBarDoubleClick.perform(TitleBarDoubleClick.action(), on: window)
             return

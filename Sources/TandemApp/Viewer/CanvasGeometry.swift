@@ -11,8 +11,11 @@ import TandemCore
 /// 3. Rotation is degrees clockwise about that centre.
 /// 4. Crop hides fractions of the source edges without rescaling.
 enum CanvasGeometry {
+    /// The gap kept around the picture when it's fitted to the viewer.
+    static let margin: CGFloat = 14
+
     /// The canvas inside `bounds`, at the project's aspect, with a margin.
-    static func canvasRect(in bounds: CGRect, width: Int, height: Int, margin: CGFloat = 14, zoom: CGFloat = 1, pan: CGPoint = .zero) -> CGRect {
+    static func canvasRect(in bounds: CGRect, width: Int, height: Int, margin: CGFloat = CanvasGeometry.margin, zoom: CGFloat = 1, pan: CGPoint = .zero) -> CGRect {
         guard width > 0, height > 0 else { return .zero }
         let available = bounds.insetBy(dx: margin, dy: margin)
         let fit = min(available.width / CGFloat(width), available.height / CGFloat(height)) * zoom

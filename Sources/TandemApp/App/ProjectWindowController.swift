@@ -272,7 +272,12 @@ final class ProjectWindowController: NSWindowController, NSWindowDelegate, NSMen
         model.zoomKeyHeld = false
     }
 
+    func windowDidEnterFullScreen(_ notification: Notification) {
+        model.windowIsFullScreen = true
+    }
+
     func windowDidExitFullScreen(_ notification: Notification) {
+        model.windowIsFullScreen = false
         (window as? EditorWindow)?.layoutTrafficLights()
     }
 
@@ -285,8 +290,8 @@ final class ProjectWindowController: NSWindowController, NSWindowDelegate, NSMen
     }
 }
 
-/// The project window. Its titlebar is as tall as the top bar, with the
-/// traffic lights centred in it.
+/// The project window. Its titlebar is as tall as the strip over the media
+/// panel, with the traffic lights centred in it.
 final class EditorWindow: NSWindow {
     /// For behaviour tests, which drive an editor window offscreen at a
     /// fixed size: AppKit otherwise pulls a titled window onto a screen and
@@ -303,7 +308,7 @@ final class EditorWindow: NSWindow {
               let close = standardWindowButton(.closeButton),
               let titlebar = close.superview,
               let container = titlebar.superview else { return }
-        let barHeight = Theme.Metrics.topBarHeight
+        let barHeight = Theme.Metrics.titleStripHeight
         let frameHeight = container.superview?.frame.height ?? frame.height
         var containerFrame = container.frame
         if containerFrame.height != barHeight || containerFrame.maxY != frameHeight {
