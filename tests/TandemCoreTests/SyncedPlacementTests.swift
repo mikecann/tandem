@@ -8,7 +8,7 @@ final class SyncedPlacementTests: XCTestCase {
     /// A 120 s camera take on Camera and Voice, plus a 60 s close-up and a
     /// 60 s mic that started 3 s before the camera (their take offsets say
     /// so, as `tandem sync` sets them).
-    static func project(angleOffset: Double = 0, micOffset: Double = 0) throws -> ProjectCoordinator {
+    static func project(angleOffset: Double = 0, micOffset: Double = 0, micLength: Double = 60, secondMicLength: Double = 60) throws -> ProjectCoordinator {
         var project = Project.standard(name: "Interview")
         project.media = [
             MediaItem(id: "med_cam", path: "source/wide.mov", kind: .video, role: .camera, takeID: "take_i", takeOffset: t(3),
@@ -16,7 +16,10 @@ final class SyncedPlacementTests: XCTestCase {
             MediaItem(id: "med_angle", path: "source/close-up.mov", kind: .video, role: .broll, takeID: "take_i", takeOffset: t(angleOffset),
                       duration: t(60), frameRate: .fps30, width: 3840, height: 2160, hasVideo: true, hasAudio: true),
             MediaItem(id: "med_mic", path: "source/mic.wav", kind: .audio, role: .other, takeID: "take_i", takeOffset: t(micOffset),
-                      duration: t(60), hasAudio: true)
+                      duration: t(micLength), hasAudio: true),
+            // The other guest's own mic on a remote podcast.
+            MediaItem(id: "med_mic2", path: "source/guest mic.m4a", kind: .audio, role: .other, takeID: "take_i", takeOffset: t(0),
+                      duration: t(secondMicLength), hasAudio: true)
         ]
         let c = ProjectCoordinator(project: project)
         try c.run("Place the camera", .placeMedia(mediaIDs: ["med_cam"], at: .zero))
@@ -81,6 +84,106 @@ final class SyncedPlacementTests: XCTestCase {
         XCTAssertEqual(angle[0].sourceStart.seconds, (start - t(10.01)).seconds, accuracy: 0.0001)
         XCTAssertLessThanOrEqual((angle[0].sourceStart + angle[0].duration).seconds, 60)
         assertValid(c.project)
+    }
+
+    func testASecondMicGoesOnItsOwnVoiceTrackAndLeavesTheCameraSoundAlone() throws {
+        // tandem sync micA, then tandem sync micB later, as Databased S2E7
+        // (two guests, each with their own mic) did.
+        for batched in [false, true] {
+            let c = try Self.project()
+            if batched {
+                try c.apply(EditBatch(label: "Both", commands: [.placeSynced(mediaID: "med_mic"), .placeSynced(mediaID: "med_mic2")]))
+            } else {
+                try c.run("First guest", .placeSynced(mediaID: "med_mic"))
+                try c.run("Second guest", .placeSynced(mediaID: "med_mic2"))
+            }
+            XCTAssertEqual(c.project.audioTracks.map(\.name), ["Voice", "Voice 2", "Camera sound", "Music", "SFX"])
+            XCTAssertEqual(c.clips("Voice").map(\.mediaID), ["med_mic", "med_cam"])
+            let second = c.clips("Voice 2")
+            XCTAssertEqual(second.map(\.mediaID), ["med_mic2"])
+            XCTAssertEqual(second[0].range, TimeRange(start: t(0), end: t(57)))
+            XCTAssertEqual(second[0].sourceStart, t(3))
+            XCTAssertEqual(second[0].linkGroup, c.clips("Camera")[0].linkGroup)
+            XCTAssertEqual(second[0].audio?.normalizeTo, -20, "levelled like speech")
+            XCTAssertEqual(c.project.track(named: "Voice 2")?.rippleMode, .cut, "part of the take")
+            XCTAssertEqual(c.clips("Camera sound").map(\.range), [TimeRange(start: t(0), end: t(57))])
+            assertValid(c.project)
+        }
+    }
+
+    func testASecondMicThatRunsLongerMovesTheRestOfTheCameraSoundToo() throws {
+        let c = try Self.project(secondMicLength: 80)
+        try c.run("First guest", .placeSynced(mediaID: "med_mic"))
+        try c.run("Second guest", .placeSynced(mediaID: "med_mic2"))
+        XCTAssertEqual(c.clips("Camera").map(\.start), [t(0), t(57), t(77)])
+        XCTAssertEqual(c.clips("Voice").map(\.mediaID), ["med_mic", "med_cam"])
+        XCTAssertEqual(c.clips("Voice").map(\.start), [t(0), t(77)])
+        XCTAssertEqual(c.clips("Voice 2").map(\.range), [TimeRange(start: t(0), end: t(57)), TimeRange(start: t(57), end: t(77))])
+        XCTAssertEqual(c.clips("Camera sound").map(\.range), [TimeRange(start: t(0), end: t(57)), TimeRange(start: t(57), end: t(77))])
+        assertValid(c.project)
+    }
+
+    func testASecondMicThatStartsBeforeTheFirstPlacesWhereTheFirstHasNoClip() throws {
+        // The first guest's mic covers 20-80 s, the second's 0-100 s, so
+        // Voice 2 is made while the camera's sound is being moved.
+        let c = try Self.project(micOffset: 23, secondMicLength: 103)
+        try c.run("First guest", .placeSynced(mediaID: "med_mic"))
+        try c.run("Second guest", .placeSynced(mediaID: "med_mic2"))
+        XCTAssertEqual(c.project.audioTracks.map(\.name), ["Voice", "Voice 2", "Camera sound", "Music", "SFX"])
+        XCTAssertEqual(c.clips("Camera").map(\.start), [t(0), t(20), t(80), t(100)])
+        XCTAssertEqual(c.clips("Voice").map(\.mediaID), ["med_mic", "med_cam"])
+        XCTAssertEqual(c.clips("Voice").map(\.start), [t(20), t(100)])
+        XCTAssertEqual(c.clips("Voice 2").map(\.mediaID), ["med_mic2", "med_mic2", "med_mic2"])
+        XCTAssertEqual(c.clips("Voice 2").map(\.start), [t(0), t(20), t(80)])
+        XCTAssertEqual(c.clips("Camera sound").map(\.start), [t(0), t(20), t(80)])
+        XCTAssertTrue(c.clips("Camera sound").allSatisfy { $0.mediaID == "med_cam" })
+        assertValid(c.project)
+    }
+
+    func testAMicThatStopsJustShortOfTheTakesEndLeavesNoSliverAndKeepsItsFade() throws {
+        // The mic ran 0.06 s less than the camera, so it stops two frames
+        // before the take's last one. The cut there handed the fade to black
+        // to a 67 ms sliver, where it played in 67 ms, and 67 ms of camera
+        // sound played after the mic.
+        let c = try Self.project(micLength: 122.94)
+        let camera = try XCTUnwrap(c.project.track(named: "Camera"))
+        try c.run("Fade", .addTransition(trackID: camera.id, transition: Transition(
+            id: "tr_out", type: .fadeToBlack, duration: t(1), fromClipID: c.clips("Camera")[0].id, toClipID: nil
+        )))
+        let result = try c.run("Add the mic", .placeSynced(mediaID: "med_mic"))
+        let end = Time.frames(3598, at: .fps30)
+        XCTAssertEqual(c.clips("Camera").map(\.range), [TimeRange(start: t(0), end: end)])
+        let fade = try XCTUnwrap(c.project.track(named: "Camera")?.transitions.first)
+        XCTAssertEqual(fade.id, "tr_out")
+        XCTAssertEqual(fade.fromClipID, c.clips("Camera")[0].id)
+        XCTAssertEqual(fade.window(on: try XCTUnwrap(c.project.track(named: "Camera"))), TimeRange(start: end - t(1), end: end), "a whole second")
+        XCTAssertEqual(c.clips("Voice").map(\.mediaID), ["med_mic"])
+        XCTAssertEqual(c.clips("Voice")[0].range, TimeRange(start: t(0), end: end))
+        XCTAssertEqual(c.clips("Camera sound").map(\.range), [TimeRange(start: t(0), end: end)])
+        XCTAssertTrue(result.warnings.contains { $0.contains("last 67 ms") && $0.contains("fadeToBlack") }, "\(result.warnings)")
+        assertValid(c.project)
+    }
+
+    func testASliverWithoutAFadeKeepsItsPictureAndMutesItsSound() throws {
+        let c = try Self.project(micLength: 122.94)
+        try c.run("Add the mic", .placeSynced(mediaID: "med_mic"))
+        let end = Time.frames(3598, at: .fps30)
+        XCTAssertEqual(c.clips("Camera").map(\.range), [TimeRange(start: t(0), end: end), TimeRange(start: end, end: t(120))])
+        XCTAssertEqual(c.clips("Voice").map(\.mediaID), ["med_mic"], "no blip of camera sound after the mic")
+        XCTAssertEqual(c.clips("Camera sound").map(\.range), [TimeRange(start: t(0), end: end), TimeRange(start: end, end: t(120))])
+        XCTAssertEqual(c.clips("Camera sound")[1].linkGroup, c.clips("Camera")[1].linkGroup, "still linked to its picture")
+        assertValid(c.project)
+    }
+
+    func testMovingAPlacedFilesTakeOffsetSaysItsClipsStayed() throws {
+        let c = try Self.project()
+        try c.run("Add the mic", .placeSynced(mediaID: "med_mic"))
+        let before = c.clips("Voice")[0]
+        let result = try c.run("Later", .updateMedia(mediaID: "med_mic", patch: .object(["takeOffset": .number(0.0436)])))
+        XCTAssertEqual(c.clips("Voice")[0], before, "nothing moves")
+        XCTAssertTrue(result.warnings.contains { $0.contains("+43.6 ms") && $0.contains("slip it by -43.6 ms") }, "\(result.warnings)")
+        let quiet = try c.run("Path", .updateMedia(mediaID: "med_mic", patch: .object(["role": .string("other")])))
+        XCTAssertTrue(quiet.warnings.isEmpty, "\(quiet.warnings)")
     }
 
     func testAnAngleAFrameLongerThanTheMicPlacedAfterItLeavesNoSliver() throws {

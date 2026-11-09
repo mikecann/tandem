@@ -68,6 +68,15 @@ func fittedSize(width: Int, height: Int, maxWidth: Int, maxHeight: Int) -> (widt
 
 /// Reads an asset's first audio track as interleaved 32-bit float PCM, in
 /// chunks, with each chunk's position in media time.
+///
+/// AVAssetReader decodes at the file's own rate and Tandem resamples
+/// (`Resampler`), because AVAssetReader's own rate conversion slips on
+/// movies: asked for 8 kHz from a camera's 48 kHz sound interleaved with its
+/// picture, it now and then gives a packet's worth of samples twice and
+/// stamps the chunks by its own count, so the sound runs about 100 ppm late.
+/// On the Databased S2E7 Restream recording (November 2026) that was 0.33 s
+/// by the end of the hour, and sync by sound placed a guest's mic 151 ms out.
+/// Audio-only files and reads at the file's own rate don't slip.
 final class AudioReader: @unchecked Sendable {
     let sampleRate: Double
     let channels: Int
@@ -79,6 +88,8 @@ final class AudioReader: @unchecked Sendable {
     /// AVAssetReader crashes if it's cancelled mid-copy, so they take turns.
     private let access = NSRecursiveLock()
     private var cancelled = false
+    /// Turns the file's rate into `sampleRate`, when they differ.
+    private let resampler: Resampler?
 
     /// - Parameters:
     ///   - sampleRate: resample to this rate; nil keeps the file's.
@@ -97,6 +108,16 @@ final class AudioReader: @unchecked Sendable {
         self.sampleRate = rate
         self.channels = max(1, count)
         self.duration = timeRange.map { $0.duration.seconds } ?? duration.seconds
+        let nativeRate = native.map { Double($0.mSampleRate) } ?? rate
+        if nativeRate != rate, nativeRate > 0 {
+            // No falling back to AVAssetReader's own conversion, which slips.
+            guard let resampler = Resampler(from: nativeRate, to: rate, channels: self.channels) else {
+                throw MediaError.failed("Can't resample the audio of \(url.lastPathComponent) from \(Int(nativeRate)) Hz to \(Int(rate)) Hz with \(self.channels) channels")
+            }
+            self.resampler = resampler
+        } else {
+            resampler = nil
+        }
 
         var settings: [String: Any] = [
             AVFormatIDKey: kAudioFormatLinearPCM,
@@ -104,7 +125,8 @@ final class AudioReader: @unchecked Sendable {
             AVLinearPCMIsFloatKey: true,
             AVLinearPCMIsBigEndianKey: false,
             AVLinearPCMIsNonInterleaved: false,
-            AVSampleRateKey: rate,
+            // The file's own rate when Tandem resamples (see above).
+            AVSampleRateKey: resampler == nil ? rate : nativeRate,
             AVNumberOfChannelsKey: self.channels
         ]
         // Changing the channel count needs a layout to mix to.
@@ -140,6 +162,22 @@ final class AudioReader: @unchecked Sendable {
         access.lock()
         defer { access.unlock() }
         guard !cancelled else { return false }
+        guard let resampler else { return try nextDecoded(body) }
+        if let chunk = resampler.pending.popFirst() {
+            try chunk.samples.withUnsafeBufferPointer { try body($0, chunk.samples.count / channels, chunk.start) }
+            return true
+        }
+        let more = try nextDecoded { samples, frames, start in try resampler.add(samples, frames: frames, at: start) }
+        if !more { try resampler.finish() }
+        guard !resampler.pending.isEmpty else { return more }
+        if let chunk = resampler.pending.popFirst() {
+            try chunk.samples.withUnsafeBufferPointer { try body($0, chunk.samples.count / channels, chunk.start) }
+        }
+        return true
+    }
+
+    /// The next chunk as AVAssetReader decodes it.
+    private func nextDecoded(_ body: (UnsafeBufferPointer<Float>, _ frames: Int, _ start: CMTime) throws -> Void) throws -> Bool {
         guard let sample = output.copyNextSampleBuffer() else {
             if reader.status == .failed {
                 throw MediaError.failed("Audio decoding failed: \(reader.error?.localizedDescription ?? "unknown error")")
@@ -173,5 +211,108 @@ final class AudioReader: @unchecked Sendable {
         guard !cancelled else { return }
         cancelled = true
         reader.cancelReading()
+    }
+}
+
+/// Resamples an AudioReader's chunks as they come, with AVAudioConverter,
+/// which keeps exact count over a continuous stream. Chunks are stamped from
+/// where the stream started plus the samples given out since, and a jump in
+/// the file's own stamps (a gap in the sound) starts the count again there.
+private final class Resampler {
+    let inputRate: Double
+    let outputRate: Double
+    let channels: Int
+    private let input: AVAudioFormat
+    private let output: AVAudioFormat
+    private let converter: AVAudioConverter
+    /// Where the current run of continuous sound started, and how many
+    /// samples it has given out since.
+    private var anchor: CMTime?
+    private var given: Int64 = 0
+    /// Where the next decoded chunk should start if the sound is continuous.
+    private var expected: CMTime?
+    private var finished = false
+    var pending: ArraySlice<(samples: [Float], start: CMTime)> = []
+
+    init?(from inputRate: Double, to outputRate: Double, channels: Int) {
+        // Over two channels a format needs a layout; discrete channels in
+        // order keep them as they are.
+        guard channels > 0, let layout = AVAudioChannelLayout(layoutTag: kAudioChannelLayoutTag_DiscreteInOrder | AudioChannelLayoutTag(channels)) else { return nil }
+        let input = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: inputRate, interleaved: true, channelLayout: layout)
+        let output = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: outputRate, interleaved: true, channelLayout: layout)
+        guard let converter = AVAudioConverter(from: input, to: output) else { return nil }
+        // The default prime method treats what came before the first sample
+        // as silence, so the output lines up with the input sample for sample.
+        converter.sampleRateConverterQuality = AVAudioQuality.max.rawValue
+        self.inputRate = inputRate
+        self.outputRate = outputRate
+        self.channels = channels
+        self.input = input
+        self.output = output
+        self.converter = converter
+    }
+
+    func add(_ samples: UnsafeBufferPointer<Float>, frames: Int, at start: CMTime) throws {
+        guard frames > 0 else { return }
+        // Over 5 ms out is a gap in the sound (an AAC packet is 21 ms), not
+        // a stamp rounded to its track's timescale.
+        if let expected, abs((start - expected).seconds) > 0.005 {
+            try endRun()
+            converter.reset()
+            anchor = nil
+        }
+        if anchor == nil {
+            anchor = start
+            given = 0
+        }
+        expected = start + CMTime(value: CMTimeValue(frames), timescale: CMTimeScale(inputRate))
+        guard let buffer = AVAudioPCMBuffer(pcmFormat: input, frameCapacity: AVAudioFrameCount(frames)) else {
+            throw MediaError.failed("Out of memory resampling the audio")
+        }
+        buffer.frameLength = AVAudioFrameCount(frames)
+        buffer.floatChannelData![0].update(from: samples.baseAddress!, count: frames * channels)
+        try convert(buffer)
+    }
+
+    /// The last of the sound the converter held back for its filter.
+    func finish() throws {
+        guard !finished else { return }
+        finished = true
+        try endRun()
+    }
+
+    private func endRun() throws {
+        if anchor != nil { try convert(nil) }
+    }
+
+    /// Gives `buffer` to the converter (nil: the end of this run) and
+    /// queues what comes out.
+    private func convert(_ buffer: AVAudioPCMBuffer?) throws {
+        let frames = Double(buffer?.frameLength ?? 0)
+        let capacity = AVAudioFrameCount((frames * outputRate / inputRate).rounded(.up)) + 1024
+        nonisolated(unsafe) var handed = false
+        while true {
+            guard let target = AVAudioPCMBuffer(pcmFormat: output, frameCapacity: capacity), let anchor else { return }
+            var error: NSError?
+            let status = converter.convert(to: target, error: &error) { _, state in
+                if let buffer, !handed {
+                    handed = true
+                    state.pointee = .haveData
+                    return buffer
+                }
+                state.pointee = buffer == nil ? .endOfStream : .noDataNow
+                return nil
+            }
+            if status == .error { throw MediaError.failed("Couldn't resample the audio: \(error?.localizedDescription ?? "unknown error")") }
+            let made = Int(target.frameLength)
+            if made > 0 {
+                let start = anchor + CMTime(value: CMTimeValue(given), timescale: CMTimeScale(outputRate))
+                pending.append((Array(UnsafeBufferPointer(start: target.floatChannelData![0], count: made * channels)), start))
+                given += Int64(made)
+            }
+            // A full buffer may have left more inside; anything else means
+            // it wants more input or has finished.
+            guard status == .haveData else { return }
+        }
     }
 }

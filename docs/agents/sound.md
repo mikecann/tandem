@@ -99,10 +99,15 @@ rather than placing it again, so every cut stays where it is:
 tandem media replace med_voice1 audio/take1-clean.wav
 ```
 
-The copy has to be within a frame of the original's length and keep its
-sound (and picture, for a video), or Tandem refuses, since clips cut
-against the old file would play the wrong words. Export it at the same
-sample rate and with no added padding. Tandem then measures the new file's
+The copy has to be within a frame of the original's length, start at the
+same moment and keep its sound (and picture, for a video), or Tandem
+refuses, since clips cut against the old file would play the wrong words.
+It lines the two up by sound to check the start, and says which end to
+trim or pad. Watch for AAC (.m4a, a camera's .mov): AVFoundation drops
+the encoder's priming at the start (44 ms at 48 kHz) and ffmpeg keeps it,
+so a copy made with ffmpeg comes out that much long at the start. Trim
+the start (`ffmpeg -ss 0.044`), never the end. A file processed in place
+(same path, new contents) is taken as a new file too. Tandem then measures the new file's
 loudness and transcribes it again, so speech levelling follows the new
 level, and the old file stays in the folder without coming back as new
 media. Turn off any isolation or expander the clips had for the old file,

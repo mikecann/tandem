@@ -370,7 +370,11 @@ Drift is how far the two clocks part over the overlap. It's good to a
 couple of milliseconds, since someone walking between the cameras moves
 their sound about 3 ms a metre, and it warns when it's over half a frame.
 Unrelated sound scores under 10 for confidence, and under 15 is refused
-with nothing changed, so check the file before trying again.
+with nothing changed, so check the file before trying again. A real match
+scores in the hundreds or more on a clean mic. The whole-file match is
+then checked in stretches of the overlap; when fewer than half of them
+agree, the line says "Only N of M stretches ... agreed" and the offset may
+be wrong, so listen before going on.
 
 In one undo step each file joins the camera's take (`takeID`,
 `takeOffset`, shown by `tandem media`) and goes beside the take's clips,
@@ -385,6 +389,19 @@ plays differently).
   muted "Camera sound" track, so the mic is what plays and what gets
   transcribed. Outside the mic's stretch the camera's sound stays on
   Voice.
+- A second mic (a remote podcast's other guest) finds the first on Voice
+  and goes on its own "Voice 2" track right under it, with the same
+  levelling. Sync both in one call or one after the other.
+- Files of one take end a few frames apart. Where a mic stops (or starts)
+  under half a second from a clip's edge, the camera's sound in that
+  sliver is muted too, so no blip of it plays after the mic. Leave the
+  sliver of picture alone: it's a through-edit and may carry the take's
+  fade (removing a clip says when a transition goes with it).
+
+`tandem media` shows each file's `takeOffset`, but changing it with
+`updateMedia` once the file is placed moves nothing: its clips keep
+playing the same part of the file, and the edit warns. Slip them by the
+opposite amount, or remove them and `placeSynced` again.
 
 `showAngle` shows an angle over a range: its clips there come on and the
 take's other angles go off. `"trackID": "Camera"` shows the camera again.

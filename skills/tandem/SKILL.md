@@ -733,9 +733,13 @@ scripts and the speaker tracker are in
 - **A second camera or a separate mic: `tandem sync <files>`,** not a
   script of your own. It lines them up with the camera take by sound, puts
   them in its take and places them in one undo step: the angle on "Angle
-  2", off, and the mic on Voice with the camera's own sound muted. Show the
-  angle where it helps with `showAngle`; never untick its clips, unlink or
-  slip anything by hand. Read the lip-sync report it ends with.
+  2", off, and the mic on Voice with the camera's own sound muted (a second
+  guest's mic on "Voice 2"). Show the angle where it helps with
+  `showAngle`; never untick its clips, unlink or slip anything by hand.
+  Read the lip-sync report it ends with, and any "only N of M stretches
+  agreed" note. Don't check its offset with ffmpeg: ffmpeg keeps an AAC
+  file's encoder priming that Tandem's AVFoundation drops, so it reads
+  44 ms high (Databased S2E7, Nov 2026).
 - **Cutting a speaker's "right?"s:** only where there's a gap after it.
   Where it runs straight into the next word ("economy, right? And..."),
   leave it. The transcript's word times ran about 0.2 s early on this
@@ -1291,7 +1295,9 @@ comments, changed these rules for a conversation like this:
 - To use a voice cleaned up outside Tandem (a de-reverb, DeepFilterNet),
   swap the file under the clips with `tandem media replace <media id>
   <file>`, not by placing it again. It checks the length matches within
-  a frame and makes the loudness and transcript again from the new file;
+  a frame and that it starts at the same moment by sound (an ffmpeg copy
+  of an .m4a is 44 ms long at the start: trim the start, as it says, never
+  the end), and makes the loudness and transcript again from the new file;
   the James interview's swap through a bare `updateMedia` path kept the
   old file's loudness, 3 dB out, before Tandem dropped the fingerprint
   itself (30 Oct 2026). Don't `tandem media --refresh` in between.
