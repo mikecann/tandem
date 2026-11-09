@@ -755,6 +755,15 @@ scripts and the speaker tracker are in
   `who` left/right picks the talker in a two-shot, `x`/`z` pin a crop,
   `window` keeps a shot whole (an on-screen graphic, a wide from the back
   where he's tiny). Its `edit-plan.md` has the rest.
+- **Hold the crop still on a seated speaker.** Following the face every
+  0.4 s panned the frame each time Meagan leaned, and on the wide two-shot
+  from the back Vision swapped people, so the crop whipped between her and
+  Luke three times in 12 s. Liz: "camera was doing some weird panning in
+  this one" (Fireside 4, 6 Nov 2026, after it was already in Ordinal). One
+  steady crop per shot now (`build.py frame` only follows with `"follow":
+  true` in the framing file, for someone walking a stage). Look at every
+  wide two-shot's frames before export: the detector picks the wrong person
+  there, so pin its `x` on the talker.
 - **Open a Q&A Short on the question.** Every Fireside Short first went out
   starting on the answer ("The biggest one that I think is unsolved..."), and
   Mike: "We don't know what the question is when it starts. So can you
@@ -1258,6 +1267,30 @@ comments, changed these rules for a conversation like this:
   over the pause floor (`tools/voice-enhance/src/blend/` has the
   measuring and `dehum2.py`, which notches only the original's share:
   blend minus 0.8 x Adobe), not just the low ones.
+
+### A remote two-person podcast: Databased (Restream, November 2026)
+
+Jamie and James on Restream, edited from Liz's Dropbox folder
+(`convex-videos/databased-s2e7/`): the Restream composite mp4 (its layout,
+tweets and branding already in), a mixed m4a, and each person's own mic
+file.
+
+- **Use each person's own mic, never the composite's sound.** The Restream
+  mix clipped about 55,000 samples (+3.1 dBFS) where James leaned into the
+  mic, and Mike heard it "blow out"; the separate mic files barely clipped
+  and don't bleed into each other. Put them on Voice and Voice 2, mute the
+  composite, `normalizeSpeech` (it adds the compressor and limiter). Do it
+  in the first cut, not after he hears it.
+- **Check the mic offset yourself.** `tandem sync` placed the first mic
+  151 ms out at confidence 27 and refused a second mic (Tandem thread
+  ebef2df4). Cross-correlate at three points across the hour
+  (`databased-s2e7/.work/audio/offset2.py`), set takeID/takeOffset by hand,
+  then `placeSynced` each, then `tandem sync --check`.
+- **Restream's picture has no webcam lag:** `tandem sync 0` on the mp4.
+- **Keep what the founders say.** Swears, other companies named, Convex's
+  own incidents: it's their podcast, so it stays unless they say in the
+  episode to cut it (Mike, 9 Nov 2026). Cut the pre-show and their asides
+  to the editor ("Mike, just cut around this"), and keep the pacing loose.
 
 ## Rules
 
