@@ -41,14 +41,25 @@ public enum SoundSync {
         /// standard deviation across every other alignment. Unrelated sound
         /// comes out under 10; Ian's mic against the wide camera, about 60.
         public var confidence: Double
+        /// How many of the overlap's stretches found the same offset to
+        /// within `fineSearch`, out of how many were measured. When few do,
+        /// the whole-file match is suspect: it's what the offset falls back
+        /// to, and nothing checked it to the millisecond.
+        public var agreed: Int
+        public var stretches: Int
 
-        public init(offset: Double, drift: Double?, overlapStart: Double, overlapEnd: Double, confidence: Double) {
+        public init(offset: Double, drift: Double?, overlapStart: Double, overlapEnd: Double, confidence: Double, agreed: Int = 0, stretches: Int = 0) {
             self.offset = offset
             self.drift = drift
             self.overlapStart = overlapStart
             self.overlapEnd = overlapEnd
             self.confidence = confidence
+            self.agreed = agreed
+            self.stretches = stretches
         }
+
+        /// Fewer than half the stretches agreed with the whole-file match.
+        public var doubtful: Bool { agreed * 2 < stretches }
     }
 
     /// Nothing stood out: the two didn't record the same moment, or one of
@@ -136,7 +147,7 @@ public enum SoundSync {
             // Only when the stretches that agreed span enough of it to tell.
             if line.span >= length / 2 { drift = line.slope * length }
         }
-        return Match(offset: offset, drift: drift, overlapStart: overlapStart, overlapEnd: overlapEnd, confidence: coarse.confidence)
+        return Match(offset: offset, drift: drift, overlapStart: overlapStart, overlapEnd: overlapEnd, confidence: coarse.confidence, agreed: measured.count, stretches: count)
     }
 
     /// The offset over `length` seconds of the reference from `start`,

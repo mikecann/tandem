@@ -258,7 +258,14 @@ public final class TandemService: @unchecked Sendable {
     /// loudness, transcript, waveform and the rest are made again from it.
     /// Refuses a file whose length differs by more than a frame, or that
     /// lacks the sound or picture the old one had, since clips cut against
-    /// the old file would land on the wrong words.
+    /// the old file would land on the wrong words. When both have sound it
+    /// lines the new one up with the old by it first, and refuses one that
+    /// starts at a different moment, saying which end to trim: an AAC file's
+    /// encoder priming (44 ms at 48 kHz) is dropped by AVFoundation and kept
+    /// by ffmpeg, so a copy processed with ffmpeg came out 44 ms long at the
+    /// start, and trimming its end to fit put James's voice 44 ms late
+    /// (Databased S2E7, November 2026). The same path with new contents (a
+    /// file processed in place) is taken as a new file too.
     public func replaceMedia(_ mediaID: String, with file: String, label: String?, author: String?, context: CallContext) async throws -> ReplacedMedia {
         let project = coordinator.project
         guard let item = project.media(mediaID) else { throw ServiceError(.notFound, "There's no media \(mediaID).") }
@@ -271,13 +278,34 @@ public final class TandemService: @unchecked Sendable {
             throw ServiceError(.invalid, "Couldn't read \(url.lastPathComponent): \((error as? LocalizedError)?.errorDescription ?? "\(error)")")
         }
         replaced.path = MediaRelinker.storedPath(for: url, in: folder)
-        replaced.replaces = MediaItem.replaces(item, with: replaced.path)
-        guard replaced.path != item.path else { throw ServiceError(.invalid, "\(mediaID) already plays \(item.path).") }
+        let inPlace = replaced.path == item.path
+        if inPlace {
+            guard replaced.fingerprint != item.fingerprint else {
+                throw ServiceError(.invalid, "\(mediaID) already plays \(item.path), and the file hasn't changed since.")
+            }
+        } else {
+            replaced.replaces = MediaItem.replaces(item, with: replaced.path)
+        }
         if item.hasAudio && !replaced.hasAudio { throw ServiceError(.invalid, "\(replaced.path) has no sound and \(item.path) did.") }
         if item.hasVideo && !replaced.hasVideo { throw ServiceError(.invalid, "\(replaced.path) has no picture and \(item.path) did.") }
+        // The old file is gone when it was processed in place.
+        let start = inPlace || !item.hasAudio || !replaced.hasAudio ? nil : try await startDifference(item, url)
+        let anyway = "To use it anyway, apply updateMedia with the new path."
+        if case .shifted(let shift)? = start {
+            let ms = Int((abs(shift) * 1000).rounded())
+            let seconds = String(format: "%.4f", abs(shift))
+            throw ServiceError(.invalid, shift > 0
+                ? "\(replaced.path) has \(ms) ms more at its start than \(item.path): the same moment is \(seconds) s later in it, so every clip would play \(ms) ms early. Trim \(seconds) s off its start, not its end (ffmpeg -ss \(seconds) -i ...), and replace again. An AAC file's encoder priming does this: AVFoundation drops it and ffmpeg keeps it. \(anyway)"
+                : "\(replaced.path) is missing \(ms) ms at its start compared with \(item.path): the same moment is \(seconds) s earlier in it, so every clip would play \(ms) ms late. Pad \(seconds) s of silence onto its start (ffmpeg -af adelay=\(ms):all=1), not its end, and replace again. \(anyway)")
+        }
         let frame = project.settings.frameRate.frameDuration
         if let old = item.duration, let new = replaced.duration, abs((new - old).seconds) > frame.seconds {
-            throw ServiceError(.invalid, "\(replaced.path) is \(TimeText.duration(new)) long and \(item.path) is \(TimeText.duration(old)), more than a frame apart, so clips cut against the old file would play the wrong moments. To use it anyway, apply updateMedia with the new path.")
+            let end: String
+            switch start {
+            case .same?: end = " They start at the same moment, so the difference is at the end: \(new > old ? "trim" : "pad") \(String(format: "%.4f", abs((new - old).seconds))) s at its end."
+            default: end = " Check which end it's at before trimming: AVFoundation drops an AAC file's encoder priming at the start, and ffmpeg keeps it."
+            }
+            throw ServiceError(.invalid, "\(replaced.path) is \(TimeText.duration(new)) long and \(item.path) is \(TimeText.duration(old)), more than a frame apart, so clips cut against the old file would play the wrong moments.\(end) \(anyway)")
         }
         let before = try JSONValue.from(item)
         let after = try JSONValue.from(replaced)
@@ -292,10 +320,37 @@ public final class TandemService: @unchecked Sendable {
         let used = Set(project.allTracks.flatMap(\.clips).compactMap(\.mediaID))
         let copies = project.media.filter { $0.id != mediaID && $0.path == replaced.path && !used.contains($0.id) }
         let name = (replaced.path as NSString).lastPathComponent
-        let applied = try apply(ApplyRequest(label: label ?? "Replace \((item.path as NSString).lastPathComponent) with \(name)", author: author,
+        var applied = try apply(ApplyRequest(label: label ?? "Replace \((item.path as NSString).lastPathComponent) with \(name)", author: author,
                                              commands: [.updateMedia(mediaID: mediaID, patch: patch)] + copies.map { .removeMedia(mediaID: $0.id) }), context: context)
+        if case .unknown(let why)? = start {
+            applied.warnings.append("Couldn't check that \(name) starts at the same moment as \((item.path as NSString).lastPathComponent) by their sound (\(why)); listen to a clip of it against the picture.")
+        }
         let clips = coordinator.project.allTracks.flatMap(\.clips).filter { $0.mediaID == mediaID }.count
         return ReplacedMedia(mediaID: mediaID, from: item.path, to: replaced.path, oldDuration: item.duration, newDuration: replaced.duration, clips: clips, applied: applied)
+    }
+
+    enum StartDifference {
+        case same
+        /// Seconds further into the new file the same moment is.
+        case shifted(Double)
+        case unknown(String)
+    }
+
+    /// Whether a replacement file's sound starts at the same moment as the
+    /// old one's, lined up by `SoundSync`. Up to 2 ms either way is the
+    /// same: no one sees that, and a processed copy can smear a sample.
+    func startDifference(_ item: MediaItem, _ url: URL) async throws -> StartDifference {
+        let old = folder.url(for: item)
+        guard FileManager.default.fileExists(atPath: old.path) else { return .unknown("the old file is gone") }
+        do {
+            let match = try await SoundSync.match(reference: old, file: url)
+            guard !match.doubtful else { return .unknown("they don't line up clearly") }
+            return abs(match.offset) <= 0.002 ? .same : .shifted(match.offset)
+        } catch is SoundSync.NoMatch {
+            return .unknown("they don't line up clearly")
+        } catch {
+            return .unknown((error as? LocalizedError)?.errorDescription ?? "\(error)")
+        }
     }
 
     /// The analyses that apply to a file, and how far along each is.

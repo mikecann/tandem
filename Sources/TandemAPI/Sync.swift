@@ -370,14 +370,21 @@ extension TandemService {
         // The file that covers least goes first, so one a frame longer
         // stops at its cut rather than leaving a sliver after it.
         for (item, match) in measured.sorted(by: { $0.1.overlapEnd - $0.1.overlapStart < $1.1.overlapEnd - $1.1.overlapStart }) {
+            // The whole-file match is only to a millisecond or so; the
+            // stretches pin it down. When most can't find it within 20 ms,
+            // it's likely a wrong peak (or sound that slips, as AVFoundation's
+            // resampling did on the Databased S2E7 recording: confidence 27,
+            // 151 ms out, and no stretch agreed).
+            if match.doubtful {
+                notes[item.id, default: []].append("Only \(match.agreed) of \(match.stretches) stretches of the overlap agreed with this offset, so it may be wrong. Listen to it against the camera's sound, or check it with tandem sync --check, before going on.")
+            }
             if let drift = match.drift, abs(drift) > halfFrame {
                 notes[item.id, default: []].append("It drifts more than half a frame over the overlap, so it's in step at the middle and slips towards the ends.")
             }
             let placed = project.allTracks.contains { $0.clips.contains { $0.mediaID == item.id } }
-            if request.place == false { continue }
             if placed {
                 notes[item.id, default: []].append("It was on the timeline already, so its clips were left where they were; check they're in step.")
-            } else {
+            } else if request.place != false {
                 commands.append(.placeSynced(mediaID: item.id))
             }
         }
@@ -387,6 +394,10 @@ extension TandemService {
             let names = measured.count == 1 ? URL(fileURLWithPath: measured[0].0.path).deletingPathExtension().lastPathComponent : "\(measured.count) files"
             let label = request.label ?? "Sync \(names) to \(URL(fileURLWithPath: reference.path).deletingPathExtension().lastPathComponent) by sound"
             applied = try apply(ApplyRequest(label: label, commands: commands, expectedRevision: request.expectedRevision ?? revision, dryRun: request.dryRun), context: context)
+            // Moving every file of the take by the same amount (one started
+            // before the take did) leaves them in step, and a file that was
+            // placed already gets its own note below.
+            applied?.warnings.removeAll { $0.hasPrefix(Editing.takeOffsetChanged) }
         }
         let after = coordinator.snapshot()
         let matches = measured.map { item, match in

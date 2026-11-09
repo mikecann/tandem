@@ -440,7 +440,22 @@ public enum Editing {
         }
         guard let index = p.media.firstIndex(where: { $0.id == mediaID }) else { throw EditError.notFound("media \(mediaID)") }
         p.media[index] = item
+        // A take offset says where the file sits in its take; clips already
+        // placed keep playing the part of the file they did, so changing it
+        // moves nothing. Databased S2E7's mics were set 44 ms later this way
+        // and stayed where they were without a word.
+        let change = (item.takeOffset ?? .zero) - (old.takeOffset ?? .zero)
+        let placed = p.allTracks.flatMap(\.clips).filter { $0.mediaID == mediaID }
+        if item.takeID == old.takeID, item.takeID != nil, change != .zero, !placed.isEmpty {
+            let name = URL(fileURLWithPath: item.path).lastPathComponent
+            let ms = { (time: Time) in String(format: "%+.1f ms", time.seconds * 1000) }
+            context.warn("\(takeOffsetChanged) \(name) by \(ms(change)), but its \(placed.count == 1 ? "clip" : "\(placed.count) clips") on the timeline still play the same part of the file. To follow it, slip \(placed.count == 1 ? "it" : "each") by \(ms(.zero - change)) (includeLinked false), or remove \(placed.count == 1 ? "it" : "them") and placeSynced again.")
+        }
     }
+
+    /// How the warning above starts, so `tandem sync`, which moves a whole
+    /// take's offsets together, can leave it out.
+    public static let takeOffsetChanged = "Changed the take offset of"
 
     static func removeMedia(_ p: inout Project, _ mediaID: String) throws {
         guard let index = p.media.firstIndex(where: { $0.id == mediaID }) else { throw EditError.notFound("media \(mediaID)") }
@@ -869,6 +884,17 @@ public enum Editing {
             touched.insert(p[location].id)
         }
         for location in p.trackLocations where touched.contains(p[location].id) {
+            // A transition belongs to its clips, so it goes with them, but
+            // say so: a take's fade to black once sat on a 67 ms sliver at
+            // its end and went unnoticed when the sliver was tidied away.
+            let going = p[location].transitions.filter { t in
+                (t.fromClipID.map(idSet.contains) ?? false) || (t.toClipID.map(idSet.contains) ?? false)
+            }
+            for t in going {
+                let kept = [t.fromClipID, t.toClipID].compactMap { $0 }.first { !idSet.contains($0) }
+                let at = t.toClipID == nil ? "end" : t.fromClipID == nil ? "start" : "cut"
+                context.warn("The \(t.type.rawValue) at the \(at) of a removed clip on \"\(p[location].name)\" went with it\(kept == nil ? "; addTransition puts it back on the clip that ends there now" : "").")
+            }
             p[location].clips.removeAll { idSet.contains($0.id) }
             p[location].removeTransitions(referencing: idSet)
         }

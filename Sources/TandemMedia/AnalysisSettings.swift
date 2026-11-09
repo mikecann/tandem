@@ -243,7 +243,12 @@ extension AnalysisKind {
     /// Bump when a kind's output changes, so old cache entries are rebuilt.
     public var algorithmVersion: Int {
         switch self {
-        case .thumbnails, .waveform, .loudness, .transcript, .isolatedVoice, .converted: return 1
+        case .thumbnails, .waveform, .loudness, .converted: return 1
+        // 2: read through Tandem's own resampling (`AudioReader`), since
+        // AVAssetReader's slipped about 100 ppm on camera movies, so words
+        // and the isolated voice ran up to a third of a second late by the
+        // end of an hour.
+        case .transcript, .isolatedVoice: return 2
         // 2: the subject mask for props and smoothing over time.
         case .matte: return 2
         // 2: quality 0.6, so the 0.45 proxies that crawled rebuild.

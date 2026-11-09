@@ -447,6 +447,19 @@ final class TransitionTests: XCTestCase {
         XCTAssertTrue(c.project.track(named: "B-roll")!.transitions.isEmpty)
         XCTAssertFalse(result.warnings.isEmpty)
     }
+
+    /// A transition goes with the clip it's on, so removing a clip that
+    /// carries one says so: a sliver's fade to black went without a word.
+    func testRemovingAClipWithATransitionSaysSo() throws {
+        let (f, c) = try Fixture.edited()
+        let camera = f.track("Camera").id
+        let clip = c.clips("Camera")[0].id
+        try c.run("Fade", .addTransition(trackID: camera, transition: Transition(
+            id: "tr_f", type: .fadeToBlack, duration: t(1), fromClipID: clip, toClipID: nil
+        )))
+        let result = try c.run("Remove", .removeClips(clipIDs: [clip], ripple: false, includeLinked: false))
+        XCTAssertTrue(result.warnings.contains { $0.contains("fadeToBlack") && $0.contains("went with it") }, "\(result.warnings)")
+    }
 }
 
 final class EffectTests: XCTestCase {

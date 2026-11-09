@@ -35,7 +35,11 @@ enum SyncedPlacement {
         // Where the file plays against each camera clip: file time is
         // timeline time plus `delta`. Edges inside a clip go to whole frames
         // inside the file, so no frame shows before it starts.
+        // `slivers` are what's left of a clip either side of the file when
+        // that's under `minimumPiece`: files of one take end a few frames
+        // apart. For a sound file their camera sound is muted too (below).
         var spans: [(clipID: String, range: TimeRange, delta: Time)] = []
+        var slivers: [TimeRange] = []
         for clip in references {
             guard clip.speed == 1, !clip.freezeFrame, let reference = clip.mediaID.flatMap(p.media) else {
                 context.warn("Left \(clip.name ?? clip.id) alone: \(item.path) only lines up with clips playing at normal speed.")
@@ -51,13 +55,23 @@ enum SyncedPlacement {
             let partial = start > clip.start || end < clip.end
             guard end - start >= rate.frameDuration, !partial || end - start >= minimumPiece else { continue }
             spans.append((clip.id, TimeRange(start: start, end: end), delta))
+            if start > clip.start, start - clip.start < minimumPiece { slivers.append(TimeRange(start: clip.start, end: start)) }
+            if end < clip.end, clip.end - end < minimumPiece { slivers.append(TimeRange(start: end, end: clip.end)) }
         }
         guard !spans.isEmpty else {
             throw EditError.invalid("\(item.path) doesn't overlap any of the take's clips on \"\(referenceTrack.name)\"")
         }
 
-        var target: TrackLocation?
-        var cameraSound: TrackLocation?
+        // Tracks by ID: making Voice 2 or Camera sound moves the ones under it.
+        var targetID: String?
+        var cameraSound: String?
+        // Where the take's own sound plays, for a sound file: Voice, or the
+        // track asked for. It stays put, as new tracks go under it.
+        let home = item.hasVideo ? nil : try soundTrack(p, trackID: trackID)
+        if let home {
+            // Decided before any camera sound moves, against every span.
+            targetID = p[try voiceTrack(&p, home: home, named: trackID != nil, for: spans.map(\.range), &context)].id
+        }
         let name = URL(fileURLWithPath: item.path).deletingPathExtension().lastPathComponent
         for span in spans {
             let piece = try isolate(&p, clipID: span.clipID, to: span.range, on: referenceLocation, &context)
@@ -74,7 +88,7 @@ enum SyncedPlacement {
             )
             let location: TrackLocation
             if item.hasVideo {
-                location = try target ?? angleTrack(&p, trackID: trackID, above: referenceLocation, &context)
+                location = try targetID.flatMap { p.location(ofTrack: $0) } ?? angleTrack(&p, trackID: trackID, above: referenceLocation, &context)
                 // Off until an angle is picked, framed like the camera.
                 clip.enabled = false
                 if let video = piece.video {
@@ -84,18 +98,58 @@ enum SyncedPlacement {
                     )
                 }
             } else {
-                location = try target ?? soundTrack(p, trackID: trackID)
+                guard let home else { throw EditError.invalid("\(item.path) has no sound track to go on") }
+                try Editing.requireUnlocked(p[home])
+                try moveTakeSound(&p, from: home, in: piece.range, group: group, into: &cameraSound, &context)
+                guard let found = targetID.flatMap({ p.location(ofTrack: $0) }) else { throw EditError.invalid("lost the track for \(item.path)") }
+                location = found
                 try Editing.requireUnlocked(p[location])
-                try moveTakeSound(&p, from: location, in: piece.range, group: group, into: &cameraSound, &context)
                 clip.audio = AudioLevels.placedAudio(role: item.role, on: p[location], settings: p.settings)
             }
-            target = location
+            targetID = p[location].id
             try Editing.checkSource(clip, in: p)
             guard p[location].isFree(clip.range) else {
                 throw EditError.overlap("\"\(p[location].name)\" already has a clip between \(clip.start) and \(clip.end)")
             }
             p[location].add(clip)
             context.createdIDs.append(clip.id)
+        }
+
+        // A fade out on the take's end (or in on its start) went to the
+        // sliver with the cut, and plays in its 67 ms instead of over its
+        // second. Where nothing follows the sliver (precedes, for a fade
+        // in), it goes, and the fade goes back on the piece the file covers.
+        for sliver in slivers {
+            let track = p[referenceLocation]
+            guard let piece = track.clips.first(where: { $0.range == sliver }) else { continue }
+            let main = track.clips.first { $0.end == sliver.start } ?? track.clips.first { $0.start == sliver.end }
+            guard let main else { continue }
+            let atEnd = main.end == sliver.start
+            let fades = track.transitions.indices.filter { i in
+                let t = track.transitions[i]
+                return atEnd ? t.fromClipID == piece.id && t.toClipID == nil : t.toClipID == piece.id && t.fromClipID == nil
+            }
+            let beyond = atEnd ? track.clips.contains { $0.start == sliver.end } : track.clips.contains { $0.end == sliver.start }
+            guard !fades.isEmpty, !beyond else { continue }
+            for i in fades {
+                if atEnd { p[referenceLocation].transitions[i].fromClipID = main.id } else { p[referenceLocation].transitions[i].toClipID = main.id }
+            }
+            try Editing.removeClips(&p, [piece.id], ripple: false, includeLinked: true, &context)
+            let kinds = fades.map { track.transitions[$0].type.rawValue }.joined(separator: " and ")
+            context.warn("Took the \(atEnd ? "last" : "first") \(Int((sliver.duration.seconds * 1000).rounded())) ms of the take off \"\(track.name)\", where \(item.path) \(atEnd ? "has stopped" : "hasn't started"), so its \(kinds) plays in full rather than in that sliver.")
+        }
+
+        // A sliver of the take the file doesn't reach (it ended a couple of
+        // frames before the camera) would play a blip of the camera's own
+        // sound after the mic. Databased S2E7 had 17-67 ms of them at the
+        // end of each take, and removing them took the camera's fade to
+        // black with them. So their sound is muted with the rest of the
+        // camera's; the picture carries on, through-edited, fade and all.
+        guard let home else { return }
+        for sliver in slivers {
+            let own = p[home].clips.filter { $0.range == sliver && isTakeOwnSound($0, in: p) }
+            guard let group = own.first?.linkGroup else { continue }
+            try moveTakeSound(&p, from: home, in: sliver, group: group, into: &cameraSound, &context)
         }
     }
 
@@ -160,28 +214,56 @@ enum SyncedPlacement {
         return TrackLocation(kind: .audio, index: index)
     }
 
+    /// The track a sound file goes on: `home` (Voice, or the track asked
+    /// for), unless another of the take's sound files is already there
+    /// where this one plays, as a second guest's mic finds the first's. Then
+    /// the next "Voice 2" (or 3...), made right under Voice, so each mic
+    /// keeps a track of its own. A track asked for is used as it is.
+    static func voiceTrack(_ p: inout Project, home: TrackLocation, named: Bool, for ranges: [TimeRange], _ context: inout EditContext) throws -> TrackLocation {
+        if named { return home }
+        let taken = p[home].clips.contains { clip in
+            ranges.contains { clip.range.clashes(with: $0) } && !isTakeOwnSound(clip, in: p)
+        }
+        guard taken else { return home }
+        let names = Set(p.audioTracks.map { $0.name.lowercased() })
+        let number = (2...).first { !names.contains("voice \($0)") }!
+        let index = home.index + 1
+        try Editing.addTrack(&p, kind: .audio, name: "Voice \(number)", index: index, id: nil, &context)
+        p.audioTracks[index].rippleMode = .cut
+        return TrackLocation(kind: .audio, index: index)
+    }
+
+    /// A clip of a picture file's sound (the camera's, an angle's), as
+    /// opposed to a sound file synced to the take (a mic).
+    static func isTakeOwnSound(_ clip: Clip, in p: Project) -> Bool {
+        clip.mediaID.flatMap(p.media)?.hasVideo ?? false
+    }
+
     /// Moves the take's own sound in `range` on `location` to the muted
     /// "Camera sound" track (made the first time, right under it), so the
     /// file placed there instead is what plays. Anything else there is in
     /// the way.
-    static func moveTakeSound(_ p: inout Project, from location: TrackLocation, in range: TimeRange, group: String, into cameraSound: inout TrackLocation?, _ context: inout EditContext) throws {
+    static func moveTakeSound(_ p: inout Project, from location: TrackLocation, in range: TimeRange, group: String, into cameraSound: inout String?, _ context: inout EditContext) throws {
         let inside = p[location].clips.filter { $0.range.clashes(with: range) }
         guard !inside.isEmpty else { return }
         for clip in inside where clip.linkGroup != group {
             throw EditError.overlap("\"\(p[location].name)\" already has \(clip.name ?? clip.id) between \(clip.start) and \(clip.end), which isn't the take's own sound")
         }
+        // Another mic of the take placed before stays where it is; only the
+        // camera's own sound moves.
+        guard inside.contains(where: { isTakeOwnSound($0, in: p) }) else { return }
         var track = p[location]
         for edge in [range.start, range.end] where track.clips.contains(where: { $0.start < edge && edge < $0.end }) {
             track.split(at: edge, context: &context)
         }
-        let moving = track.clips.filter { range.start <= $0.start && $0.end <= range.end }
+        let moving = track.clips.filter { range.start <= $0.start && $0.end <= range.end && isTakeOwnSound($0, in: p) }
         track.clips.removeAll { clip in moving.contains { $0.id == clip.id } }
         track.removeTransitions(referencing: Set(moving.map(\.id)))
         p[location] = track
 
         let destination: TrackLocation
-        if let cameraSound {
-            destination = cameraSound
+        if let found = cameraSound.flatMap({ p.location(ofTrack: $0) }) {
+            destination = found
         } else if let existing = p.track(named: cameraSoundTrack, kind: .audio), let found = p.location(ofTrack: existing.id) {
             destination = found
         } else {
@@ -190,7 +272,7 @@ enum SyncedPlacement {
             p[destination].muted = true
             p[destination].rippleMode = .cut
         }
-        cameraSound = destination
+        cameraSound = p[destination].id
         try Editing.requireUnlocked(p[destination])
         for var clip in moving {
             clip.linkGroup = group
