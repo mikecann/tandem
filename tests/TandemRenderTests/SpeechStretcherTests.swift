@@ -51,16 +51,40 @@ final class SpeechStretcherTests: XCTestCase {
 
     func testEverySpeedPlaysForTheRightLengthWithNoDrift() {
         let input = Self.glide(seconds: 10, from: 110, to: 230)
-        let held = Double(SpeechStretcher(rate: 2).maxRequired)
         for speed in [0.5, 0.75, 1.25, 1.5, 1.75, 2] {
             let output = Self.stretch(input, rate: speed)
             let expected = Double(input.count / 2) / speed
-            // Off only by the last few hundredths of a second, which the
-            // flush passes through unstretched at the very end. Poddle's
-            // rounding drifted on top of that, by 0.1% at 1.75x: 10 ms here
-            // and 0.6 s, out of sync, after ten minutes.
-            let tail = held * abs(1 - 1 / speed)
-            XCTAssertEqual(Double(output.count / 2), expected, accuracy: tail + 50, "length at \(speed)x")
+            // To the frame. Poddle's rounding drifted by 0.1% at 1.75x
+            // (10 ms here, 0.6 s out of sync after ten minutes), and its
+            // flush left the last 30 ms unstretched.
+            XCTAssertEqual(Double(output.count / 2), expected, accuracy: 1, "length at \(speed)x")
+        }
+    }
+
+    /// A play started a few frames from the end of the timeline, shorter
+    /// than the stretcher holds back, still lasts as long as the picture.
+    func testAStreamShorterThanItHoldsBackIsStretchedToo() {
+        let input = Self.glide(seconds: 0.03, from: 150, to: 150)
+        for speed in [0.5, 2] {
+            XCTAssertEqual(Self.stretch(input, rate: speed).count / 2, Int((Double(input.count / 2) / speed).rounded()), "at \(speed)x")
+        }
+    }
+
+    /// Stereo whose channels cancel in a mix (one side inverted) keeps its
+    /// pitch: the mix alone looked silent and voices came out an octave up.
+    func testOppositePolarityStereoKeepsItsPitch() {
+        var input = Self.glide(seconds: 3, from: 200, to: 200)
+        for i in stride(from: 1, to: input.count, by: 2) { input[i] = -input[i] }
+        let output = Self.stretch(input, rate: 2)
+        XCTAssertEqual(Self.pitch(output, at: output.count / 4, near: 200), 200, accuracy: 6)
+        // Looked for an octave up too, where it went wrong: the best
+        // match there is still the 200 Hz period's half-way point, so it
+        // mustn't read as a clean 400 Hz.
+        var best = Float.greatestFiniteMagnitude
+        for period in [120, 240] {
+            var diff: Float = 0
+            for i in 0..<2_400 { diff += abs(output[(output.count / 4 + i) * 2] - output[(output.count / 4 + i + period) * 2]) }
+            if period == 120 { best = diff } else { XCTAssertLessThan(diff, best / 4, "a 240-frame period, not 120") }
         }
     }
 

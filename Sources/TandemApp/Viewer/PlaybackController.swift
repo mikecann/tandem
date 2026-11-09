@@ -680,7 +680,7 @@ final class PlaybackController {
         // A change of speed carries on in step while the sound's stretch
         // stays the same (from 4× to 8×, say). Into or out of a stretched
         // speed, the sound has to be queued again, stretched the new way.
-        if previous != 0, (previous < 0) == (newRate < 0), ViewerAudio.stretch(for: previous) == ViewerAudio.stretch(for: newRate),
+        if previous != 0, (previous < 0) == (newRate < 0), audio.currentStretch == stretch(for: newRate),
            pendingStart == nil, player.rate != 0, audio.isPlaying {
             changeSpeed(to: newRate)
         } else {
@@ -709,7 +709,7 @@ final class PlaybackController {
             seekPlayer(to: time)
         }
         let reverse = rate < 0
-        let stretch = ViewerAudio.stretch(for: rate)
+        let stretch = stretch(for: rate)
         if !audio.isReady(at: time, reverse: reverse, stretch: stretch) {
             audio.prime(at: time, reverse: reverse, stretch: stretch) { [weak self] in
                 MainActor.assumeIsolated { self?.startIfReady(start) }
@@ -719,7 +719,7 @@ final class PlaybackController {
     }
 
     private func startIfReady(_ start: Int) {
-        guard pendingStart == start, soundStarting != start, playingTogether, !seeking, audio.isReady(at: time, reverse: rate < 0, stretch: ViewerAudio.stretch(for: rate)) else { return }
+        guard pendingStart == start, soundStarting != start, playingTogether, !seeking, audio.isReady(at: time, reverse: rate < 0, stretch: stretch(for: rate)) else { return }
         soundStarting = start
         audio.start(rate: rate, at: time) { [weak self] host in
             MainActor.assumeIsolated { self?.startPicture(start, at: host) }
@@ -756,7 +756,7 @@ final class PlaybackController {
             MainActor.assumeIsolated {
                 guard let self else { return }
                 // Queued for the chosen speed, so Space starts at once.
-                let stretch = ViewerAudio.stretch(for: self.speed)
+                let stretch = self.stretch(for: self.speed)
                 guard self.rate == 0, self.hasComposition, !self.audio.isReady(at: self.time, reverse: false, stretch: stretch) else { return }
                 self.audio.prime(at: self.time, reverse: false, stretch: stretch)
             }
@@ -814,6 +814,14 @@ final class PlaybackController {
         } else if rate == 0 {
             queueSound()
         }
+    }
+
+    /// How much the sound is stretched playing at `rate`: only at the
+    /// chosen playback speed, where it's listened to. J and L shuttles
+    /// (1x, 2x, 4x, 8x, or doubling from the speed) aren't, so they keep
+    /// changing speed on the fly, in step, as they always have.
+    func stretch(for rate: Double) -> Double {
+        rate == speed ? ViewerAudio.stretch(for: rate) : 1
     }
 
     /// "1.5×", "0.75×", "2×", "−4×".

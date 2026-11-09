@@ -164,16 +164,19 @@ public final class ViewerAudio: @unchecked Sendable {
         forgetPrime()
     }
 
-    /// The speed a play at `rate` stretches its sound to, 1 for none.
-    /// Forwards at up to 2× (the transport's playback speeds, and L's
-    /// first two presses), the viewer stretches the sound itself with a
-    /// `SpeechStretcher`, which keeps voices natural; Apple's spectral
-    /// time-pitch made them robotic. Faster shuttles and backwards play are
-    /// for finding a place rather than listening, so the synchronizer's
-    /// rate still does those.
+    /// The speed a play at the transport's playback speed `rate`
+    /// stretches its sound to, 1 for none. Forwards at up to 2×, the viewer
+    /// stretches the sound itself with a `SpeechStretcher`, which keeps
+    /// voices natural; Apple's spectral time-pitch made them robotic. J and
+    /// L shuttles (`PlaybackController.stretch(for:)`) and backwards play
+    /// are for finding a place rather than listening, so the
+    /// synchronizer's rate still does those, changing speed on the fly.
     public static func stretch(for rate: Double) -> Double {
         rate > 0 && rate <= 2 && rate != 1 ? rate : 1
     }
+
+    /// The stretch of the sound primed or playing now.
+    public var currentStretch: Double { stretch }
 
     /// Stops, throws away what's queued and queues the sound from `time`,
     /// forwards or backwards (and stretched to `stretch`), ready for `start`. `ready` runs on the main

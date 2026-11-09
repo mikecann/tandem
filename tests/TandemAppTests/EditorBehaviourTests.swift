@@ -801,18 +801,14 @@ final class EditorBehaviourTests: XCTestCase {
             playback.time > started + t(1.5) && playback.audio.isPlaying
         }
         assertInStep(playback, "at 1.5x")
-        // L from a stop goes 1x, 2x (stretched) then 4x (not), each one
-        // queueing the sound again the new way.
-        editor.press("k")
+        XCTAssertEqual(playback.audio.currentStretch, 1.5)
+        XCTAssertEqual(CMTimebaseGetRate(playback.audio.synchronizer.timebase), 1, accuracy: 0.001, "stretched sound plays at 1x")
+        // L from there shuttles at 3x, unstretched, as shuttles always were.
         editor.press("l")
-        editor.press("l")
-        XCTAssertEqual(playback.rate, 2)
-        editor.wait(for: "the 2x shuttle playing, stretched") { playback.audio.isPlaying }
-        assertInStep(playback, "shuttling at 2x, stretched")
-        editor.press("l")
-        XCTAssertEqual(playback.rate, 4)
-        editor.wait(for: "the 4x shuttle playing") { playback.audio.isPlaying }
-        assertInStep(playback, "shuttling at 4x, unstretched")
+        XCTAssertEqual(playback.rate, 3)
+        editor.wait(for: "the 3x shuttle playing") { playback.audio.isPlaying && playback.audio.currentStretch == 1 }
+        editor.settle(0.35)
+        assertInStep(playback, "shuttling at 3x, unstretched")
         editor.press("k")
         playback.setSpeed(1)
     }

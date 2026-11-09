@@ -37,6 +37,10 @@ public struct SpeechStretcher {
     private var previousMinDiff = 0.0
     /// What rounding the last lengths down left over, in frames.
     private var carry = 0.0
+    /// Frames taken in and given out, so `flush` can end on exactly
+    /// `1 / rate` of the input.
+    private var inputTotal = 0
+    private var outputTotal = 0
     private var mono: [Float] = []
     private var downsampled: [Float] = []
 
@@ -56,6 +60,7 @@ public struct SpeechStretcher {
     /// `maxRequired` frames or so for the next call.
     public mutating func process(_ samples: [Float]) -> [Float] {
         input.append(contentsOf: samples)
+        inputTotal += samples.count / channels
         var output: [Float] = []
         output.reserveCapacity(Int(Double(samples.count) / rate) + 64 * channels)
         while inputFrames - position >= maxRequired {
@@ -77,16 +82,33 @@ public struct SpeechStretcher {
             input.removeFirst(position * channels)
             position = 0
         }
+        outputTotal += output.count / channels
         return output
     }
 
-    /// The end of the sound: what's held back, unchanged.
+    /// The end of the sound: what's held back, stretched like the rest and
+    /// cut so the whole output is `1 / rate` of the input to the frame.
+    /// Passed through unchanged, as Poddle does, a stream shorter than
+    /// `maxRequired` (a play started near the end of the timeline) came out
+    /// unstretched, ending 30 ms before the picture at 0.5x.
     public mutating func flush() -> [Float] {
-        let rest = Array(input[(position * channels)...])
+        let target = Int((Double(inputTotal) / rate).rounded())
+        let before = outputTotal
+        // Silence after it, so the held-back frames go through the same
+        // way as the rest.
+        var out = process([Float](repeating: 0, count: (2 * maxRequired + remainingInputToCopy) * channels))
+        let wanted = max(target - before, 0) * channels
+        if out.count > wanted {
+            out.removeLast(out.count - wanted)
+        } else if out.count < wanted {
+            out.append(contentsOf: repeatElement(0, count: wanted - out.count))
+        }
         input = []
         position = 0
         remainingInputToCopy = 0
-        return rest
+        inputTotal = 0
+        outputTotal = 0
+        return out
     }
 
     // MARK: Speed up / slow down
@@ -162,12 +184,34 @@ public struct SpeechStretcher {
         let channels = channels
         let maxRequired = maxRequired
         input.withUnsafeBufferPointer { src in
+            // The pitch is looked for in the channels' mix, unless they
+            // cancel there (opposite polarity, or one side out of phase),
+            // when the loudest channel on its own is used instead: in a mix
+            // that cancelled to silence, any period matched, and voices came
+            // out an octave up.
+            var level = [Float](repeating: 0, count: channels)
+            var mixLevel: Float = 0
+            for i in 0..<maxRequired {
+                let base = (pos + i) * channels
+                var s: Float = 0
+                for c in 0..<channels {
+                    level[c] += abs(src[base + c])
+                    s += src[base + c]
+                }
+                mixLevel += abs(s * scale)
+            }
+            let loudest = level.indices.max { level[$0] < level[$1] } ?? 0
+            let useMix = mixLevel >= 0.5 * level[loudest]
             mono.withUnsafeMutableBufferPointer { out in
                 for i in 0..<maxRequired {
-                    var s: Float = 0
                     let base = (pos + i) * channels
-                    for c in 0..<channels { s += src[base + c] }
-                    out[i] = s * scale
+                    if useMix {
+                        var s: Float = 0
+                        for c in 0..<channels { s += src[base + c] }
+                        out[i] = s * scale
+                    } else {
+                        out[i] = src[base + loudest]
+                    }
                 }
             }
         }
