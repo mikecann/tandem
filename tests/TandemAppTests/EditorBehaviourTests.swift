@@ -758,6 +758,32 @@ final class EditorBehaviourTests: XCTestCase {
         XCTAssertEqual(editor.x(at: 40), playhead, accuracy: 1)
     }
 
+    func testTheSpeedMenuSetsWhatSpacePlaysAtAndChangesItWhilePlaying() {
+        let playback = editor.model.playback
+        playback.setSpeed(1.5)
+        XCTAssertFalse(playback.isPlaying, "picking a speed while paused doesn't start it")
+        editor.press("space")
+        XCTAssertEqual(playback.rate, 1.5)
+        let started = playback.time
+        editor.wait(for: "playing on at 1.5×") { playback.time > started + t(0.3) }
+        playback.setSpeed(0.75)
+        XCTAssertEqual(playback.rate, 0.75, "a new speed takes over while it plays")
+        editor.press("space")
+        XCTAssertFalse(playback.isPlaying)
+        editor.press("l")
+        XCTAssertEqual(playback.rate, 1, "L still shuttles from 1×")
+        editor.press("l")
+        XCTAssertEqual(playback.rate, 2)
+        editor.press("k")
+        editor.press("j")
+        playback.setSpeed(1.25)
+        XCTAssertEqual(playback.rate, -1, "playing backwards is left alone")
+        editor.press("k")
+        XCTAssertEqual(PlaybackController.label(0.75), "0.75×")
+        XCTAssertEqual(PlaybackController.label(2), "2×")
+        XCTAssertEqual(PlaybackController.label(-4), "−4×")
+    }
+
     func testRulerClickWhilePlayingJumpsAndKeepsPictureAndSoundPlaying() throws {
         let editor = try soundEditor()
         let playback = editor.model.playback

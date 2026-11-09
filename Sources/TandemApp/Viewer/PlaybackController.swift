@@ -43,6 +43,11 @@ final class PlaybackController {
     /// 1, 2, 4 and 8.
     private(set) var rate: Double = 0
     var isPlaying: Bool { rate != 0 }
+    /// What Space and the play button play at, from the transport bar's
+    /// speed menu, for getting through a long take faster (or a fiddly bit
+    /// slower). The sound keeps its pitch. J and L still shuttle from 1×.
+    private(set) var speed: Double = 1
+    static let speeds: [Double] = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2]
     /// The end of the timeline.
     private(set) var duration: Time = .zero
     private(set) var frameRate: FrameRate = .fps30
@@ -788,7 +793,20 @@ final class PlaybackController {
     }
 
     func togglePlay() {
-        if isPlaying { pause() } else { play(rate: 1) }
+        if isPlaying { pause() } else { play(rate: speed) }
+    }
+
+    /// Picked in the speed menu. Playing forwards, it changes speed there
+    /// and then (from a shuttle too, since that's what was just asked for);
+    /// backwards it's left alone until the next play.
+    func setSpeed(_ newSpeed: Double) {
+        speed = newSpeed
+        if rate > 0 { play(rate: newSpeed) }
+    }
+
+    /// "1.5×", "0.75×", "2×", "−4×".
+    static func label(_ rate: Double) -> String {
+        String(format: "%@%g×", rate < 0 ? "−" : "", abs(rate))
     }
 
     /// L: play forwards, faster each press.

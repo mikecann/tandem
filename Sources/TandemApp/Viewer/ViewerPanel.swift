@@ -54,8 +54,10 @@ struct TransportBar: View {
                 Text("/ " + Timecode.string(model.project.duration, rate: model.frameRate))
                     .font(.ui(12).monospacedDigit())
                     .foregroundStyle(Theme.textFainter.color)
-                if playback.isPlaying && abs(playback.rate) != 1 {
-                    Text(String(format: "%@%.0f×", playback.rate < 0 ? "−" : "", abs(playback.rate)))
+                SpeedMenu(playback: playback)
+                // A J or L shuttle away from the chosen speed.
+                if playback.isPlaying && playback.rate != playback.speed {
+                    Text(PlaybackController.label(playback.rate))
                         .font(.ui(11, .semibold))
                         .foregroundStyle(Theme.amber.color)
                 }
@@ -119,6 +121,37 @@ struct TransportBar: View {
         .padding(.horizontal, 16)
         .frame(height: Theme.Metrics.transportHeight)
         .overlay(alignment: .top) { Rectangle().fill(Theme.borderSubtle.color).frame(height: 1) }
+    }
+}
+
+/// The playback speed beside the timecode: what Space plays at.
+private struct SpeedMenu: View {
+    let playback: PlaybackController
+
+    var body: some View {
+        Menu {
+            Picker("Speed", selection: Binding(get: { playback.speed }, set: { playback.setSpeed($0) })) {
+                ForEach(PlaybackController.speeds, id: \.self) { speed in
+                    Text(PlaybackController.label(speed)).tag(speed)
+                }
+            }
+            .pickerStyle(.inline)
+            .labelsHidden()
+        } label: {
+            Text(PlaybackController.label(playback.speed))
+                .font(.ui(11.5).monospacedDigit())
+                // Faint at 1×, so it's there without shouting; brighter
+                // when it's playing at another speed.
+                .foregroundStyle(playback.speed == 1 ? Theme.textFainter.color : Theme.text.color)
+                .padding(.horizontal, 7)
+                .padding(.vertical, 2)
+                .overlay(RoundedRectangle(cornerRadius: 5).stroke(Theme.controlBorder.color, lineWidth: 1))
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .padding(.leading, 6)
+        .tip("Playback speed for Space and the play button. The sound keeps its pitch.")
     }
 }
 
