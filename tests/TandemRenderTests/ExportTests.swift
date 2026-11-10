@@ -395,19 +395,36 @@ final class ExportTests: XCTestCase {
         let out = media.folder.appendingPathComponent("cancelled.mp4")
         // During the loudness pass, just after encoding starts, midway and
         // near the end.
-        for threshold in [0.01, 0.12, 0.5, 0.9] {
-            let loudness: Double? = threshold < 0.1 ? -14 : nil
-            let exporter = Exporter(context: RenderContext(project: project, folder: media.projectFolder), preset: preset(loudness: loudness), output: out)
-            do {
-                _ = try await exporter.run { progress in
-                    if progress > threshold { exporter.cancel() }
+        // The Export dialog's (user-initiated) and an agent's (utility, in
+        // its own task).
+        for qos in [DispatchQoS.QoSClass.userInitiated, .utility] {
+            for threshold in [0.01, 0.12, 0.5, 0.9] {
+                let loudness: Double? = threshold < 0.1 ? -14 : nil
+                let exporter = Exporter(context: RenderContext(project: project, folder: media.projectFolder), preset: preset(loudness: loudness), output: out, qos: qos)
+                do {
+                    _ = try await exporter.run { progress in
+                        if progress > threshold { exporter.cancel() }
+                    }
+                    XCTFail("expected cancellation at \(threshold), \(qos)")
+                } catch {
+                    XCTAssertEqual(error as? RenderError, .cancelled, "at \(threshold), \(qos)")
                 }
-                XCTFail("expected cancellation at \(threshold)")
-            } catch {
-                XCTAssertEqual(error as? RenderError, .cancelled, "at \(threshold)")
+                XCTAssertFalse(FileManager.default.fileExists(atPath: out.path), "at \(threshold), \(qos)")
             }
-            XCTAssertFalse(FileManager.default.fileExists(atPath: out.path), "at \(threshold)")
         }
+
+        // An agent's export whose caller is cancelled (the request dropped).
+        let dropped = Exporter(context: RenderContext(project: project, folder: media.projectFolder), preset: preset(loudness: -14), output: out, qos: .utility)
+        let running = Task { try await dropped.run() }
+        try await Task.sleep(nanoseconds: 200_000_000)
+        running.cancel()
+        do {
+            _ = try await running.value
+            XCTFail("expected cancellation")
+        } catch {
+            XCTAssertEqual(error as? RenderError, .cancelled)
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: out.path))
 
         // Cancelled before it starts: nothing happens.
         let early = Exporter(context: RenderContext(project: project, folder: media.projectFolder), preset: preset(loudness: nil), output: out)

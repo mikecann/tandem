@@ -65,7 +65,7 @@ enum MatteJob {
         let size = fittedSize(width: Int(reader.size.width), height: Int(reader.size.height), maxWidth: settings.matteMaxWidth, maxHeight: settings.matteMaxHeight)
         let writer = try makeWriter(reader: reader, width: size.width, height: size.height, folder: folder)
         let pipeline = try MattePipeline(reader: reader, width: size.width, height: size.height, settings: settings, workers: tuning.workers, stateless: tuning.stateless)
-        pipeline.start()
+        pipeline.start(qos: context.qos)
         await context.acquireEncoder()
         do {
             while true {
@@ -172,15 +172,17 @@ final class MattePipeline: @unchecked Sendable {
         smoother = settings.matteSmoothing == .steady ? MatteSmoother(width: width, height: height) : nil
     }
 
-    func start() {
+    /// The decode and Vision threads run at the job's QoS (`JobContext.qos`),
+    /// so a matte nobody is waiting on stays in the background.
+    func start(qos: DispatchQoS.QoSClass) {
         let decoder = Thread { [self] in decodeLoop() }
         decoder.name = "tandem.matte.decode"
-        decoder.qualityOfService = .utility
+        decoder.qualityOfService = qos.threadQoS
         decoder.start()
         for index in 0..<workerCount {
             let worker = Thread { [self] in workLoop() }
             worker.name = "tandem.matte.vision.\(index)"
-            worker.qualityOfService = .utility
+            worker.qualityOfService = qos.threadQoS
             worker.start()
         }
     }

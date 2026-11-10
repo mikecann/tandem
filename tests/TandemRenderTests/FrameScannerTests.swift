@@ -194,7 +194,7 @@ private final class LockedCount: @unchecked Sendable {
 /// the viewer and exports keep theirs.
 final class ScanPriorityTests: XCTestCase {
     func testScansGiveWayToOtherWork() {
-        XCTAssertEqual(TandemScanCompositor().queue.qos, .utility)
+        XCTAssertEqual(TandemUtilityCompositor().queue.qos, .utility)
         XCTAssertEqual(TandemCompositor().queue.qos, .userInitiated)
         XCTAssertEqual(TandemRGBCompositor().queue.qos, .userInitiated)
         XCTAssertEqual(FrameScanner.readerQoS, .utility)
@@ -208,6 +208,6 @@ final class ScanPriorityTests: XCTestCase {
         let project = Project(name: "Scan", settings: ProjectSettings(width: 320, height: 180, frameRate: .fps30),
                               media: [media.item("med_a", "a.mov", seconds: 1)], videoTracks: [Track(kind: .video, name: "V1", clips: [clip])], audioTracks: [])
         let built = try await CompositionAssembler.build(RenderContext(project: project, folder: media.projectFolder))
-        XCTAssertTrue(FrameScanner.scanComposition(built).customVideoCompositorClass == TandemScanCompositor.self)
+        XCTAssertTrue(FrameScanner.scanComposition(built).customVideoCompositorClass == TandemUtilityCompositor.self)
     }
 }

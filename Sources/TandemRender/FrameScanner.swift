@@ -74,14 +74,14 @@ public enum FrameScanner {
     }
 
     /// Readers run at utility priority, like the compositor they read
-    /// through (`TandemScanCompositor`).
+    /// through (`TandemUtilityCompositor`).
     static let readerQoS: DispatchQoS.QoSClass = .utility
 
     /// The composition a scan reads: the built one through the scan's own
     /// compositor.
     static func scanComposition(_ built: BuiltComposition) -> AVVideoComposition {
         let composition = built.videoComposition.mutableCopy() as! AVMutableVideoComposition
-        composition.customVideoCompositorClass = TandemScanCompositor.self
+        composition.customVideoCompositorClass = TandemUtilityCompositor.self
         return composition
     }
 

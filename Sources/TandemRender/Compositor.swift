@@ -169,7 +169,8 @@ final class TandemRGBCompositor: TandemCompositor {
     override class var rendersStills: Bool { true }
 }
 
-/// The compositor for `tandem check`'s scans, at utility priority. An agent
+/// The compositor at utility priority, for `tandem check`'s scans and for
+/// exports from the CLI and API (`Exporter.qos`). An agent
 /// runs checks over and over while it edits, and at the viewer's priority
 /// the scans took two or three cores of Mike's Mac for minutes at a time
 /// (4 Nov 2026). At utility they give way to whatever he's doing and run at
@@ -177,7 +178,7 @@ final class TandemRGBCompositor: TandemCompositor {
 /// (FrameScannerTests and CheckScanTests) about 2.7x slower even on an idle
 /// Mac, 45 s against 16 s on tinker-desk that day, which agents waiting on a
 /// check would feel.
-final class TandemScanCompositor: TandemCompositor {
+final class TandemUtilityCompositor: TandemCompositor {
     override class var renderQoS: DispatchQoS { .utility }
 }
 

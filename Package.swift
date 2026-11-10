@@ -43,7 +43,13 @@ let package = Package(
             path: "Sources/TandemMedia",
             // The zoom upscaler: Real-ESRGAN's realesr-animevideov3 as Core
             // ML (BSD-3-Clause), with its licence and conversion script.
-            resources: [.copy("Resources/Upscaler")]
+            resources: [.copy("Resources/Upscaler")],
+            // Optimised in debug builds too, like TandemSpeech: restart.sh
+            // installs a debug app as Mike's everyday Tandem, and the matte's
+            // per-pixel loops (CleanPlate.refine) ran about 20 times slower
+            // unoptimised. A 3-minute cutout on tinker-desk went from 1.2 to
+            // 25 frames a second (10 Nov 2026).
+            swiftSettings: [.unsafeFlags(["-O"], .when(configuration: .debug))]
         ),
         // The viewer's speech-tuned speed change. Kept apart so it's
         // optimised in debug builds too: restart.sh installs one, and
@@ -61,7 +67,10 @@ let package = Package(
             path: "Sources/TandemRender",
             // The section card's typefaces (Anton, Instrument Sans,
             // JetBrains Mono), OFL, with their licences.
-            resources: [.copy("Resources/Fonts")]
+            resources: [.copy("Resources/Fonts")],
+            // Optimised in debug builds too (see TandemMedia): a 3-minute 4K
+            // export with a cutout took 187 s unoptimised and 102 s with -O.
+            swiftSettings: [.unsafeFlags(["-O"], .when(configuration: .debug))]
         ),
         // Commands shared by the local server, the CLI and MCP, including
         // the asset library for agents.

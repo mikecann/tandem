@@ -42,6 +42,15 @@ Every operation with its CLI command, HTTP endpoint and MCP tool, archiving a fi
 Output paths given to the API are absolute or relative to the project
 folder; the CLI makes them absolute from where you run it.
 
+When the app has the project open, the app does the work, not your
+command, so `taskpolicy -b tandem export` doesn't slow it. The app keeps
+agents' work out of Mike's way itself: exports through the CLI, API or MCP
+render at utility priority, and mattes, proxies and other background jobs
+run at background priority, even while `tandem wait` waits on them
+(`tandem transcribe` runs its transcripts at full speed). The Export
+dialog's exports, which Mike waits on, run at full speed. `taskpolicy -b`
+still helps when no app holds the project and the CLI renders by itself.
+
 `tandem separate` is CLI only too: it runs on a rented GPU through
 render-box for 10 to 20 minutes and writes the project's cache, not the
 project, so it works while the app has the project open. Clips use its

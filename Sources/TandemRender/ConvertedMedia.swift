@@ -11,7 +11,7 @@ enum ConvertedMedia {
     /// The context to build from, and why anything couldn't be converted.
     /// Media scanned before Tandem looked for these files isn't marked, so
     /// the files the timeline shows are checked here too.
-    static func prepare(_ context: RenderContext) async -> (context: RenderContext, warnings: [String]) {
+    static func prepare(_ context: RenderContext, priority: JobPriority = .interactive) async -> (context: RenderContext, warnings: [String]) {
         guard let analysis = context.analysis else { return (context, []) }
         var context = context
         let shown = Set(context.project.videoTracks.filter { !$0.hidden }.flatMap(\.clips).filter(\.enabled).compactMap(\.mediaID))
@@ -25,7 +25,7 @@ enum ConvertedMedia {
                 item.undecodableCodec = codec
                 context.project.media[index] = item
             }
-            if case .failed(let reason) = await analysis.waitFor(.converted, for: item) {
+            if case .failed(let reason) = await analysis.waitFor(.converted, for: item, priority: priority) {
                 warnings.append("Couldn't convert \(item.path): \(reason)")
             }
         }

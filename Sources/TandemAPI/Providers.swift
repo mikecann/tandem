@@ -182,7 +182,8 @@ public struct DefaultRenderBackend: RenderBackend {
         output: URL,
         progress: @escaping @Sendable (Double) -> Void
     ) async throws -> RenderedExport {
-        let exporter = Exporter(context: context, preset: preset, output: output)
+        // Agents export through here, and Mike isn't waiting on those.
+        let exporter = Exporter(context: context, preset: preset, output: output, qos: .utility)
         let result = try await exporter.run(progress: progress)
         return RenderedExport(result: result, warnings: exporter.warnings)
     }
