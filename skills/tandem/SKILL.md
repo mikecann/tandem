@@ -114,6 +114,16 @@ rounds up.
    - low frame rates: the screen recording moving at a few frames a second
      (macOS recorded it slowly). Cover it with the camera full screen, as
      Mike did in the Tandem video, or B-roll, or cut it.
+   - talk cut: whole sentences of what he says that a cut took out of the
+     take (retakes, false starts, redos and fragments aren't counted), most
+     of all his opening lines. It quotes them at the join. Put them back
+     unless it really is a mistake; if you cut a point for length, say so in
+     the hand-back so he can undo it (see "Live demos: cut the mistakes, not
+     the material").
+   - little or no B-roll: under a quarter of the time he's on camera full
+     screen has anything over it (his finished edits cover 35 to 85%). The
+     first hand-back has B-roll in: show what he names as he says it, using
+     the bare stretches it quotes.
 5. **Hand back.** Open the project in the app for Mike with
    `open "<video folder>/<name>.tandem"` (skip it if `tandem status` says
    the app already has it open), rather than asking him to open it. Then
