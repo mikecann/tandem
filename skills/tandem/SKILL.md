@@ -1299,6 +1299,12 @@ file.
   own incidents: it's their podcast, so it stays unless they say in the
   episode to cut it (Mike, 9 Nov 2026). Cut the pre-show and their asides
   to the editor ("Mike, just cut around this"), and keep the pacing loose.
+- **Read a restart before cutting it.** On S2E7 the only spoken
+  description of the first tweet sat inside a false start, so audio-only
+  listeners never heard what it was about until it went back in.
+- **The rest of the episode** (intro card, thumbnail, YouTube, the ~30 s
+  social cut and how Mike wanted it to look) is in
+  `convex-videos/databased/README.md`.
 
 ## Rules
 
