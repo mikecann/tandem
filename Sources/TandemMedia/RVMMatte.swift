@@ -102,7 +102,7 @@ enum RVMMatte {
             }
         }
         let frames = FramePrefetcher(reader: reader)
-        frames.start()
+        frames.start(qos: context.qos)
         defer { frames.stop() }
         await context.acquireEncoder()
         do {
@@ -445,10 +445,10 @@ final class FramePrefetcher: @unchecked Sendable {
         self.depth = depth
     }
 
-    func start() {
+    func start(qos: DispatchQoS.QoSClass) {
         let thread = Thread { [self] in decodeLoop() }
         thread.name = "tandem.rvm.decode"
-        thread.qualityOfService = .utility
+        thread.qualityOfService = qos.threadQoS
         thread.start()
     }
 

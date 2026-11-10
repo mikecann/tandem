@@ -108,7 +108,7 @@ enum ZoomUpscaling {
     /// Makes the copies an export of `range` needs, one after another, and
     /// waits for them. `progress` goes from 0 to 1 over the ones missing.
     /// Returns what couldn't be made.
-    static func prepare(_ context: RenderContext, range: TimeRange?, cancelled: @escaping @Sendable () -> Bool = { false },
+    static func prepare(_ context: RenderContext, range: TimeRange?, priority: JobPriority = .interactive, cancelled: @escaping @Sendable () -> Bool = { false },
                         progress: @escaping @Sendable (Double) -> Void) async -> [String] {
         guard context.upscalesZooms, let analysis = context.analysis else { return [] }
         let missing = missingCopies(context, range: range)
@@ -116,7 +116,7 @@ enum ZoomUpscaling {
         for (index, copy) in missing.enumerated() {
             if cancelled() { break }
             let done = Double(index), count = Double(missing.count)
-            let state = await analysis.waitForUpscale(of: copy.item, span: copy.span, cancelled: cancelled) { fraction, _ in
+            let state = await analysis.waitForUpscale(of: copy.item, span: copy.span, priority: priority, cancelled: cancelled) { fraction, _ in
                 progress((done + fraction) / count)
             }
             if state != .ready, !cancelled() {

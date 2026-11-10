@@ -79,6 +79,45 @@ final class JobSchedulerTests: XCTestCase {
         XCTAssertEqual(log.events, ["block", "C", "D", "E", "B", "A"])
     }
 
+    /// Only work someone waits on runs above background QoS: an agent's
+    /// matte for the timeline at utility slowed Mike's whole Mac for hours.
+    func testOnlyInteractiveJobsRunAboveBackgroundQoS() async {
+        let scheduler = JobScheduler(limits: .standard, encoderLock: EncoderLock())
+        let seen = EventLog()
+        for (id, priority) in [("bg", JobPriority.background), ("tl", .timeline), ("now", .interactive)] {
+            scheduler.submit(job(id, .matte, priority) { context in
+                let thread = try await Blocking.run(qos: context.qos) { qos_class_self() }
+                seen.add("\(id) \(context.qos) \(thread == QOS_CLASS_BACKGROUND ? "background" : thread == QOS_CLASS_USER_INITIATED ? "userInitiated" : "other")")
+            })
+            _ = await scheduler.wait(for: id)
+        }
+        XCTAssertEqual(seen.events, [
+            "bg background background",
+            "tl background background",
+            "now userInitiated userInitiated",
+        ])
+    }
+
+    /// Someone waiting on a job already running at background raises the
+    /// rest of its work to their priority.
+    func testWaitingOnARunningJobRaisesItsQoS() async {
+        let scheduler = JobScheduler(limits: .standard, encoderLock: EncoderLock())
+        let started = Gate(), carryOn = Gate()
+        let seen = EventLog()
+        scheduler.submit(job("M", .matte, .timeline) { context in
+            seen.add("\(context.qos)")
+            started.open()
+            await carryOn.wait()
+            let thread = try await Blocking.run(qos: context.qos) { qos_class_self() }
+            seen.add(thread == QOS_CLASS_USER_INITIATED ? "userInitiated" : "other")
+        })
+        await started.wait()
+        scheduler.submit(job("M", .matte, .interactive) { _ in seen.add("ran twice") })
+        carryOn.open()
+        _ = await scheduler.wait(for: "M")
+        XCTAssertEqual(seen.events, ["background", "userInitiated"])
+    }
+
     func testSameJobRunsOnceAndAskingAgainCanRaiseItsPriority() async {
         let scheduler = oneAtATime()
         let gate = Gate()

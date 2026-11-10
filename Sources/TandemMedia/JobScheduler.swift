@@ -119,7 +119,12 @@ final class JobScheduler: @unchecked Sendable {
     func submit(_ job: Job) -> String {
         lock.withLock {
             if let existing = entries[job.id] {
-                if job.priority > existing.job.priority { existing.job.priority = job.priority }
+                if job.priority > existing.job.priority {
+                    existing.job.priority = job.priority
+                    // Already running at background: someone waits on it
+                    // now, so its next piece of work runs at their priority.
+                    existing.context?.raise(to: job.priority.qos.qosClass)
+                }
                 return
             }
             sequence += 1
@@ -433,8 +438,13 @@ final class JobScheduler: @unchecked Sendable {
 final class JobContext: @unchecked Sendable {
     let id: String
     let kind: AnalysisKind
-    /// For the job's blocking work, from its priority.
-    let qos: DispatchQoS.QoSClass
+    /// For the job's blocking work, from its priority. Raised when someone
+    /// starts waiting on a running job (`raise(to:)`), and read before each
+    /// piece of blocking work, so the rest of the job runs at the new
+    /// priority. Threads a job started already (a matte's decoder) keep
+    /// theirs.
+    var qos: DispatchQoS.QoSClass { lock.withLock { currentQoS } }
+    private var currentQoS: DispatchQoS.QoSClass
     private weak var scheduler: JobScheduler?
     /// Held strongly: a job outliving its scheduler (a project closed
     /// mid-build) must still give the encoder back. Nil without a scheduler,
@@ -449,7 +459,7 @@ final class JobContext: @unchecked Sendable {
     init(id: String, kind: AnalysisKind, qos: DispatchQoS.QoSClass = .utility, scheduler: JobScheduler?) {
         self.id = id
         self.kind = kind
-        self.qos = qos
+        currentQoS = qos
         self.scheduler = scheduler
         encoderLock = scheduler?.encoderLock
     }
@@ -457,6 +467,10 @@ final class JobContext: @unchecked Sendable {
     var isCancelled: Bool { lock.withLock { cancelled } || Task.isCancelled }
 
     func markCancelled() { lock.withLock { cancelled = true } }
+
+    func raise(to qos: DispatchQoS.QoSClass) {
+        lock.withLock { if qos.rawValue.rawValue > currentQoS.rawValue.rawValue { currentQoS = qos } }
+    }
 
     func checkCancellation() throws {
         if isCancelled { throw CancellationError() }
@@ -521,21 +535,37 @@ final class JobContext: @unchecked Sendable {
 }
 
 extension JobPriority {
-    /// Background work runs at background QoS so the UI and playback stay
-    /// smooth; someone waiting gets user-initiated.
+    /// Only work someone is waiting on runs above background QoS. Media the
+    /// timeline uses was at utility, and an agent's cutout matte there kept
+    /// a core and the GPU busy for 2.5 hours on 10 Nov 2026, while the
+    /// window server timed out window drags in Mike's other apps.
+    /// Background QoS keeps it to the efficiency cores and throttles its
+    /// I/O, so it gives way to everything else and still runs flat out when
+    /// the Mac is idle. The timeline's jobs still go first (`runsBefore`).
     var taskPriority: TaskPriority {
         switch self {
         case .interactive: return .userInitiated
-        case .timeline: return .utility
-        case .background: return .background
+        case .timeline, .background: return .background
         }
     }
 
     var qos: DispatchQoS {
         switch self {
         case .interactive: return .userInitiated
-        case .timeline: return .utility
+        case .timeline, .background: return .background
+        }
+    }
+}
+
+extension DispatchQoS.QoSClass {
+    /// The same class for a `Thread`.
+    public var threadQoS: QualityOfService {
+        switch self {
+        case .userInteractive: return .userInteractive
+        case .userInitiated: return .userInitiated
+        case .utility: return .utility
         case .background: return .background
+        default: return .default
         }
     }
 }

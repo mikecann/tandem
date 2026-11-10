@@ -23,6 +23,8 @@ final class ExportPipeline: @unchecked Sendable {
     private(set) var preset: ExportPreset
     let output: URL
     let progress: @Sendable (Double) -> Void
+    /// How urgently it renders (`Exporter.qos`).
+    let qos: DispatchQoS.QoSClass
 
     private let lock = NSLock()
     private var cancelled = false
@@ -48,12 +50,17 @@ final class ExportPipeline: @unchecked Sendable {
         return result
     }
 
-    init(context: RenderContext, preset: ExportPreset, output: URL, progress: @escaping @Sendable (Double) -> Void) {
+    init(context: RenderContext, preset: ExportPreset, output: URL, qos: DispatchQoS.QoSClass = .userInitiated,
+         progress: @escaping @Sendable (Double) -> Void) {
         self.context = context
         self.preset = preset
         self.output = output
+        self.qos = qos
         self.progress = progress
     }
+
+    /// Mike in the Export dialog is waiting; an agent's export isn't him.
+    var waiting: Bool { qos == .userInitiated || qos == .userInteractive }
 
     var isCancelled: Bool { lock.withLock { cancelled } }
 
@@ -116,14 +123,14 @@ final class ExportPipeline: @unchecked Sendable {
             renderContext.sizeOverride = CGSize(width: plan.width, height: plan.height)
         }
         renderContext.upscalesZooms = true
-        let (ready, converted) = await timed("convert") { await ConvertedMedia.prepare(renderContext) }
+        let (ready, converted) = await timed("convert") { await ConvertedMedia.prepare(renderContext, priority: waiting ? .interactive : .timeline) }
         var notes = converted
         // Sharpened copies for zooms into screen recordings: the first half
         // of the bar when any are missing, as they take a while.
         // A sound-only export draws no frames.
         if !audioOnly, !ZoomUpscaling.missingCopies(ready, range: preset.range).isEmpty {
             notes += await timed("upscale") {
-                await ZoomUpscaling.prepare(ready, range: preset.range, cancelled: { [weak self] in self?.isCancelled ?? true }) { self.report(0.5 * $0) }
+                await ZoomUpscaling.prepare(ready, range: preset.range, priority: waiting ? .interactive : .timeline, cancelled: { [weak self] in self?.isCancelled ?? true }) { self.report(0.5 * $0) }
             }
             try throwIfCancelled()
             lock.withLock { progressFloor = 0.5 }
@@ -408,7 +415,14 @@ final class ExportPipeline: @unchecked Sendable {
             kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
             kCVPixelBufferIOSurfacePropertiesKey as String: [String: Int]()
         ])
-        pictures.videoComposition = built.videoComposition
+        if waiting {
+            pictures.videoComposition = built.videoComposition
+        } else {
+            // The same drawing on a utility queue (see `TandemUtilityCompositor`).
+            let composition = built.videoComposition.mutableCopy() as! AVMutableVideoComposition
+            composition.customVideoCompositorClass = TandemUtilityCompositor.self
+            pictures.videoComposition = composition
+        }
         pictures.alwaysCopiesSampleData = false
         reader.add(pictures)
         var mix: AVAssetReaderAudioMixOutput?
@@ -468,7 +482,7 @@ final class ExportPipeline: @unchecked Sendable {
             fed.leave()
         }
         feeder.name = "Tandem export encoder feed"
-        feeder.qualityOfService = .userInitiated
+        feeder.qualityOfService = qos.threadQoS
         feeder.start()
         // Every way out stops the feed and waits for it, then (if it didn't
         // run to the end) cancels the reader, now that nothing is inside it.
@@ -560,7 +574,7 @@ final class ExportPipeline: @unchecked Sendable {
             let group = DispatchGroup()
             group.enter()
             group.enter()
-            io.value.video.requestMediaDataWhenReady(on: DispatchQueue(label: "com.mikerosoft.tandem.export.video")) { [weak self] in
+            io.value.video.requestMediaDataWhenReady(on: DispatchQueue(label: "com.mikerosoft.tandem.export.video", qos: DispatchQoS(qosClass: qos, relativePriority: 0))) { [weak self] in
                 let (writer, input, _) = io.value
                 while input.isReadyForMoreMediaData {
                     guard let sample = encoder.nextEncoded(), !(self?.isCancelled ?? true), writer.status == .writing else {
@@ -573,7 +587,7 @@ final class ExportPipeline: @unchecked Sendable {
                     self?.report(base + (1 - base) * 0.99 * t / max(durationSeconds, 0.001))
                 }
             }
-            io.value.audio.requestMediaDataWhenReady(on: DispatchQueue(label: "com.mikerosoft.tandem.export.audio")) { [weak self] in
+            io.value.audio.requestMediaDataWhenReady(on: DispatchQueue(label: "com.mikerosoft.tandem.export.audio", qos: DispatchQoS(qosClass: qos, relativePriority: 0))) { [weak self] in
                 let (writer, _, input) = io.value
                 while input.isReadyForMoreMediaData {
                     guard !(self?.isCancelled ?? true), writer.status == .writing, let sample = master.next() else {
@@ -654,7 +668,7 @@ final class ExportPipeline: @unchecked Sendable {
         let io = Unchecked((writer: writer, input: input))
         let durationSeconds = range.duration.seconds
         await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
-            io.value.input.requestMediaDataWhenReady(on: DispatchQueue(label: "com.mikerosoft.tandem.export.sound")) { [weak self] in
+            io.value.input.requestMediaDataWhenReady(on: DispatchQueue(label: "com.mikerosoft.tandem.export.sound", qos: DispatchQoS(qosClass: qos, relativePriority: 0))) { [weak self] in
                 let (writer, input) = io.value
                 while input.isReadyForMoreMediaData {
                     guard !(self?.isCancelled ?? true), writer.status == .writing, let sample = master.next() else {

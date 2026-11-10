@@ -357,6 +357,11 @@ public final class Exporter: @unchecked Sendable {
     public let context: RenderContext
     public let preset: ExportPreset
     public let output: URL
+    /// How urgently it renders. User-initiated when Mike is waiting in the
+    /// Export dialog. Exports from the CLI and API run at utility: an
+    /// agent's export ran inside the app at full priority however the agent
+    /// launched `tandem export`, so `taskpolicy -b` on the CLI did nothing.
+    public let qos: DispatchQoS.QoSClass
     private let lock = NSLock()
     private var job: ExportPipeline?
     private var cancelRequested = false
@@ -366,10 +371,11 @@ public final class Exporter: @unchecked Sendable {
     /// composition.
     public var warnings: [String] { lock.withLock { job }?.warnings ?? [] }
 
-    public init(context: RenderContext, preset: ExportPreset, output: URL) {
+    public init(context: RenderContext, preset: ExportPreset, output: URL, qos: DispatchQoS.QoSClass = .userInitiated) {
         self.context = context
         self.preset = preset
         self.output = output
+        self.qos = qos
     }
 
     /// `progress` gets 0...1 on an arbitrary queue. Throws
@@ -377,7 +383,7 @@ public final class Exporter: @unchecked Sendable {
     /// removes the partial file. While it runs the Mac doesn't idle to
     /// sleep, so a long export left alone finishes; the display still can.
     public func run(progress: @escaping @Sendable (Double) -> Void = { _ in }) async throws -> ExportResult {
-        let job = ExportPipeline(context: context, preset: preset, output: output, progress: progress)
+        let job = ExportPipeline(context: context, preset: preset, output: output, qos: qos, progress: progress)
         let cancelled = lock.withLock {
             self.job = job
             return cancelRequested
@@ -387,10 +393,31 @@ public final class Exporter: @unchecked Sendable {
         // here. It's let go however the export ends.
         let awake = PowerAssertion(.system, reason: "Tandem is exporting \(output.lastPathComponent)")
         defer { awake?.release() }
+        if job.waiting {
+            return try await withTaskCancellationHandler {
+                try await job.run()
+            } onCancel: {
+                job.cancel()
+            }
+        }
+        // An agent's export runs in its own task at utility, so composition
+        // building and the loudness passes don't take the caller's priority
+        // (an HTTP request's). Its result comes back through a continuation:
+        // awaiting the task's value would raise it to the caller's priority.
+        let priority: TaskPriority = qos == .background ? .background : .utility
+        let work = LockedTask()
         return try await withTaskCancellationHandler {
-            try await job.run()
+            try await withCheckedThrowingContinuation { (done: CheckedContinuation<ExportResult, Error>) in
+                work.set(Task.detached(priority: priority) {
+                    do { done.resume(returning: try await job.run()) } catch { done.resume(throwing: error) }
+                })
+            }
         } onCancel: {
+            // Both: the pipeline's flag stops its readers, and the task's
+            // cancellation stops async work that only checks Task (preparing
+            // audio effects while the composition builds).
             job.cancel()
+            work.cancel()
         }
     }
 
@@ -400,5 +427,29 @@ public final class Exporter: @unchecked Sendable {
             return self.job
         }
         job?.cancel()
+    }
+}
+
+/// A task that can be cancelled before it's been made: a cancel that comes
+/// first cancels it as soon as it's set.
+private final class LockedTask: @unchecked Sendable {
+    private let lock = NSLock()
+    private var task: Task<Void, Never>?
+    private var cancelled = false
+
+    func set(_ task: Task<Void, Never>) {
+        let cancelNow: Bool = lock.withLock {
+            self.task = task
+            return cancelled
+        }
+        if cancelNow { task.cancel() }
+    }
+
+    func cancel() {
+        let task: Task<Void, Never>? = lock.withLock {
+            cancelled = true
+            return self.task
+        }
+        task?.cancel()
     }
 }
