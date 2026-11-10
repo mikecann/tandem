@@ -160,8 +160,10 @@ $ tandem clips --track B-roll --from 0:15 --to 0:30
   [Check the sound](sound.md#check-the-sound).
 - `frame`, `frames`, `clip` and `export` list what the render shows
   differently from the project, like `Warning: No cutout matte for
-  ...-camera.mov yet, showing the full frame.` while the matte is still
-  being made; only lines about what plays in the part rendered are shown.
+  ...-camera.mov yet (clip clip_k3f9x2mq), showing the full frame.` while
+  that clip's stretch of the take is still being matted; only lines about
+  what plays in the part rendered are shown, so a frame of a clip already
+  cut out doesn't warn about the take's other clips.
 - Titles in a font this Mac doesn't have are drawn in SF Pro, and never
   quietly: `frame`, `clip`, `export`, `captions`, `status` and `validate`
   all say so with the fix, like `Tilt Warp, the caption preset's font, isn't
