@@ -481,7 +481,37 @@ extension TandemService {
         let words = map.words.filter { voices.contains($0.clipID) }.map {
             QualityCheck.Speech.Word(text: $0.text, start: $0.start, end: $0.end)
         }
-        return (QualityCheck.Speech(words: words, clipIDs: voices), map.missing.filter(isVoice))
+        return (QualityCheck.Speech(words: words, clipIDs: voices, takes: checkTakes(project, voices: map.clips.filter { voices.contains($0.id) }, analysis: analysis)), map.missing.filter(isVoice))
+    }
+
+    /// Each voice file the speech tracks play, with every word in it and
+    /// where the edit plays it, for the note on talk cut from a take.
+    static func checkTakes(_ project: Project, voices: [Clip], analysis: AnalysisSource) -> [QualityCheck.Speech.Take] {
+        var order: [String] = []
+        var byMedia: [String: [Clip]] = [:]
+        for clip in voices {
+            guard let mediaID = clip.mediaID else { continue }
+            if byMedia[mediaID] == nil { order.append(mediaID) }
+            byMedia[mediaID, default: []].append(clip)
+        }
+        let tracks = TranscriptTools.speechTracks(project)
+        return order.compactMap { mediaID in
+            guard let item = project.media(mediaID), let transcript = analysis.transcript(for: item), let clips = byMedia[mediaID] else { return nil }
+            var words = transcript.words.map { QualityCheck.Speech.Take.Word(text: $0.text, start: $0.start, end: $0.end) }
+            let ids = Set(clips.map(\.id))
+            // Placed a track at a time, as `speechMap` does; a word two
+            // tracks play takes the earlier.
+            for track in tracks {
+                let mine = track.clips.filter { ids.contains($0.id) }
+                guard !mine.isEmpty else { continue }
+                for placed in transcript.placements(on: mine) where placed.index < words.count {
+                    if let played = words[placed.index].played, played <= placed.start { continue }
+                    words[placed.index].played = placed.start
+                    words[placed.index].clipID = placed.clipID
+                }
+            }
+            return QualityCheck.Speech.Take(mediaID: mediaID, words: words)
+        }
     }
 
     /// What a problem's clip is called in the check's words.

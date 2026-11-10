@@ -130,6 +130,27 @@ their own beside it, and reports, with the clips on screen there:
     the transcript, so it's in a quick check, and `--changed` only says it
     again when the opening changed. It needs the take's transcript, so
     until that's ready there's no note.
+  - talk cut (`cutTalk`): whole sentences of real talk a cut took out of a
+    take, quoted at the join where the talk carries on. A sentence counts
+    when it has three or more words that carry meaning, no slip or aside
+    ("let me just redo that bit", "editor's note", "can't drag windows"),
+    and isn't said again just after or just before it (a retake). A cut
+    needs two such sentences and eight such words to be noted; the
+    opener (up to 30 s before the first kept word) needs one sentence and
+    four. Nothing after the last kept word counts. Takes the edit keeps
+    under 15% of (an excerpt), Shorts, and conversations (by name, or two
+    takes playing over each other) aren't checked. On the Exact + Convex
+    demo it noted the opener, "in the Expo vein" and the demo talk Mike
+    asked to have back, and nothing in the cut he shipped. Read from the
+    transcript, so it's in a quick check, and `--changed` judges only the
+    joins agents made since his last review.
+  - little or no B-roll (`littleBRoll`): less than a quarter of the time
+    the camera is full screen in the stretches checked has anything shown
+    over it (B-roll, a picture-in-picture, a title, a card; captions don't
+    count), once there's 30 s or more of camera. It quotes the longest bare
+    stretches. Mike's finished solo edits cover 35 to 86%; the Exact demo's
+    first hand-back covered 19%, and he asked "How come you aren't adding
+    the B-roll as usual?" Not in Shorts or conversations.
 
 Run `tandem check --changed` before handing an edit back: it checks only
 what agents changed that's waiting for Mike's review, half a second either

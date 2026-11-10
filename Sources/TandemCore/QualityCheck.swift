@@ -76,6 +76,14 @@ public struct CheckProblem: Codable, Equatable, Sendable {
         /// said..."), or a Q&A Short with no question in them
         /// (`shortOpening`): it won't stand on its own.
         case shortOpening
+        /// Whole sentences of real talk a cut took out of a take: not a
+        /// retake, slip or aside, and most of all his opening lines
+        /// (`cutTalk`). Mike wants every point kept unless he trims it.
+        case cutTalk
+        /// A talking edit with little or no B-roll over the time the camera
+        /// is full screen (`littleBRoll`): the first hand-back has
+        /// everything in.
+        case littleBRoll
 
         /// Worth knowing rather than wrong: Mike signed off softer zooms on
         /// cartoon B-roll than on screen recordings, a pause can let a point
@@ -84,6 +92,7 @@ public struct CheckProblem: Codable, Equatable, Sendable {
         public var isNote: Bool {
             self == .soft || self == .deadAir || self == .pageChange || self == .sliver || self == .lowFrameRate || self == .marginalJoin
                 || self == .heardDifferently || self == .heardWhole || self == .swellOffCard || self == .readableText || self == .shortOpening
+                || self == .cutTalk || self == .littleBRoll
         }
     }
 
@@ -296,8 +305,9 @@ public enum QualityCheck {
     static let greenShare = 0.01
 
     /// Every problem and note in `ranges`, by time. Without `frames` only
-    /// the model checks run, plus how a Short opens when there's `speech`
-    /// (it only reads the transcript). Dead air needs `speech` as well, and page
+    /// the model checks run, plus, when there's `speech`, the notes that
+    /// only read the transcript: how a Short opens, talk cut from a take
+    /// and how much B-roll covers the camera. Dead air needs `speech` as well, and page
     /// changes need `screenFrames`, the screen recordings scanned on their
     /// own (`screenOnly`), and low frame rates those and `frameTimes`, the
     /// recordings' own frame times by media ID.
@@ -309,6 +319,8 @@ public enum QualityCheck {
         if let speech {
             // Read from the transcript, so it's in a quick check too.
             found += shortOpening(in: project, ranges: ranges, speech: speech)
+            found += cutTalk(in: project, ranges: ranges, speech: speech)
+            found += littleBRoll(in: project, ranges: ranges, speech: speech)
         }
         if let frames {
             let rendered = holdFixes(frameProblems(frames, in: project, skipping: gapProblems.map { TimeRange(start: $0.start, end: $0.end) }), in: project, screenFrames: screenFrames)

@@ -30,10 +30,45 @@ extension QualityCheck {
         /// as it plays (sound effects, demo sounds, a voice whose transcript
         /// isn't ready yet), and music only where it swells or comes in.
         public var clipIDs: Set<String>
+        /// Each voice file the edit plays, with every word in it, kept or
+        /// cut, for the note on talk cut from a take (`cutTalk`).
+        public var takes: [Take]
 
-        public init(words: [Word] = [], clipIDs: Set<String> = []) {
+        public init(words: [Word] = [], clipIDs: Set<String> = [], takes: [Take] = []) {
             self.words = words
             self.clipIDs = clipIDs
+            self.takes = takes
+        }
+
+        /// A voice file's whole transcript, and where the edit plays each
+        /// word of it.
+        public struct Take: Equatable, Sendable {
+            public struct Word: Equatable, Sendable {
+                public var text: String
+                /// In the file.
+                public var start: Time
+                public var end: Time
+                /// Where it starts on the timeline, when the edit keeps it.
+                public var played: Time?
+                /// The clip that plays it.
+                public var clipID: String?
+
+                public init(text: String, start: Time, end: Time, played: Time? = nil, clipID: String? = nil) {
+                    self.text = text
+                    self.start = start
+                    self.end = end
+                    self.played = played
+                    self.clipID = clipID
+                }
+            }
+
+            public var mediaID: String
+            public var words: [Word]
+
+            public init(mediaID: String, words: [Word]) {
+                self.mediaID = mediaID
+                self.words = words
+            }
         }
     }
 
