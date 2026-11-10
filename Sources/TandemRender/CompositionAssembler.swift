@@ -175,7 +175,7 @@ enum CompositionAssembler {
                 return context.folder.url(for: item)
             case .matte:
                 let cutout = clips[segment.clipID]?.video?.cutout ?? Cutout()
-                return context.assets?.matteURL(for: item, cutout: cutout)
+                return context.assets?.matteURL(for: item, cutout: cutout, covering: ZoomUpscaling.sourceRange(of: segment))
             case .sound: return context.folder.url(for: item)
             case .isolatedVoice: return context.assets?.isolatedVoiceURL(for: item)
             case .separationTarget(let prompt): return context.assets?.separation(for: item, prompt: prompt)?.target

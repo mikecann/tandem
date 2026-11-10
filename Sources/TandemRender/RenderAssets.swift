@@ -28,6 +28,13 @@ public protocol RenderAssets: Sendable {
     func upscaledURL(for item: MediaItem, covering range: TimeRange) -> URL?
     /// True while the matte is a stand-in from before an RVM version change.
     func matteIsStandIn(for item: MediaItem) -> Bool
+    /// The matte for a cutout clip playing `range` of the file's media
+    /// time, in `mode` (the default when nil): the whole file's, or while
+    /// that's still being made, one of a stretch covering the clip
+    /// (`MatteSpans`).
+    func matteURL(for item: MediaItem, mode: CutoutMode?, covering range: TimeRange) -> URL?
+    /// True when that matte is a stand-in from before an RVM version change.
+    func matteIsStandIn(for item: MediaItem, mode: CutoutMode?, covering range: TimeRange) -> Bool
 }
 
 extension RenderAssets {
@@ -41,10 +48,25 @@ extension RenderAssets {
         matteURL(for: item)
     }
 
-    /// The matte for a cutout: the one made in its mode, or else the
-    /// default one, which is still far better than no cutout.
-    func matteURL(for item: MediaItem, cutout: Cutout) -> URL? {
-        matteURL(for: item, mode: cutout.mode) ?? matteURL(for: item)
+    /// Providers without mattes of stretches have the whole file's.
+    public func matteURL(for item: MediaItem, mode: CutoutMode?, covering range: TimeRange) -> URL? {
+        mode.map { matteURL(for: item, mode: $0) } ?? matteURL(for: item)
+    }
+
+    public func matteIsStandIn(for item: MediaItem, mode: CutoutMode?, covering range: TimeRange) -> Bool {
+        matteIsStandIn(for: item)
+    }
+
+    /// The matte for a cutout clip playing `range` of the file: the one
+    /// made in its mode, or else the default one, which is still far better
+    /// than no cutout.
+    func matteURL(for item: MediaItem, cutout: Cutout, covering range: TimeRange) -> URL? {
+        matteURL(for: item, mode: cutout.mode, covering: range) ?? matteURL(for: item, mode: nil, covering: range)
+    }
+
+    func matteIsStandIn(for item: MediaItem, cutout: Cutout, covering range: TimeRange) -> Bool {
+        if matteURL(for: item, mode: cutout.mode, covering: range) != nil { return matteIsStandIn(for: item, mode: cutout.mode, covering: range) }
+        return matteIsStandIn(for: item, mode: nil, covering: range)
     }
 }
 

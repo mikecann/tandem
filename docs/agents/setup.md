@@ -161,7 +161,7 @@ then says what finished:
 tandem wait                         every background job
 tandem wait transcript              the transcripts the project makes
 tandem wait transcript --media med_x   one file's
-tandem wait matte                   mattes for clips with their cutout on
+tandem wait matte                   mattes for what clips with their cutout on play
 tandem wait proxy                   proxies for large video on the timeline
 tandem wait export                  exports running through the app or tandem serve
 ```

@@ -24,6 +24,8 @@ final class VideoFrameReader: @unchecked Sendable {
     let endTime: CMTime
     /// Frames in the file (or range), from the sample table.
     let frameCount: Int
+    /// The whole track's range, whatever range is read.
+    let trackRange: CMTimeRange
 
     private let reader: AVAssetReader
     private let output: AVAssetReaderTrackOutput
@@ -56,6 +58,7 @@ final class VideoFrameReader: @unchecked Sendable {
             pixelFormat = colors.fullRange ? kCVPixelFormatType_420YpCbCr8BiPlanarFullRange : kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
         }
         nominalFrameRate = Double(rate)
+        self.trackRange = trackRange
         let range = timeRange.map { $0.intersection(trackRange) } ?? trackRange
         endTime = range.end
 

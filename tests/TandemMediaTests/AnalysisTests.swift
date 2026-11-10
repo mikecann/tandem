@@ -432,6 +432,118 @@ final class AnalysisTests: TempFolderTestCase {
         XCTAssertNil(analysis.submit(.matte, for: camera), "no rebuild loop while the model stays as it is")
     }
 
+    /// A clip in the corner plays a few seconds of a long take: the matte
+    /// of that stretch is made first and cuts the clip out at once, at the
+    /// file's own frame times, then the whole file is matted behind it.
+    func testTheStretchAClipPlaysIsMattedFirstAndServesAtOnce() async throws {
+        try await SyntheticMedia.writeMovie(to: file("source/take-camera.mov"), .init(width: 320, height: 180, duration: 8, audio: nil))
+        var camera = try await item("source/take-camera.mov")
+        camera.id = "med_cam"
+        camera.role = .camera
+        let analysis = analysis()
+        var project = Project.standard(name: "Spans")
+        project.media = [camera]
+        let track = try XCTUnwrap(project.location(ofTrack: try XCTUnwrap(project.track(named: "Camera")).id))
+        var clip = Clip(id: "clip_cam", content: .media(mediaID: camera.id), start: .zero, duration: Time(seconds: 1), sourceStart: Time(seconds: 5))
+        clip.video = VideoProperties(cutout: Cutout(enabled: true, mode: .personAndProps))
+        project[track].clips = [clip]
+        let need = try XCTUnwrap(AnalysisNeeds.needs(for: project).first { $0.kind == .matte })
+        XCTAssertEqual(need.matteSpans, [UpscaleSpan(start: 4, end: 7)])
+
+        let finished = Finished()
+        let token = analysis.observe { statuses in
+            for status in statuses where status.kind == .matte && status.state == .done { finished.add(status.id) }
+        }
+        defer { analysis.removeObserver(token) }
+        analysis.requestNeeded(for: project)
+        let played = TimeRange(start: Time(seconds: 5), end: Time(seconds: 6))
+        let settings = analysis.matteSettings(mode: .personAndProps)
+        let fingerprint = try XCTUnwrap(analysis.fingerprint(for: camera))
+        let spanKey = AnalysisCache.key(fingerprint: fingerprint, kind: .matte, algorithmVersion: AnalysisKind.matte.algorithmVersion,
+                                        settings: analysis.matteSpanCanonical(camera, settings: settings, span: UpscaleSpan(start: 4, end: 7)))
+        let spanJob = MediaAnalysis.jobID(.matte, key: spanKey)
+        let wholeJob = MediaAnalysis.jobID(.matte, key: try XCTUnwrap(analysis.cacheKey(.matte, for: camera, settings: settings)))
+        XCTAssertNotNil(analysis.scheduler.status(id: wholeJob), "the whole file follows, behind it")
+        _ = await analysis.scheduler.wait(for: spanJob)
+        XCTAssertEqual(analysis.matteState(for: camera, spans: need.matteSpans), .ready, "ready for the edit")
+        let spanMatte = try XCTUnwrap(analysis.matteURL(for: camera, mode: .personAndProps, covering: played))
+        XCTAssertNil(analysis.matteURL(for: camera, mode: .personAndProps, covering: TimeRange(start: Time(seconds: 2), end: Time(seconds: 3))),
+                     "nothing yet for what no clip plays")
+        XCTAssertFalse(analysis.matteIsStandIn(for: camera, mode: .personAndProps, covering: played))
+        XCTAssertNotNil(analysis.servedMatte(for: camera), "a cached check sees the stretch land")
+        let sourceTimes = try await videoSampleTimes(file("source/take-camera.mov")).filter { $0.seconds >= 4 && $0.seconds < 7 }
+        // A frame of nothing from zero holds the times in place.
+        let matteTimes = try await videoSampleTimes(spanMatte)
+        XCTAssertEqual(matteTimes.map(\.seconds), [0] + sourceTimes.map(\.seconds), "the file's own times")
+        XCTAssertNil(analysis.submitMatteSpan(for: camera, span: UpscaleSpan(start: 5, end: 6)), "covered already")
+
+        _ = await analysis.scheduler.wait(for: wholeJob)
+        // Observers hear on their own queue, a moment later.
+        for _ in 0..<50 where finished.ids.count < 2 { try await Task.sleep(nanoseconds: 100_000_000) }
+        XCTAssertEqual(finished.ids, [spanJob, wholeJob])
+        let whole = try XCTUnwrap(analysis.matteURL(for: camera))
+        XCTAssertEqual(analysis.matteURL(for: camera, mode: .personAndProps, covering: played), whole, "the whole file's once it's made")
+        XCTAssertNil(analysis.submitMatteSpan(for: camera, span: UpscaleSpan(start: 1, end: 2)), "the whole file covers every stretch")
+    }
+
+    /// Review of the stretches (10 Nov 2026): a clip to the end of its
+    /// file asks for a little past it; a Vision stand-in stretch serves
+    /// but is remade once RVM is here; a stretch landing while an old RVM
+    /// version's whole matte serves still changes what checks key on.
+    func testStretchesAtTheEndOfTheFileFallbacksAndStandIns() async throws {
+        try await SyntheticMedia.writeMovie(to: file("source/take-camera.mov"), .init(width: 320, height: 180, duration: 8, audio: nil))
+        let camera = try await item("source/take-camera.mov")
+        let analysis = analysis()
+        let settings = analysis.settings
+        let fingerprint = try XCTUnwrap(analysis.fingerprint(for: camera))
+        func commit(span: UpscaleSpan?, settings: AnalysisSettings, fallback: MatteFallback? = nil) throws -> URL {
+            let canonical = span.map { analysis.matteSpanCanonical(camera, settings: settings, span: $0) } ?? settings.canonical(for: .matte, item: camera)
+            let key = AnalysisCache.key(fingerprint: fingerprint, kind: .matte, algorithmVersion: AnalysisKind.matte.algorithmVersion, settings: canonical)
+            let pending = try analysis.cache.begin(kind: .matte, key: key)
+            try Data([1]).write(to: pending.folder.appendingPathComponent(MatteJob.file))
+            try fallback?.write(to: pending.folder)
+            return try analysis.cache.commit(pending, fingerprint: fingerprint, algorithmVersion: AnalysisKind.matte.algorithmVersion, settings: canonical, source: camera.path)
+        }
+        var previous = settings
+        previous.matteVersion = RVMMatte.version - 1
+        let old = try commit(span: nil, settings: previous)
+        let before = analysis.servedMatte(for: camera)
+
+        // A Vision stretch made while RVM's model wasn't here (it still isn't).
+        let made = try commit(span: UpscaleSpan(start: 5, end: 8), settings: settings, fallback: MatteFallback(reason: "offline", model: analysis.rvmStore.stamp()))
+        let tail = TimeRange(start: Time(seconds: 6), end: Time(seconds: 8.6))
+        XCTAssertEqual(analysis.matteURL(for: camera, mode: nil, covering: tail), made.appendingPathComponent(MatteJob.file), "past the end is the end")
+        XCTAssertFalse(analysis.matteIsStandIn(for: camera, mode: nil, covering: tail))
+        XCTAssertEqual(analysis.matteURL(for: camera, mode: nil, covering: TimeRange(start: Time(seconds: 1), end: Time(seconds: 2))), old.appendingPathComponent(MatteJob.file),
+                       "the old version's whole matte elsewhere")
+        XCTAssertNotEqual(analysis.servedMatte(for: camera), before, "checks see the stretch land beside a stand-in")
+        XCTAssertNil(analysis.submitMatteSpan(for: camera, span: UpscaleSpan(start: 5, end: 8)), "nothing new to try while RVM's model is as it was")
+
+        // The model arrives: the stretch is remade, and serves until then.
+        let models = analysis.rvmStore.folder
+        try FileManager.default.createDirectory(at: models, withIntermediateDirectories: true)
+        try Data("not a model".utf8).write(to: models.appendingPathComponent(analysis.rvmStore.fileName))
+        XCTAssertEqual(analysis.matteURL(for: camera, mode: nil, covering: tail), made.appendingPathComponent(MatteJob.file))
+        XCTAssertEqual(analysis.matteState(for: camera, spans: [UpscaleSpan(start: 5, end: 8)]), .missing, "not ready for the edit")
+        analysis.scheduler.limits.perKind[.matte] = 0
+        XCTAssertNotNil(analysis.submitMatteSpan(for: camera, span: UpscaleSpan(start: 5, end: 8)))
+        XCTAssertEqual(analysis.matteState(for: camera, spans: [UpscaleSpan(start: 5, end: 8)]), .queued)
+        analysis.cancelAll()
+    }
+
+    func testAStretchNoClipPlaysAnyMoreIsDroppedBeforeItStarts() async throws {
+        try await SyntheticMedia.writeMovie(to: file("source/take-camera.mov"), .init(width: 320, height: 180, duration: 8, audio: nil))
+        let camera = try await item("source/take-camera.mov")
+        let analysis = analysis()
+        analysis.scheduler.limits.perKind[.matte] = 0
+        let early = try XCTUnwrap(analysis.submitMatteSpan(for: camera, span: UpscaleSpan(start: 0, end: 2)))
+        let late = try XCTUnwrap(analysis.submitMatteSpan(for: camera, span: UpscaleSpan(start: 5, end: 7)))
+        analysis.dropUnwantedMatteSpans(keeping: [late])
+        XCTAssertEqual(analysis.scheduler.status(id: early)?.state, .cancelled)
+        XCTAssertEqual(analysis.scheduler.status(id: late)?.state, .queued)
+        analysis.cancelAll()
+    }
+
     func testRVMMattesATakeWhenItsModelIsHere() async throws {
         let model = RVMModelStore.standard.folder.appendingPathComponent(RVMModelStore.standard.fileName)
         try XCTSkipUnless(FileManager.default.fileExists(atPath: model.path), "the RVM model isn't on this Mac (tests never download it)")
@@ -641,4 +753,13 @@ final class PCMFillTests: XCTestCase {
         try samples.withUnsafeBufferPointer { try PCMFill.fill(buffer, from: $0.baseAddress!, frames: 3) }
         XCTAssertEqual(Array(UnsafeBufferPointer(start: buffer.floatChannelData![1], count: 3)), [-0.5, -0.25, -1.5])
     }
+}
+
+
+/// Job IDs in the order they finished, from an observer's thread.
+private final class Finished: @unchecked Sendable {
+    private let lock = NSLock()
+    private var seen: [String] = []
+    func add(_ id: String) { lock.withLock { if !seen.contains(id) { seen.append(id) } } }
+    var ids: [String] { lock.withLock { seen } }
 }
