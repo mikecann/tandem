@@ -339,6 +339,15 @@ transitions, media or markers.
   starts as possible cuts, and he said: "You should definitely cut out false
   starts and silences and things like that... I meant it's like content"
   (2026-11-03).
+  A length he asked for ("under a minute") doesn't change this. On the Exact
+  + Convex demo for X (10 Nov 2026) I cut his opener, "I love Expo. Let's
+  Build It, my vibe coding app for kids, is built on it", plus four other
+  real lines to get from 1:25 to 1:12. He asked "Why have you cut out the bit
+  about Let's Build It, my initial opener?" and "If it means that I overrun
+  on time, doesn't matter". Cut only the mistakes, silences and asides to
+  meet a length, then hand back over length with a list of which points
+  would go to hit it, and let him pick. His personal reason for caring
+  (the opener) is the last thing to go.
 - **Live demos: when he leaves the desk,** go full screen on his camera
   from when he says he's going ("Cup of tea time") until he's back at the
   screen, and cover the time away with a time card meme, with its sound,
@@ -1112,6 +1121,57 @@ What he changed, in the order he asked:
   photos... surveying... 2D drawing" got a shot each, from his project
   archive (`~/dev/me/the-pool`). Crop plans and surveys to the drawing:
   their title blocks carry his address and the designer's phone and email.
+
+### A short Convex demo for X and YouTube: Exact + Convex (November 2026)
+
+A scripted opener on camera, a YOLO demo of an agent-built app on Mac,
+iPhone (his own phone recordings) and web, then a short close
+(`convex-videos/exact-convex-demo/`). He asked for "under a minute" and
+it ended at 4:08 after four rounds, nearly all of them putting back what
+the first cuts took out. What he asked for:
+
+- **A Convex wipe in and out, always, on short videos like this.** The
+  library's `Convex wipe` segment as it goes from the opener into the demo
+  and from the demo into the outro: "I think we should always do that...
+  a really good way to break up the sections. Just adds a nice touch of
+  professionalism" (10 Nov 2026). Give each one a beat of his own silence
+  either side (run the clip on into the pause if the take has it) and keep
+  the frame clear of his next word.
+- **A length he asks for is soft. Cut mistakes, not material.** I cut his
+  "Let's Build It" opener and the demo's asides to chase a minute and he
+  asked why: "If it means that I overrun on time, doesn't matter". In the
+  YOLO demo he wanted far less cut: "you just cut out way too much of me
+  talking... that's why it's starting to not make sense". Cut only the
+  window-dragging, the redos ("let me just redo that bit"), long silences
+  and a phrase said twice in a row ("tighten this up... where I say the
+  same thing twice"). Close mid-sentence silences, which he still flags.
+- **B-roll on the first hand-back, even on a one-minute video.** Show what
+  he names as he names it: his own product (the Let's Build It homepage),
+  the announcement post he's reacting to, and the source for each claim
+  ("please justify what I'm saying by showing on the screen. The tweets,
+  for example"). Prefer the maker's own posts and demos (here Charlie
+  Cheever's thread and his demo video, via X's embed and the syndication
+  API's `mediaDetails` mp4) over his own footage, so the opener doesn't
+  show "the same stuff that we're about to show like 30 seconds later".
+- **When he reads a post out, highlight it as he reads it.** One still per
+  sentence with that sentence marked (Range wrapping in the embed page),
+  switched on his words: "Can you highlight on screen as I read this out?"
+- **Lips must match.** Swapping in his picture from a few seconds later
+  (so he was looking at the screen as he explained) got "Yeah, this is no
+  good. The lips need to match." Keep the take's own picture under his
+  voice; if he wants the doing on screen, show it on B-roll instead.
+- **Phone recordings over a desktop demo sit small and low** (about 60%,
+  bottom centre) when the desktop behind them matters: at full height it
+  "blocks the code... a bit too much".
+- **No word captions on the landscape video,** for X or YouTube. I added
+  them for X's muted autoplay; he took them off at export: "I think we can
+  remove the onscreen transcription" (10 Nov 2026). Leave them for the
+  portrait Short, where they belong, and ask before adding them to a
+  landscape video.
+- **Start the cutout matte early.** Tandem mattes the whole camera file
+  from the start, so an 8-minute 4K take took hours and every review round
+  showed the full camera rectangle in the corner ("Is that why it's not
+  showing?").
 
 ### A phone app demo as a portrait Short: Walkies (October 2026)
 
