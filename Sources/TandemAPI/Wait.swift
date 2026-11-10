@@ -285,6 +285,12 @@ extension TandemService {
         let byID = Dictionary(project.media.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
         return analysis.needs(for: project).compactMap { need in
             guard let item = byID[need.mediaID] else { return nil }
+            // Where it stands first: building the item for a ready
+            // transcript loads it to count its words.
+            switch analysis.state(of: need, for: item) {
+            case .missing, .queued, .running: break
+            default: return nil
+            }
             var state = waitItem(need, item)
             guard ["waiting", "queued", "running"].contains(state.state) else { return nil }
             state.duration = item.duration

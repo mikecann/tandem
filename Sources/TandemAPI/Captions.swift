@@ -72,7 +72,7 @@ public struct CaptionsRequest: ServiceCall {
 
     public func run(on service: TandemService, context: CallContext) async throws -> CaptionsResult {
         var result = try service.captions(self, context: context)
-        await service.captionFonts(&result, presetID: TitlePresets.captionStyles[style ?? "caption"] ?? "caption", applying: apply == true)
+        await service.captionFonts(&result, presetID: TitlePresets.captionStyles[style ?? "caption"] ?? "caption", font: font, applying: apply == true)
         return result
     }
 }

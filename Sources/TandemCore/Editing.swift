@@ -1297,6 +1297,16 @@ public enum Editing {
         if before.audio?.normalizeTo == nil, clip.audio?.normalizeTo != nil,
            let old = before.audio?.gainDB, old != 0, !patchSets(patch, "audio", "gainDB") {
             clip.audio?.gainDB = 0
+            // A gain curve holds absolute values, so it moves down with its
+            // base: a duck stays the same depth under the new level.
+            if let keys = clip.keyframes["audio.gainDB"] {
+                clip.keyframes["audio.gainDB"] = keys.map { key in
+                    guard case .number(let value) = key.value else { return key }
+                    var moved = key
+                    moved.value = .number(value - old)
+                    return moved
+                }
+            }
             context.warn("\(clip.name ?? clipID) had a \(AudioLevels.number(old)) dB gain from before it was levelled; that's reset to 0 so it plays at \(AudioLevels.number(clip.audio?.normalizeTo ?? 0)) LUFS. Set audio.gainDB with normalizeTo to keep a gain.")
         }
         try checkContent(clip, fits: p[location], in: p)

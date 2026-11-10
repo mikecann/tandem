@@ -75,6 +75,19 @@ final class LevelTests: XCTestCase {
         XCTAssertEqual(c.clips("Music")[0].audio?.gainDB, -3)
     }
 
+    /// A ducked bed's gain curve moves down with the gain, so the duck
+    /// keeps its depth under the new level.
+    func testNormalisingABedMovesItsGainCurveWithIt() throws {
+        let (_, c) = project()
+        try c.run("Music", .placeMedia(mediaIDs: ["med_music"], at: .zero, duration: t(30)))
+        let bed = c.clips("Music")[0]
+        try c.run("Duck", .setKeyframes(clipID: bed.id, parameter: "audio.gainDB", keyframes: [
+            Keyframe(time: .zero, value: .number(-31)), Keyframe(time: t(5), value: .number(-37))
+        ]))
+        try c.run("Level", .updateClip(clipID: bed.id, patch: .object(["audio": .object(["normalizeTo": .number(-42)])])))
+        XCTAssertEqual(c.clips("Music")[0].keyframes["audio.gainDB"]?.map(\.value), [.number(0), .number(-6)])
+    }
+
     // MARK: - Normalise speech clips
 
     /// A Filmora-style project: voice with hand gains, one clip on the old

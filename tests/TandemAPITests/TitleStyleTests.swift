@@ -69,6 +69,16 @@ final class TitleStyleTests: XCTestCase {
         XCTAssertThrowsError(try h.service.captions(CaptionsRequest(color: "white"), context: h.context))
     }
 
+    func testAFontAskedForIsTheOneChecked() async throws {
+        let h = try ServiceHarness()
+        defer { h.close() }
+        let installer = RecordingInstaller()
+        h.service.fontInstaller = installer
+        let result = try await CaptionsRequest(from: t(0), to: t(10), font: "Nowhere Sans", apply: true).run(on: h.service, context: h.context)
+        XCTAssertEqual(installer.requests, [], "the preset's font isn't used, so it isn't downloaded")
+        XCTAssertTrue(result.warnings.contains { $0.hasPrefix("Nowhere Sans isn't installed") && $0.contains("fontsource:nowhere-sans") }, "\(result.warnings)")
+    }
+
     func testHeadlessUndoHistoryFromAnOlderTandemKeepsItsTitles() throws {
         let folder = TempFolder()
         var project = APIFixture.project()
