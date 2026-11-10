@@ -80,6 +80,49 @@ final class AnalysisNeedsTests: XCTestCase {
         XCTAssertEqual(Set(mattes.compactMap(\.matteMode)), [.person, .personAndProps])
     }
 
+    /// An 8 minute take with a minute and a half of it in the corner: the
+    /// stretches the cutout clips play are matted first, in the order they
+    /// play, so the corner is cut out long before the whole file is.
+    func testMatteSpansFollowTheTimeline() throws {
+        var p = project()
+        let camera = p.location(ofTrack: p.track(named: "Camera")!.id)!
+        func cutout(_ id: String, at start: Double, from source: Double, for length: Double, speed: Double = 1) -> Clip {
+            var clip = Clip(id: id, content: .media(mediaID: "med_cam"), start: t(start), duration: t(length), sourceStart: t(source), speed: speed)
+            clip.video = VideoProperties(cutout: Cutout(enabled: true, mode: .personAndProps))
+            return clip
+        }
+        p[camera].clips = [
+            // First on the timeline, but late in the take.
+            cutout("clip_a", at: 0, from: 400, for: 30),
+            // Two cuts close together in the take become one stretch.
+            cutout("clip_b", at: 30, from: 100, for: 20),
+            cutout("clip_c", at: 50, from: 121.5, for: 10),
+            // Twice the speed plays twice the source.
+            cutout("clip_d", at: 60, from: 200, for: 10, speed: 2),
+            // Runs to the end of the take: the stretch stops there.
+            cutout("clip_e", at: 70, from: 590, for: 10)
+        ]
+        let matte = try XCTUnwrap(AnalysisNeeds.needs(for: p).first { $0.kind == .matte })
+        XCTAssertEqual(matte.matteSpans, [
+            UpscaleSpan(start: 399, end: 431),
+            UpscaleSpan(start: 99, end: 133),
+            UpscaleSpan(start: 199, end: 221),
+            UpscaleSpan(start: 589, end: 600)
+        ])
+    }
+
+    func testMatteSpansReachIntoTransitionsAndFollowThePictureDelay() throws {
+        var p = project()
+        let index = try XCTUnwrap(p.media.firstIndex { $0.id == "med_cam" })
+        p.media[index].pictureDelay = t(0.5)
+        let camera = p.location(ofTrack: p.track(named: "Camera")!.id)!
+        p[camera].clips[0].sourceStart = t(50)
+        p[camera].transitions = [Transition(id: "tr_1", type: .fadeFromBlack, duration: t(2), fromClipID: nil, toClipID: "clip_cam")]
+        let matte = try XCTUnwrap(AnalysisNeeds.needs(for: p).first { $0.kind == .matte })
+        // 50.5 to 60.5 played, 2 s of transition and 1 s of margin each way.
+        XCTAssertEqual(matte.matteSpans, [UpscaleSpan(start: 47, end: 64)])
+    }
+
     func testCutoutOffMeansNoMatte() {
         var p = project()
         let camera = p.location(ofTrack: p.track(named: "Camera")!.id)!

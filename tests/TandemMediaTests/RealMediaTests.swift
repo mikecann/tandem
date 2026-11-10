@@ -183,7 +183,10 @@ final class RealMediaTests: XCTestCase {
     /// range build sits at 1010.000 rather than its source time 1009.997.
     /// Whole-file builds (what the app makes) have no such frame.
     func assertSameFrames(_ derived: URL, as source: URL, _ label: String, file: StaticString = #filePath, line: UInt = #line) async throws -> Int {
-        let ours = try await movieTimes(derived)
+        var ours = try await movieTimes(derived)
+        // A matte of a stretch holds a frame of nothing from zero
+        // (`MatteJob.leadIn`), so it keeps the file's times.
+        if ours.count > 1, ours[0] == .zero, Self.minute.start > .zero { ours.removeFirst() }
         let theirs = try await movieTimes(source)
         let first = try XCTUnwrap(ours.first), last = try XCTUnwrap(ours.last)
         XCTAssertEqual(first.seconds, Self.minute.start.seconds, accuracy: 0.0001, "\(label): starts at the range start", file: file, line: line)

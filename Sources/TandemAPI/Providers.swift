@@ -100,6 +100,9 @@ public final class MediaAnalysisSource: AnalysisSource, @unchecked Sendable {
             custom.matteMode = mode
             settings = custom
         }
+        // A matte is ready for the edit once the stretches its clips play
+        // are, though the rest of the file is still being made.
+        if need.kind == .matte { return analysis.matteState(for: item, settings: settings, spans: need.matteSpans) }
         return analysis.state(need.kind, for: item, settings: settings)
     }
 }

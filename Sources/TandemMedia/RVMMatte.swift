@@ -91,9 +91,12 @@ enum RVMMatte {
         let writer = try MatteJob.makeWriter(reader: reader, width: size.width, height: size.height, folder: folder)
         let runner = try RVMRunner(model: loaded.model, sourceWidth: width, sourceHeight: height, outputWidth: size.width, outputHeight: size.height)
         // The empty room first, from frames across the take; a take whose
-        // camera moves gets none, and says so.
+        // camera moves gets none, and says so. Across the whole take even
+        // for a matte of one stretch (`MatteSpans`): ten seconds of someone
+        // sitting still never show the wall behind them, and the stretch
+        // then cuts out the same as the whole file's matte will.
         if settings.matteCleanPlate {
-            switch try await runner.makePlate(source: source, timeRange: timeRange ?? CMTimeRange(start: .zero, end: reader.endTime), context: context) {
+            switch try await runner.makePlate(source: source, timeRange: reader.trackRange, context: context) {
             case .success(let plate): runner.plate = plate
             case .failure(let refusal): context.note("No clean plate: \(refusal)")
             }
@@ -285,6 +288,7 @@ final class RVMRunner: @unchecked Sendable {
             CVPixelBufferPoolCreatePixelBuffer(nil, outputPool, &output)
             guard let output else { throw MediaError.failed("Out of memory for matte frames") }
             MatteBlender.copy(matte, width: outputWidth, height: outputHeight, into: output)
+            if done == 0 { try MatteJob.leadIn(before: frame.time, width: outputWidth, height: outputHeight, into: writer) }
             try writer.append(output, at: frame.time)
             done += 1
         }

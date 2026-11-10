@@ -250,6 +250,20 @@ copies of a file share a job):
   cooperative threads.
 - Observers get the full status list, throttled to 20 updates a second.
 
+Mattes of a long take come in stretches first (`MatteSpans`). An 8 minute
+4K take with a minute and a half of it in the corner took over an hour and
+a half to matte on a busy Mac, and every clip showed the whole camera frame
+until it was done. So `requestNeeded` queues, at `timeline` priority, a
+matte of each stretch of the file a cutout clip plays (a second either
+side, transition handles included, stretches within 2 s of each other
+joined), first on the timeline first, and the whole file's matte behind
+them at `background`. A clip is cut out from the whole file's matte when
+it's made, else from a stretch's that covers what it plays, so it's cut out
+as soon as its stretch is done; `tandem wait matte` is done then too. The
+clean plate is always made from the whole take, so a stretch cuts out the
+same as the whole file will. A queued stretch no clip plays any more is
+dropped; a running one finishes.
+
 ## Results
 
 | Kind | Files | Format |
@@ -259,7 +273,7 @@ copies of a file share a job):
 | loudness | `loudness.json` | `Loudness`; silence is `-inf` (written as the string "-inf") |
 | proxy | `proxy.mov` | 1080p box, aspect kept, HEVC with a keyframe every 15 frames and P-frames between (no reordering) at quality 0.78, video only, every frame at its exact source time and duration, source colour tags and rotation. Video with alpha gets HEVC with alpha, straight or premultiplied as the source is |
 | transcript | `transcript.json` | `Transcript`, engine "Bark 3.0 Pro" (language "en") or "SpeechAnalyzer" (en-US), the engine's own word times in media time (aligned to the waveform when read). A SpeechAnalyzer transcript made because Bark couldn't has `fallback.json` beside it |
-| matte | `matte.mov` | 1080p box, HEVC, keyframe every 10 frames; luma of full-range (420f) frames is the alpha (0 background, 255 person), chroma neutral, BT.709 tags, source frame times and rotation |
+| matte | `matte.mov` | 1080p box, HEVC, keyframe every 10 frames; luma of full-range (420f) frames is the alpha (0 background, 255 person), chroma neutral, BT.709 tags, source frame times and rotation. A matte of one stretch of the file (below) has `\|span:{"end":…,"start":…}` after the settings in its key and a frame of nothing held from zero to the stretch's start |
 | isolatedVoice | `voice.caf` | 48 kHz ALAC, source channels (max 2), same length as the source, lined up to the sample |
 | upscale | `upscaled.mov` | Only for screen recordings a zoom draws at 1.3x their pixels or more in an export: a stretch of the file (`UpscaleSpan`, whole seconds) at twice the size, HEVC, keyframe every 30 frames, the source's colour tags and frame times, with a black frame held from zero to the stretch |
 | converted | `video.mov` | Only for `undecodableCodec` files: HEVC, with alpha when the source has it, BT.709 tags, the source's size and frame times, video only |

@@ -88,6 +88,22 @@ enum MatteJob {
         }
     }
 
+    /// Before a matte of a stretch (`MatteSpans`): a frame of nothing at
+    /// zero, held until the stretch starts. Without it AVFoundation reads
+    /// the first frame back at zero and the whole matte four seconds early
+    /// (or however late the stretch starts); with it the matte keeps the
+    /// file's own times, as the composition reads it. Nothing shows it: a
+    /// stretch's matte only serves clips inside the stretch.
+    static func leadIn(before time: CMTime, width: Int, height: Int, into writer: EncodedMovieWriter) throws {
+        guard time > .zero else { return }
+        var blank: CVPixelBuffer?
+        CVPixelBufferCreate(nil, width, height, kCVPixelFormatType_420YpCbCr8BiPlanarFullRange,
+                            [kCVPixelBufferIOSurfacePropertiesKey: [String: Any]()] as CFDictionary, &blank)
+        guard let blank else { throw MediaError.failed("Out of memory for matte frames") }
+        MatteBlender.copy([UInt8](repeating: 0, count: width * height), width: width, height: height, into: blank)
+        try writer.append(blank, at: .zero)
+    }
+
     /// The matte movie's encoder, for either model.
     static func makeWriter(reader: VideoFrameReader, width: Int, height: Int, folder: URL) throws -> EncodedMovieWriter {
         try EncodedMovieWriter(url: folder.appendingPathComponent(file), settings: .init(
@@ -298,6 +314,7 @@ final class MattePipeline: @unchecked Sendable {
         }
         guard let output else { throw MediaError.failed("Out of memory for matte frames") }
         MatteBlender.copy(matte, width: width, height: height, into: output)
+        if written == 0 { try MatteJob.leadIn(before: time, width: width, height: height, into: writer) }
         try writer.append(output, at: time)
         written += 1
     }

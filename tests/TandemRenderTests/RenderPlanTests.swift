@@ -29,6 +29,14 @@ final class FakeAssets: RenderAssets, @unchecked Sendable {
     func upscaledURL(for item: MediaItem, covering range: TimeRange) -> URL? {
         upscaled[item.id]?.first { $0.span.contains(range) }?.url
     }
+    /// By media ID: mattes of stretches, served while the whole file's
+    /// isn't there.
+    var matteSpans: [String: [(span: UpscaleSpan, url: URL)]] = [:]
+    func matteURL(for item: MediaItem, mode: CutoutMode?, covering range: TimeRange) -> URL? {
+        let whole = mode.map { matteURL(for: item, mode: $0) } ?? matteURL(for: item)
+        return whole ?? matteSpans[item.id]?.first { $0.span.contains(range) }?.url
+    }
+    func matteIsStandIn(for item: MediaItem, mode: CutoutMode?, covering range: TimeRange) -> Bool { matteIsStandIn(for: item) }
 }
 
 extension StackNode {
@@ -327,6 +335,23 @@ final class RenderPlanTests: XCTestCase {
         let bare = RenderPlanner.plan(project(video: [Track(kind: .video, name: "Camera", clips: [pip])]), format: nil, assets: FakeAssets())
         XCTAssertEqual(bare.videoSegments.count, 1)
         XCTAssertFalse(bare.warnings.isEmpty)
+    }
+
+    /// While a long take is matted, a clip whose stretch is done is cut out
+    /// from that stretch's matte; one outside it shows the full frame and
+    /// says so.
+    func testAClipIsCutOutFromItsStretchsMatteBeforeTheWholeFileIsDone() {
+        var inside = mediaClip("clip_in", "med_cam", start: 0, duration: 3, source: 12)
+        inside.video = VideoProperties(cutout: Cutout())
+        var outside = mediaClip("clip_out", "med_cam", start: 3, duration: 3, source: 40)
+        outside.video = VideoProperties(cutout: Cutout())
+        let assets = FakeAssets()
+        let span = URL(fileURLWithPath: "/tmp/matte-11-16.mov")
+        assets.matteSpans["med_cam"] = [(UpscaleSpan(start: 11, end: 16), span)]
+        let p = project(video: [Track(kind: .video, name: "Camera", clips: [inside, outside])])
+        let plan = RenderPlanner.plan(p, format: nil, assets: assets)
+        XCTAssertEqual(plan.videoSegments.filter { $0.role == .matte }.map(\.clipID), ["clip_in"])
+        XCTAssertEqual(plan.warnings.filter { $0.contains("No cutout matte") }.count, 1, "\(plan.warnings)")
     }
 
     /// An export while a matte is being remade uses the one before it, and

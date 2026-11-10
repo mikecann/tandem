@@ -27,6 +27,12 @@ public final class MediaAnalysis: @unchecked Sendable {
     /// Exports waiting on each upscale job, so one stopping cancels the
     /// job only when nobody else is waiting for it.
     private var upscaleWaiters: [String: Int] = [:]
+    /// Jobs making mattes of stretches (`submitMatteSpan`), so ones the
+    /// edit no longer plays can be dropped before they start.
+    private var matteSpanJobs: Set<String> = []
+    /// Stretch mattes of files still being converted, by media ID:
+    /// submitted once the converted copy lands.
+    private var spansAfterConversion: [String: [(span: UpscaleSpan, priority: JobPriority, settings: AnalysisSettings?)]] = [:]
     /// Fingerprints computed for items that didn't carry one, by path.
     private var fingerprints: [String: (stat: FileStat, value: String)] = [:]
     /// Decoded transcripts and waveforms by cache key, and transcripts
@@ -166,7 +172,11 @@ public final class MediaAnalysis: @unchecked Sendable {
             guard stat(folder.path, &info) == 0 else { return folder.lastPathComponent }
             return "\(folder.lastPathComponent)/\(info.st_ino)-\(info.st_birthtimespec.tv_sec).\(info.st_birthtimespec.tv_nsec)"
         }
-        return mattes == ["-", "-"] ? nil : mattes.joined(separator: "|")
+        // Stretches count until the whole file's current matte is made: a
+        // clip there is cut out from one as soon as it lands.
+        let spans = servedMatteSpans(for: item)
+        if mattes == ["-", "-"] && spans.isEmpty { return nil }
+        return (mattes + spans).joined(separator: "|")
     }
 
     /// The matte for these settings, or while it's being made after an RVM
@@ -306,8 +316,14 @@ public final class MediaAnalysis: @unchecked Sendable {
     /// Queues what waited for a file's converted copy, or drops it when
     /// the conversion failed (its status says why).
     private func conversionFinished(_ item: MediaItem, succeeded: Bool) {
-        let waiting = lock.withLock { afterConversion.removeValue(forKey: item.id) ?? [] }
+        let (waiting, spans) = lock.withLock { (afterConversion.removeValue(forKey: item.id) ?? [], spansAfterConversion.removeValue(forKey: item.id) ?? []) }
         guard succeeded else { return }
+        // The clips' stretches first, as `requestNeeded` queues them.
+        for request in spans {
+            if let id = submitMatteSpan(for: item, span: request.span, priority: request.priority, settings: request.settings) {
+                lock.withLock { _ = matteSpanJobs.insert(id) }
+            }
+        }
         for request in waiting {
             submit(request.kind, for: request.item, priority: request.priority, settings: request.settings)
         }
@@ -463,6 +479,176 @@ public final class MediaAnalysis: @unchecked Sendable {
         guard let computed = try? Fingerprint.compute(for: url).description else { return nil }
         lock.withLock { fingerprints[item.path] = (stat, computed) }
         return computed
+    }
+}
+
+// MARK: - Mattes of stretches
+
+extension MediaAnalysis {
+    /// Between a matte's own settings and its stretch in a stretch's
+    /// canonical settings.
+    static let matteSpanMarker = "|span:"
+
+    /// The settings for a matte in `mode` (the analysis's own when nil).
+    func matteSettings(mode: CutoutMode?) -> AnalysisSettings {
+        var settings = self.settings
+        if let mode { settings.matteMode = mode }
+        return settings
+    }
+
+    /// The canonical settings, and so the cache key, of a matte of one
+    /// stretch of a file: the whole file's matte settings and the stretch.
+    func matteSpanCanonical(_ item: MediaItem, settings: AnalysisSettings, span: UpscaleSpan) -> String {
+        settings.canonical(for: .matte, item: item) + Self.matteSpanMarker + span.canonical
+    }
+
+    /// The committed mattes of stretches of `item` made with `settings`.
+    private func matteSpans(for item: MediaItem, settings: AnalysisSettings) -> [(key: String, span: UpscaleSpan)] {
+        guard let fingerprint = fingerprint(for: item) else { return [] }
+        let prefix = settings.canonical(for: .matte, item: item) + Self.matteSpanMarker
+        return cache.manifests(kind: .matte)
+            .filter { $0.fingerprint == fingerprint && $0.algorithmVersion == AnalysisKind.matte.algorithmVersion && $0.settings.hasPrefix(prefix) }
+            .compactMap { manifest in
+                guard let span = try? JSONDecoder().decode(UpscaleSpan.self, from: Data(manifest.settings.dropFirst(prefix.count).utf8)) else { return nil }
+                return (manifest.key, span)
+            }
+            .sorted { $0.key < $1.key }
+    }
+
+    /// A matte of a stretch covering `range` of the file's media time: one
+    /// that isn't due for a rebuild first (a Vision stand-in for RVM,
+    /// `needsRebuild`), then the shortest. `current` leaves those out.
+    ///
+    /// The range is cut to the file's length first: a clip playing to the
+    /// end of its file with a transition, a picture delay or held edges
+    /// asks for a little past it, the stretches stop at the end
+    /// (`MatteSpans.ordered`), and the composition holds the last frame.
+    private func matteSpanURL(for item: MediaItem, settings: AnalysisSettings, covering range: TimeRange, current: Bool = false) -> URL? {
+        var range = range
+        if let duration = item.duration, duration > .zero {
+            range = TimeRange(start: min(range.start, duration), end: min(range.end, duration))
+        }
+        struct Candidate {
+            var key: String
+            var length: Int
+            var stale: Bool
+        }
+        var candidates: [Candidate] = []
+        for made in matteSpans(for: item, settings: settings) where made.span.contains(range) {
+            let stale = needsRebuild(.matte, key: made.key, settings: settings)
+            if current && stale { continue }
+            candidates.append(Candidate(key: made.key, length: made.span.end - made.span.start, stale: stale))
+        }
+        let best = candidates.min { a, b in
+            if a.stale != b.stale { return !a.stale }
+            return a.length < b.length
+        }
+        guard let best else { return nil }
+        return cache.lookup(kind: .matte, key: best.key)?.appendingPathComponent(MatteJob.file)
+    }
+
+    /// The matte for a cutout clip that plays `range` of the file, in
+    /// `mode` (the analysis's own when nil): the whole file's when it's
+    /// made, else a stretch's that covers the clip (`MatteSpans`), else
+    /// the one from before an RVM version change.
+    public func matteURL(for item: MediaItem, mode: CutoutMode?, covering range: TimeRange) -> URL? {
+        let settings = matteSettings(mode: mode)
+        if let folder = entryFolder(.matte, for: item, settings: settings) { return folder.appendingPathComponent(MatteJob.file) }
+        return matteSpanURL(for: item, settings: settings, covering: range) ?? matte(for: item, settings: settings)
+    }
+
+    /// True when the matte `matteURL(for:mode:covering:)` serves is the one
+    /// from before an RVM version change.
+    public func matteIsStandIn(for item: MediaItem, mode: CutoutMode?, covering range: TimeRange) -> Bool {
+        let settings = matteSettings(mode: mode)
+        guard entryFolder(.matte, for: item, settings: settings) == nil,
+              matteSpanURL(for: item, settings: settings, covering: range) == nil else { return false }
+        return matte(for: item, settings: settings) != nil
+    }
+
+    /// Names the stretches' mattes made for `item`, for `servedMatte`,
+    /// while they can serve: until the whole file's current matte is made
+    /// in both cutout modes. (A stand-in from before an RVM version change
+    /// doesn't count; stretches serve ahead of it.)
+    func servedMatteSpans(for item: MediaItem) -> [String] {
+        let modes = [matteSettings(mode: nil), matteSettings(mode: .person)]
+        guard modes.contains(where: { entryFolder(.matte, for: item, settings: $0) == nil }) else { return [] }
+        return modes.flatMap { matteSpans(for: item, settings: $0).map(\.key) }
+    }
+
+    /// Queues the matte of one stretch of a file and returns its job ID,
+    /// or nil when there's nothing to do: the whole file's matte or a
+    /// stretch's covering it is made, or the file isn't converted yet.
+    @discardableResult
+    public func submitMatteSpan(for item: MediaItem, span: UpscaleSpan, priority: JobPriority = .timeline, settings requested: AnalysisSettings? = nil) -> String? {
+        let settings = requested ?? self.settings
+        guard AnalysisKind.matte.applies(to: item), let fingerprint = fingerprint(for: item),
+              entryFolder(.matte, for: item, settings: settings) == nil,
+              matteSpanURL(for: item, settings: settings, covering: span.timeRange, current: true) == nil else { return nil }
+        let source = folder.url(for: item)
+        let input: URL
+        if AnalysisKind.converted.applies(to: item) {
+            guard let converted = convertedURL(for: item) else {
+                // Made from the converted copy: queued once it lands.
+                lock.withLock {
+                    var waiting = spansAfterConversion[item.id] ?? []
+                    if !waiting.contains(where: { $0.span == span && $0.settings == requested }) { waiting.append((span, priority, requested)) }
+                    spansAfterConversion[item.id] = waiting
+                }
+                submit(.converted, for: item, priority: priority)
+                return nil
+            }
+            input = converted
+        } else {
+            input = source
+        }
+        let canonical = matteSpanCanonical(item, settings: settings, span: span)
+        let key = AnalysisCache.key(fingerprint: fingerprint, kind: .matte, algorithmVersion: AnalysisKind.matte.algorithmVersion, settings: canonical)
+        let range = CMTimeRange(start: CMTime(seconds: Double(span.start), preferredTimescale: 600), end: CMTime(seconds: Double(span.end), preferredTimescale: 600))
+        let cache = self.cache
+        let rvmStore = self.rvmStore
+        let id = Self.jobID(.matte, key: key)
+        let job = JobScheduler.Job(id: id, kind: .matte, mediaID: item.id, priority: priority) { context in
+            context.note("Seconds \(span.start) to \(span.end), for the clips there")
+            try await Self.make(.matte, item: item, source: source, input: input, fingerprint: fingerprint, key: key, settings: settings, cache: cache,
+                                rvmStore: rvmStore, ffmpeg: nil, context: context, timeRange: range, canonical: canonical)
+        }
+        lock.withLock { _ = matteSpanJobs.insert(id) }
+        return scheduler.submit(job)
+    }
+
+    /// Cancels queued stretch mattes that aren't in `wanted`: a clip was
+    /// trimmed, moved or cut out of the edit. One already running finishes,
+    /// as it's partly done and may still cover what's there now.
+    func dropUnwantedMatteSpans(keeping wanted: Set<String>) {
+        let unwanted = lock.withLock { () -> Set<String> in
+            let gone = matteSpanJobs.subtracting(wanted)
+            matteSpanJobs = matteSpanJobs.intersection(wanted)
+            return gone
+        }
+        for id in unwanted where scheduler.status(id: id)?.state == .queued {
+            scheduler.cancel(id: id)
+        }
+    }
+
+    /// Where a needed matte stands for what the edit plays: ready once the
+    /// whole file's matte, or a stretch's for each of `spans`, is made.
+    /// While stretches are being made it's their progress.
+    public func matteState(for item: MediaItem, settings requested: AnalysisSettings? = nil, spans: [UpscaleSpan]) -> ResultState {
+        let whole = state(.matte, for: item, settings: requested)
+        guard whole != .ready, !spans.isEmpty else { return whole }
+        let settings = requested ?? self.settings
+        let missing = spans.filter { matteSpanURL(for: item, settings: settings, covering: $0.timeRange, current: true) == nil }
+        if missing.isEmpty { return .ready }
+        guard let fingerprint = fingerprint(for: item) else { return whole }
+        let statuses = missing.compactMap { span -> JobStatus? in
+            let key = AnalysisCache.key(fingerprint: fingerprint, kind: .matte, algorithmVersion: AnalysisKind.matte.algorithmVersion,
+                                        settings: matteSpanCanonical(item, settings: settings, span: span))
+            return scheduler.status(id: Self.jobID(.matte, key: key))
+        }
+        if let running = statuses.first(where: { $0.state == .running }) { return .running(progress: running.progress) }
+        if statuses.contains(where: { $0.state == .queued }) { return .queued }
+        return whole
     }
 }
 
