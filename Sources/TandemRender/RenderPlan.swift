@@ -225,7 +225,10 @@ enum RenderPlanner {
                             warnings.add("The cutout matte for \(item.path) is still being remade with the clean plate; this uses the one before it.")
                         }
                     } else {
-                        warnings.add("No cutout matte for \(item.path) yet, showing the full frame.")
+                        // Per clip: while a long take is matted stretch by stretch, some of
+                        // its clips are cut out and some aren't, and a frame should only
+                        // warn about the clip it shows (`RenderWarnings.relevant`).
+                        warnings.add("No cutout matte for \(item.path) yet (clip \(clip.id)), showing the full frame.")
                     }
                 }
             }
