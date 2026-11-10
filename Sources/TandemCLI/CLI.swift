@@ -363,7 +363,9 @@ struct CLI {
             try args.expectPositionals(atMost: 0, command: name)
             let request = CaptionsRequest(
                 from: try time(args, "from"), to: try time(args, "to"), words: try args.integer("max-words"),
-                y: try args.number("y"), track: args.options["track"], apply: args.has("apply"),
+                y: try args.number("y"), track: args.options["track"],
+                style: args.options["style"], color: args.options["color"], font: args.options["font"], size: try args.number("size"),
+                apply: args.has("apply"),
                 label: args.options["label"], expectedRevision: try args.integer("expect")
             )
             return show(try await client().call(request), json: json)

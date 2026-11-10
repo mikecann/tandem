@@ -105,6 +105,7 @@ enum TitleSamples {
         case "sectionHeader": return "Tip 1\nCursor docs"
         case "version": return "v1.46.0"
         case "caption": return "Captions follow each word"
+        case "plainCaption": return "Plain words"
         default: return "Title"
         }
     }

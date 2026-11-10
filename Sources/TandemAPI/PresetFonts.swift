@@ -153,17 +153,27 @@ extension TandemService {
     /// Captions use the caption preset's font. Applying them installs it the
     /// first time it's missing; either way, a font that's still missing is
     /// a warning with the fix, never a quiet fall back to SF Pro.
-    func captionFonts(_ result: inout CaptionsResult, applying: Bool) async {
+    func captionFonts(_ result: inout CaptionsResult, presetID: String, font requested: String? = nil, applying: Bool) async {
         guard !result.captions.isEmpty else { return }
+        // A font asked for by name replaces the preset's, so that's the
+        // one to check, and the preset's isn't worth downloading.
+        if let requested {
+            ProjectFonts.registerNew(in: folder)
+            if !ProjectFonts.isAvailable(requested) {
+                let missing = MissingFont(name: requested, clipIDs: [], assetID: ProjectFonts.fontsourceID(for: requested))
+                result.warnings.append(missing.warning(count: result.captions.count))
+            }
+            return
+        }
         let projectID = coordinator.project.id
         if applying {
-            let outcome = await PresetFonts.install(presetID: "caption", projectID: projectID, folder: folder, projectFile: session.fileURL, installer: fontInstaller)
+            let outcome = await PresetFonts.install(presetID: presetID, projectID: projectID, folder: folder, projectFile: session.fileURL, installer: fontInstaller)
             if !outcome.installed.isEmpty { result.installedFonts = outcome.installed }
             result.warnings += outcome.failures
         } else {
             ProjectFonts.registerNew(in: folder)
         }
-        guard let font = PresetFonts.missingFont(ofPreset: "caption") else { return }
+        guard let font = PresetFonts.missingFont(ofPreset: presetID) else { return }
         var warning = font.warning(count: result.captions.count)
         if !applying && fontInstaller != nil { warning += " (applying the captions tries that for you)" }
         result.warnings.append(warning)

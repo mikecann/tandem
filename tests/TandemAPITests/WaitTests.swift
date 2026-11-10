@@ -140,6 +140,39 @@ final class WaitTests: XCTestCase {
         XCTAssertTrue(result.readableText.contains("source/take1-camera.mov: ready"), result.readableText)
     }
 
+    /// With nothing holding the project, no jobs run, so "background jobs:
+    /// none" read as all done while an hour-long transcript was still to
+    /// make, and a bare `tandem wait` then spent minutes on it with nothing
+    /// said (Databased S2E7, 2026-11-10).
+    func testHeadlessStatusSaysWhatsNotMadeYet() throws {
+        let h = try ServiceHarness(mode: .headless)
+        defer { h.close() }
+        h.analysis.transcripts = [:]
+        let status = h.service.status()
+        let unmade = try XCTUnwrap(status.unmade)
+        XCTAssertTrue(unmade.contains { $0.kind == "transcript" && $0.mediaID == "med_camera" }, "\(unmade)")
+        let text = status.readableText
+        XCTAssertTrue(text.contains("none running, since nothing has it open"), text)
+        XCTAssertTrue(text.contains("transcript of source/take1-camera.mov ("), text)
+        XCTAssertTrue(text.contains("`tandem wait` makes them"), text)
+        XCTAssertFalse(text.contains("background jobs: none\n"), text)
+
+        // Held open, the jobs list already says what's going.
+        let hosted = try ServiceHarness()
+        defer { hosted.close() }
+        XCTAssertNil(hosted.service.status().unmade)
+    }
+
+    func testTheSummaryNamesSlowWorkAndCountsTheRest() {
+        let items = [
+            WaitItem(kind: "transcript", mediaID: "med_a", path: "source/restream.m4a", state: "waiting"),
+            WaitItem(kind: "loudness", mediaID: "med_b", path: "assets/sfx/click.wav", state: "waiting"),
+            WaitItem(kind: "waveform", mediaID: "med_b", path: "assets/sfx/click.wav", state: "waiting"),
+            WaitItem(kind: "loudness", mediaID: "med_c", path: "assets/music/bed.wav", state: "queued")
+        ]
+        XCTAssertEqual(WaitItem.summary(items), "transcript of source/restream.m4a; loudness and waveform of 2 files")
+    }
+
     func testAllTranscriptsMeansEveryOneTheProjectMakes() async throws {
         let h = try ServiceHarness()
         defer { h.close() }

@@ -77,3 +77,18 @@ captions are applied, Tandem installs it from Fontsource into the project's
 happen (offline), the captions still go in and the output says what to run.
 To restyle them, patch the captions' `style` (see
 [Add a title](broll-and-titles.md#add-a-title)).
+
+### Plain captions
+
+```bash
+tandem captions --style plain --max-words 1 --size 150 --y 0.82 --apply
+```
+
+`--style plain` uses the `plainCaption` preset: white Helvetica Neue bold
+with a soft shadow, no outline and no spoken-word highlight. It's the look
+Databased's old editor used, one big word at a time. `--color #RRGGBB`,
+`--font <family>` and `--size <points>` go on each caption over either
+style, so `--style caption --color #FFFFFF` keeps Tilt Warp and the yellow
+highlight with white words. The highlight comes from the preset, not the
+colour: to drop it from captions already on the timeline, set their
+`content.text.preset` to `plainCaption` rather than patching the colour.

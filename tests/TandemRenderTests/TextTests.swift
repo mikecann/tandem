@@ -144,6 +144,16 @@ final class TextTests: XCTestCase {
         XCTAssertEqual(caption.utf16Range(ofWord: 2), 10..<14)
     }
 
+    func testPlainCaptionsDontHighlightTheSpokenWord() {
+        let words = [TimedWord(text: "Anthropic", start: t(0), end: t(0.5))]
+        XCTAssertNil(ResolvedText(TextContent(text: "Anthropic", preset: "plainCaption", words: words)).highlightColor)
+        XCTAssertNotNil(ResolvedText(TextContent(text: "Anthropic", preset: "caption", words: words)).highlightColor)
+        // Older captions with words and no preset keep their yellow, and so
+        // does a title preset that carries words.
+        XCTAssertNotNil(ResolvedText(TextContent(text: "Anthropic", words: words)).highlightColor)
+        XCTAssertNotNil(ResolvedText(TextContent(text: "Anthropic", preset: "label", words: words)).highlightColor)
+    }
+
     func testDrawsTextWithPaddingForEffects() {
         let plain = TextRenderer.shared.image(request("HELLO"))!
         XCTAssertGreaterThan(plain.extent.width, 150)

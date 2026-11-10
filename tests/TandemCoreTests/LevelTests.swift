@@ -55,6 +55,39 @@ final class LevelTests: XCTestCase {
         XCTAssertNil(c.clips("Music")[0].audio?.normalizeTo)
     }
 
+    /// The -31 dB a bed is placed at is set against the file as it is.
+    /// Once the bed is levelled to a loudness, that gain would stack on top
+    /// of it: Databased S2E7 and Convex 1.48 both exported with no music
+    /// from `normalizeTo` -42 plus a forgotten -31 dB.
+    func testNormalisingABedDropsThePlacedGain() throws {
+        let (_, c) = project()
+        try c.run("Music", .placeMedia(mediaIDs: ["med_music"], at: .zero, duration: t(30)))
+        let bed = c.clips("Music")[0]
+        let result = try c.run("Level", .updateClip(clipID: bed.id, patch: .object(["audio": .object(["normalizeTo": .number(-42)])])))
+        XCTAssertEqual(c.clips("Music")[0].audio, AudioProperties(fadeOut: t(2), normalizeTo: -42))
+        XCTAssertTrue(result.warnings.contains { $0.contains("-31") }, "\(result.warnings)")
+
+        // A gain given with the level is kept, and so is one set after it.
+        try c.run("Level and trim", .updateClip(clipID: bed.id, patch: .object(["audio": .object(["normalizeTo": .null])])))
+        try c.run("Level and trim", .updateClip(clipID: bed.id, patch: .object(["audio": .object(["normalizeTo": .number(-42), "gainDB": .number(-3)])])))
+        XCTAssertEqual(c.clips("Music")[0].audio?.gainDB, -3)
+        try c.run("New level", .updateClip(clipID: bed.id, patch: .object(["audio": .object(["normalizeTo": .number(-40)])])))
+        XCTAssertEqual(c.clips("Music")[0].audio?.gainDB, -3)
+    }
+
+    /// A ducked bed's gain curve moves down with the gain, so the duck
+    /// keeps its depth under the new level.
+    func testNormalisingABedMovesItsGainCurveWithIt() throws {
+        let (_, c) = project()
+        try c.run("Music", .placeMedia(mediaIDs: ["med_music"], at: .zero, duration: t(30)))
+        let bed = c.clips("Music")[0]
+        try c.run("Duck", .setKeyframes(clipID: bed.id, parameter: "audio.gainDB", keyframes: [
+            Keyframe(time: .zero, value: .number(-31)), Keyframe(time: t(5), value: .number(-37))
+        ]))
+        try c.run("Level", .updateClip(clipID: bed.id, patch: .object(["audio": .object(["normalizeTo": .number(-42)])])))
+        XCTAssertEqual(c.clips("Music")[0].keyframes["audio.gainDB"]?.map(\.value), [.number(0), .number(-6)])
+    }
+
     // MARK: - Normalise speech clips
 
     /// A Filmora-style project: voice with hand gains, one clip on the old

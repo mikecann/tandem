@@ -20,6 +20,9 @@ public struct TitlePreset: Codable, Equatable, Sendable {
     public var position: Point
     /// Colour of the word being spoken, for captions with word timings.
     public var highlightColor: RGBA?
+    /// False for captions drawn plain: no word is highlighted, whatever
+    /// the clip's colour. Other presets fall back to the caption yellow.
+    public var highlightsWords: Bool
     /// For two-line titles: the first line's size relative to the rest.
     public var firstLineScale: Double?
     /// For two-line titles: the first line's colour.
@@ -37,8 +40,10 @@ public struct TitlePreset: Codable, Equatable, Sendable {
         highlightColor: RGBA? = nil,
         firstLineScale: Double? = nil,
         firstLineColor: RGBA? = nil,
-        fontAsset: String? = nil
+        fontAsset: String? = nil,
+        highlightsWords: Bool = true
     ) {
+        self.highlightsWords = highlightsWords
         self.id = id
         self.name = name
         self.summary = summary
@@ -113,8 +118,25 @@ public enum TitlePresets {
             // Not a macOS font: Tandem installs it from Fontsource (Google
             // Fonts, OFL) the first time captions need it.
             fontAsset: "fontsource:tilt-warp"
+        ),
+        // Databased's old editor captioned in big plain white words, one at
+        // a time, with no spoken word highlight, so a clip's own colour is
+        // the only one.
+        TitlePreset(
+            id: "plainCaption",
+            name: "Plain caption",
+            summary: "Short-form caption in plain white Helvetica Neue, with no highlight.",
+            style: TextStyle(font: "Helvetica Neue", size: 120, weight: 700, color: .white, strokeWidth: 0, shadow: true),
+            animationIn: "fade",
+            animationOut: "fade",
+            animationDuration: Time(seconds: 0.1),
+            position: Point(x: 0.5, y: 0.42),
+            highlightsWords: false
         )
     ]
+
+    /// The caption looks `tandem captions --style` picks from.
+    public static let captionStyles: [String: String] = ["caption": "caption", "plain": "plainCaption"]
 
     public static func preset(_ id: String?) -> TitlePreset? {
         guard let id else { return nil }
@@ -161,7 +183,8 @@ struct ResolvedText {
     var animationOut: TextAnimation?
     var animationDuration: Time
     var position: Point?
-    var highlightColor: RGBA
+    /// Nil when the clip's preset doesn't highlight (plain captions).
+    var highlightColor: RGBA?
     var firstLineScale: Double
     var firstLineColor: RGBA?
     var words: [TimedWord]?
@@ -175,7 +198,10 @@ struct ResolvedText {
         animationOut = TextAnimation(name: content.animationOut ?? preset?.animationOut)
         animationDuration = content.animationDuration ?? preset?.animationDuration ?? TextContent.defaultAnimationDuration
         position = preset?.position
-        highlightColor = preset?.highlightColor ?? TitlePresets.builtIn.first { $0.id == "caption" }?.highlightColor ?? TitlePresets.accent
+        // Only a preset that says so drops the highlight; any other text
+        // with words keeps its preset's colour or the caption yellow.
+        let captionYellow = TitlePresets.preset("caption")?.highlightColor ?? TitlePresets.accent
+        highlightColor = preset?.highlightsWords == false ? nil : preset?.highlightColor ?? captionYellow
         firstLineScale = preset?.firstLineScale ?? 1
         firstLineColor = preset?.firstLineColor
 

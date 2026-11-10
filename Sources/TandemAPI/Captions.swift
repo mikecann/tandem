@@ -1,6 +1,7 @@
 import Foundation
 import TandemCore
 import TandemMedia
+import TandemRender
 
 // Word-by-word captions from the transcripts, the way Mike's shorts have
 // them: a few words at a time, the spoken word highlighted (the render
@@ -17,6 +18,15 @@ public struct CaptionsRequest: ServiceCall {
     public var y: Double?
     /// The video track to put them on, made if missing. Default "Captions".
     public var track: String?
+    /// `caption` (Tilt Warp, the spoken word highlighted, the default) or
+    /// `plain` (white Helvetica Neue, no highlight).
+    public var style: String?
+    /// The text colour, "#RRGGBB". Stored on each caption, over the preset.
+    public var color: String?
+    /// A font family, stored on each caption over the preset's.
+    public var font: String?
+    /// Font size in points at 1080p, stored on each caption.
+    public var size: Double?
     /// Make the edit. Without it this is a dry run that returns the plan.
     public var apply: Bool?
     public var label: String?
@@ -25,6 +35,7 @@ public struct CaptionsRequest: ServiceCall {
 
     public init(
         from: Time? = nil, to: Time? = nil, words: Int? = nil, y: Double? = nil, track: String? = nil,
+        style: String? = nil, color: String? = nil, font: String? = nil, size: Double? = nil,
         apply: Bool? = nil, label: String? = nil, author: String? = nil, expectedRevision: Int? = nil
     ) {
         self.from = from
@@ -32,6 +43,10 @@ public struct CaptionsRequest: ServiceCall {
         self.words = words
         self.y = y
         self.track = track
+        self.style = style
+        self.color = color
+        self.font = font
+        self.size = size
         self.apply = apply
         self.label = label
         self.author = author
@@ -45,6 +60,10 @@ public struct CaptionsRequest: ServiceCall {
         words = try c.decodeIfPresent(Int.self, forKey: .words)
         y = try c.decodeIfPresent(Double.self, forKey: .y)
         track = try c.decodeIfPresent(String.self, forKey: .track)
+        style = try c.decodeIfPresent(String.self, forKey: .style)
+        color = try c.decodeIfPresent(String.self, forKey: .color)
+        font = try c.decodeIfPresent(String.self, forKey: .font)
+        size = try c.decodeIfPresent(Double.self, forKey: .size)
         apply = try c.decodeIfPresent(Bool.self, forKey: .apply)
         label = try c.decodeIfPresent(String.self, forKey: .label)
         author = try c.decodeIfPresent(String.self, forKey: .author)
@@ -53,7 +72,7 @@ public struct CaptionsRequest: ServiceCall {
 
     public func run(on service: TandemService, context: CallContext) async throws -> CaptionsResult {
         var result = try service.captions(self, context: context)
-        await service.captionFonts(&result, applying: apply == true)
+        await service.captionFonts(&result, presetID: TitlePresets.captionStyles[style ?? "caption"] ?? "caption", font: font, applying: apply == true)
         return result
     }
 }
@@ -135,6 +154,18 @@ extension TandemService {
         if let y = request.y, !(0...1).contains(y) {
             throw ServiceError(.badRequest, "`y` is a fraction of the frame height, from 0 (top) to 1 (bottom).")
         }
+        let styleName = request.style ?? "caption"
+        guard let presetID = TitlePresets.captionStyles[styleName] else {
+            throw ServiceError(.badRequest, "`style` is caption (Tilt Warp, the spoken word highlighted) or plain (white Helvetica Neue, no highlight).")
+        }
+        var ownStyle = TextStyle(font: request.font, size: request.size)
+        if let color = request.color {
+            guard let parsed = RGBA(hexString: color) else { throw ServiceError(.badRequest, "`color` is a hex colour like #FFFFFF.") }
+            ownStyle.color = parsed
+        }
+        if let size = request.size, !(8...600).contains(size) {
+            throw ServiceError(.badRequest, "`size` is in points at 1080p, from 8 to 600 (plain captions are 120).")
+        }
         let trackName = request.track ?? "Captions"
         let (project, revision) = coordinator.snapshot()
         try checkExpected(request.expectedRevision, at: revision)
@@ -162,7 +193,7 @@ extension TandemService {
             }
             var clip = Clip(
                 name: text,
-                content: .text(TextContent(text: text, preset: "caption", words: timed)),
+                content: .text(TextContent(text: text, preset: presetID, style: ownStyle, words: timed)),
                 start: caption.start,
                 duration: caption.end - caption.start,
                 tags: ["captions"]

@@ -66,6 +66,8 @@ public struct WaitItem: Codable, Equatable, Sendable {
     public var words: Int?
     /// A matte's cutout mode.
     public var mode: String?
+    /// The media file's length, for saying how long its work may take.
+    public var duration: Time?
 
     public init(kind: String, mediaID: String?, path: String, state: String, progress: Double? = nil, message: String? = nil, words: Int? = nil, mode: String? = nil) {
         self.kind = kind
@@ -76,6 +78,28 @@ public struct WaitItem: Codable, Equatable, Sendable {
         self.message = message
         self.words = words
         self.mode = mode
+    }
+
+    /// "transcript of source/restream.m4a (52:20); loudness and waveform
+    /// of 4 files": the slow kinds one by one with the file's length, since
+    /// they're what make a wait long, and the quick ones counted.
+    static func summary(_ items: [WaitItem]) -> String {
+        let quick: Set<String> = ["thumbnails", "waveform", "loudness"]
+        var parts: [String] = []
+        for item in items where !quick.contains(item.kind) {
+            let length = item.duration.map { " (\(TimeText.duration($0)))" } ?? ""
+            let mode = item.mode.map { " (\($0))" } ?? ""
+            parts.append("\(item.kind) of \(item.path)\(mode)\(length)")
+        }
+        let rest = items.filter { quick.contains($0.kind) }
+        if !rest.isEmpty {
+            var kinds: [String] = []
+            for item in rest where !kinds.contains(item.kind) { kinds.append(item.kind) }
+            let files = Set(rest.map { $0.mediaID ?? $0.path }).count
+            let names = kinds.count > 1 ? kinds.dropLast().joined(separator: ", ") + " and " + kinds.last! : kinds[0]
+            parts.append("\(names) of \(files) file\(files == 1 ? "" : "s")")
+        }
+        return parts.joined(separator: "; ")
     }
 
     var failed: Bool { state == "failed" }
@@ -251,6 +275,27 @@ extension TandemService {
             waitItem(AnalysisNeeds.Need(mediaID: item.id, kind: .transcript, priority: .interactive), current.media(item.id) ?? item)
         }
         return TranscribeResult(revision: coordinator.revision, applied: applied, files: files, waited: nil, headless: mode == .headless)
+    }
+
+    /// What the project needs that isn't made or being made: nothing
+    /// makes it until something holds the project and runs its analysis.
+    /// Failed work is left out, since waiting won't change it.
+    public func unmadeAnalysis(_ project: Project? = nil) -> [WaitItem] {
+        let project = project ?? coordinator.project
+        let byID = Dictionary(project.media.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        return analysis.needs(for: project).compactMap { need in
+            guard let item = byID[need.mediaID] else { return nil }
+            // Where it stands first: building the item for a ready
+            // transcript loads it to count its words.
+            switch analysis.state(of: need, for: item) {
+            case .missing, .queued, .running: break
+            default: return nil
+            }
+            var state = waitItem(need, item)
+            guard ["waiting", "queued", "running"].contains(state.state) else { return nil }
+            state.duration = item.duration
+            return state
+        }
     }
 
     public func wait(_ request: WaitRequest) async throws -> WaitResult {

@@ -88,7 +88,7 @@ public enum Editing {
         case .moveClips(let clipIDs, let delta, let toTrackID, let includeLinked, let mode):
             try moveClips(&project, clipIDs, delta: delta ?? .zero, toTrackID: toTrackID, includeLinked: includeLinked ?? true, mode: mode ?? .place, &context)
         case .updateClip(let clipID, let patch):
-            try updateClip(&project, clipID, patch)
+            try updateClip(&project, clipID, patch, &context)
         case .link(let clipIDs):
             try link(&project, clipIDs, &context)
         case .unlink(let clipIDs):
@@ -1282,15 +1282,47 @@ public enum Editing {
         }
     }
 
-    static func updateClip(_ p: inout Project, _ clipID: String, _ patch: JSONValue) throws {
+    static func updateClip(_ p: inout Project, _ clipID: String, _ patch: JSONValue, _ context: inout EditContext) throws {
         let (location, index) = try requireClip(p, clipID)
         try requireUnlocked(p[location])
         try requireObject(patch, forbidden: ["id"], what: "clip")
-        let clip = try JSONValue.applyMergePatch(patch, to: p[location].clips[index])
+        let before = p[location].clips[index]
+        var clip = try JSONValue.applyMergePatch(patch, to: before)
+        // A clip's gain set before it was levelled (a bed's -31 dB from
+        // placing it) was chosen against the file as it is. Levelling to a
+        // loudness replaces that choice, so the old gain stacking on top
+        // silences the clip: Databased S2E7 and Convex 1.48 both exported
+        // with no music that way. Starting to level without saying a gain
+        // resets it; a gain in the same patch, or set later, is kept.
+        if before.audio?.normalizeTo == nil, clip.audio?.normalizeTo != nil,
+           let old = before.audio?.gainDB, old != 0, !patchSets(patch, "audio", "gainDB") {
+            clip.audio?.gainDB = 0
+            // A gain curve holds absolute values, so it moves down with its
+            // base: a duck stays the same depth under the new level.
+            if let keys = clip.keyframes["audio.gainDB"] {
+                clip.keyframes["audio.gainDB"] = keys.map { key in
+                    guard case .number(let value) = key.value else { return key }
+                    var moved = key
+                    moved.value = .number(value - old)
+                    return moved
+                }
+            }
+            context.warn("\(clip.name ?? clipID) had a \(AudioLevels.number(old)) dB gain from before it was levelled; that's reset to 0 so it plays at \(AudioLevels.number(clip.audio?.normalizeTo ?? 0)) LUFS. Set audio.gainDB with normalizeTo to keep a gain.")
+        }
         try checkContent(clip, fits: p[location], in: p)
         try checkSource(clip, in: p)
         p[location].clips[index] = clip
         p[location].sortClips()
+    }
+
+    /// Whether a merge patch names this key path, with any value.
+    private static func patchSets(_ patch: JSONValue, _ path: String...) -> Bool {
+        var value = patch
+        for key in path {
+            guard case .object(let object) = value, let next = object[key] else { return false }
+            value = next
+        }
+        return true
     }
 
     static func link(_ p: inout Project, _ clipIDs: [String], _ context: inout EditContext) throws {

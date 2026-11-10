@@ -36,7 +36,10 @@ extension StatusResult: ReadableResult {
             lines.append("  things to look at, handed back and not yet watched: \(handback.count) (\(names.joined(separator: "; ")))")
         }
         let active = jobs.filter { $0.state == .queued || $0.state == .running }
-        if active.isEmpty {
+        if active.isEmpty, let unmade, !unmade.isEmpty {
+            lines.append("  background jobs: none running, since nothing has it open. Not made yet: \(WaitItem.summary(unmade)).")
+            lines.append("    `tandem wait` makes them now (a long take's transcript takes minutes), or opening the project in the app does.")
+        } else if active.isEmpty {
             lines.append("  background jobs: none")
         } else {
             lines.append("  background jobs:")
