@@ -2,6 +2,7 @@ import XCTest
 @testable import TandemAPI
 @testable import TandemCore
 import TandemMedia
+import TandemRender
 
 /// Titles keep only what was asked for: captions are their preset and their
 /// words, a title's own style is listed for agents, and undo history an
@@ -30,6 +31,42 @@ final class TitleStyleTests: XCTestCase {
         let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
         let content = try XCTUnwrap((json["content"] as? [String: Any])?["text"] as? [String: Any])
         XCTAssertEqual(Set(content.keys), ["text", "preset", "words"])
+    }
+
+    /// Databased's old editor used big plain white words with no spoken
+    /// word highlight; before `--style plain` that took an updateClip on
+    /// every caption (S2E7 social cut, 2026-11-10).
+    func testPlainCaptionsUseThePlainPresetAndTheStyleAsked() async throws {
+        let h = try ServiceHarness()
+        defer { h.close() }
+        let request = CaptionsRequest(from: t(0), to: t(10), words: 1, style: "plain", color: "#FFE600", font: "Avenir Next", size: 150, apply: true)
+        let result = try await request.run(on: h.service, context: h.context)
+        XCTAssertNil(result.installedFonts, "the plain preset's font comes with macOS")
+        let clips = try captionClips(h)
+        XCTAssertFalse(clips.isEmpty)
+        for clip in clips {
+            guard case .text(let text) = clip.content else { return XCTFail("not text") }
+            XCTAssertEqual(text.preset, "plainCaption")
+            XCTAssertEqual(text.style, TextStyle(font: "Avenir Next", size: 150, color: RGBA(hexString: "#FFE600")))
+            XCTAssertEqual(text.words?.count, 1)
+        }
+        XCTAssertNil(TitlePresets.preset("plainCaption")?.highlightColor, "no spoken word highlight")
+
+        // Without options the preset decides, as with the word captions.
+        _ = try await CaptionsRequest(from: t(0), to: t(10), style: "plain", apply: true).run(on: h.service, context: h.context)
+        for clip in try captionClips(h) {
+            guard case .text(let text) = clip.content else { return XCTFail("not text") }
+            XCTAssertTrue(text.style.isEmpty, "\(text.style)")
+        }
+    }
+
+    func testCaptionsRejectAStyleOrColourTheyDontKnow() async throws {
+        let h = try ServiceHarness()
+        defer { h.close() }
+        XCTAssertThrowsError(try h.service.captions(CaptionsRequest(style: "fancy"), context: h.context)) {
+            XCTAssertTrue("\($0)".contains("caption") && "\($0)".contains("plain"), "\($0)")
+        }
+        XCTAssertThrowsError(try h.service.captions(CaptionsRequest(color: "white"), context: h.context))
     }
 
     func testHeadlessUndoHistoryFromAnOlderTandemKeepsItsTitles() throws {

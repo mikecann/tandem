@@ -83,6 +83,10 @@ public struct StatusResult: Codable, Sendable {
     /// from the file for this call.
     public var headless: Bool
     public var jobs: [JobStatus]
+    /// Headless only: analysis the project needs that isn't made yet.
+    /// Nothing makes it until the app, `tandem serve` or a `tandem wait`
+    /// opens the project, so `jobs` alone would read as all done.
+    public var unmade: [WaitItem]?
     public var exports: [ExportJob]
     /// True when the project was recovered from the journal after a crash.
     public var recoveredEdits: Bool

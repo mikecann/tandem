@@ -505,8 +505,8 @@ struct FrameComposer {
             shadow: style.shadow,
             lineSpacing: style.lineSpacing,
             maxWidth: Double(scene.canvas.width) * 0.9 * renderScale / max(staticScale, 0.01),
-            highlight: text.currentWord(at: clipTime).flatMap { text.utf16Range(ofWord: $0) },
-            highlightColor: text.highlightColor.components,
+            highlight: text.highlightColor == nil ? nil : text.currentWord(at: clipTime).flatMap { text.utf16Range(ofWord: $0) },
+            highlightColor: (text.highlightColor ?? style.color).components,
             visibleLength: visible,
             firstLineScale: text.firstLineScale,
             firstLineColor: text.firstLineColor?.components

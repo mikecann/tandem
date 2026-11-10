@@ -276,6 +276,9 @@ rotation), `video.crop`, `video.opacity`, `video.cutout`, `audio.gainDB`,
 target minus the measurement, at most 30 dB either way) and `audio.gainDB`
 is added after it: normalised to -20 LUFS with `gainDB` 2, a clip plays at
 about -18. `null` stops normalising. A gain of -96 dB or lower is silence.
+Turning `normalizeTo` on for a clip that had a gain (a bed placed at -31
+dB) resets the gain to 0 and says so, since that gain was set against the
+file as it was; send `gainDB` in the same patch to keep one.
 
 `video.crop` values are fractions (0 to 1) of the source hidden at each
 edge, so `{"left": 0.25}` hides the left quarter of the picture.

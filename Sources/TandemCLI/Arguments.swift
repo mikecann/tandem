@@ -21,7 +21,7 @@ struct Arguments {
         "output", "preset", "width", "height", "port", "timeout", "name", "format",
         "out", "search", "rewrite", "recipe", "max-words", "y", "track", "size",
         "kind", "provider", "at", "duration", "variations", "clips", "field", "value", "mode", "kicker", "marker", "anchor", "media", "count", "every", "step", "tracks",
-        "sentence", "comma", "mid", "mid-min", "protect", "range", "since", "from-time", "to-time", "over", "note"
+        "sentence", "comma", "mid", "mid-min", "protect", "range", "since", "from-time", "to-time", "over", "note", "style", "color", "font"
     ]
     /// Options that are on or off.
     static let flagOptions: Set<String> = ["json", "refresh", "words", "summary", "apply", "dry-run", "help", "version", "once", "portrait", "online", "optional", "keep-levels", "with-cache", "replace", "insert", "no-sounds", "pop", "changed", "quick", "cuts", "listen", "all", "default", "copy", "revision", "wait", "no-wait", "make", "widen", "mike", "false-start", "fillers", "gains", "audio-only", "ids", "no-place", "question", "again", "check", "no-check", "privacy", "unreviewed"]

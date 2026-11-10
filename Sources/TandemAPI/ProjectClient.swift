@@ -334,7 +334,13 @@ public final class ProjectClient: @unchecked Sendable {
         // Other calls this process makes meanwhile (an MCP client's) use it
         // rather than failing to open it again.
         HeadlessPool.shared.share(projectURL, session: session, service: host.service)
-        Self.waitNotice?("Nothing has \(projectURL.lastPathComponent) open, so this command makes its background analysis itself, serving the project until it's done.")
+        // Say what that means up front: a bare `tandem wait` after adding a
+        // sound effect also makes every transcript nothing has made yet,
+        // which for an hour-long take is minutes with little to show
+        // (Databased S2E7, 2026-11-10).
+        let unmade = host.service.unmadeAnalysis()
+        let making = unmade.isEmpty ? "" : " Not made yet: \(WaitItem.summary(unmade))."
+        Self.waitNotice?("Nothing has \(projectURL.lastPathComponent) open, so this command makes its background analysis itself, serving the project until it's done.\(making)")
         let follower = onEvent.map { onEvent in
             let stream = host.service.events.subscribe()
             return Task { for await event in stream { onEvent(event) } }

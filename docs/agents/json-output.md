@@ -86,10 +86,14 @@ word count, 0 when there's no speech.
 {"name", "path", "revision", "savedRevision", "dirty", "duration", "width", "height", "frameRate",
  "tracks", "clips", "media", "markers", "headless", "recoveredEdits", "apiVersion",
  "undo"?, "redo"?, "openIn"?: {"owner", "pid", "started"},
- "jobs": [...], "exports": [...], "warnings": [...],
+ "jobs": [...], "unmade"?: [{"kind", "mediaID", "path", "state", "duration"?}], "exports": [...], "warnings": [...],
  "reviewPending": [{"label", "author", "date", "clipIDs", "removals"}],
  "handback": [{"id", "author", "date", "revision", "start", "end", "name", "note"?, "question", "comments": []}]}
 ```
+
+`unmade` is there only when nothing held the project (`headless`): the
+analysis it needs that nothing has made yet, which `tandem wait` would
+make. `jobs` is empty then, since nothing is running them.
 
 `handback` is what agents asked Mike to look at when they handed back
 and he hasn't watched yet, in timeline order (see `handback` below).

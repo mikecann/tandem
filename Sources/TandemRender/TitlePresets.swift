@@ -113,8 +113,24 @@ public enum TitlePresets {
             // Not a macOS font: Tandem installs it from Fontsource (Google
             // Fonts, OFL) the first time captions need it.
             fontAsset: "fontsource:tilt-warp"
+        ),
+        // Databased's old editor captioned in big plain white words, one at
+        // a time, with no spoken word highlight. No highlightColor is what
+        // turns the highlight off, so a clip's own colour is the only one.
+        TitlePreset(
+            id: "plainCaption",
+            name: "Plain caption",
+            summary: "Short-form caption in plain white Helvetica Neue, with no highlight.",
+            style: TextStyle(font: "Helvetica Neue", size: 120, weight: 700, color: .white, strokeWidth: 0, shadow: true),
+            animationIn: "fade",
+            animationOut: "fade",
+            animationDuration: Time(seconds: 0.1),
+            position: Point(x: 0.5, y: 0.42)
         )
     ]
+
+    /// The caption looks `tandem captions --style` picks from.
+    public static let captionStyles: [String: String] = ["caption": "caption", "plain": "plainCaption"]
 
     public static func preset(_ id: String?) -> TitlePreset? {
         guard let id else { return nil }
@@ -161,7 +177,8 @@ struct ResolvedText {
     var animationOut: TextAnimation?
     var animationDuration: Time
     var position: Point?
-    var highlightColor: RGBA
+    /// Nil when the clip's preset doesn't highlight (plain captions).
+    var highlightColor: RGBA?
     var firstLineScale: Double
     var firstLineColor: RGBA?
     var words: [TimedWord]?
@@ -175,7 +192,10 @@ struct ResolvedText {
         animationOut = TextAnimation(name: content.animationOut ?? preset?.animationOut)
         animationDuration = content.animationDuration ?? preset?.animationDuration ?? TextContent.defaultAnimationDuration
         position = preset?.position
-        highlightColor = preset?.highlightColor ?? TitlePresets.builtIn.first { $0.id == "caption" }?.highlightColor ?? TitlePresets.accent
+        // A preset decides, highlight or not. Words with no preset (older
+        // captions) keep the caption yellow.
+        let captionYellow = TitlePresets.preset("caption")?.highlightColor ?? TitlePresets.accent
+        highlightColor = preset.map { $0.highlightColor } ?? captionYellow
         firstLineScale = preset?.firstLineScale ?? 1
         firstLineColor = preset?.firstLineColor
 

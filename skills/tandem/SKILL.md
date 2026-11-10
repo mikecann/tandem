@@ -44,7 +44,11 @@ rounds up.
    answer). Then `tandem transcript <id>`. Background work (transcripts,
    mattes, proxies) is waited for with `tandem wait transcript` (or
    `matte`, `proxy`, plain `tandem wait` for every job), which makes it
-   itself when the app is closed. Never start `tandem serve` just to get a
+   itself when the app is closed. Plain `tandem wait` also makes every
+   transcript nothing has made yet (minutes for an hour-long take), so after
+   adding a few files wait on them with `--media`, or not at all, and don't
+   pipe a wait through `tail`: its progress lines are how you tell it's
+   working. Never start `tandem serve` just to get a
    transcript, and never poll `tandem media` or `tandem status` in a sleep
    loop. Only if Tandem's transcript can't do it (a language its
    engines don't support), local Whisper runs offline:
@@ -845,8 +849,15 @@ and the upload batch.
   twice.
 - **Check the music is audible before exporting.** Beds added with
   `tandem assets use` and then `normalizeTo: -45` came back with `gain -31 dB`
-  as well (1.48), so the first export had no music. `tandem loudness --tracks
-  Music` over a stretch should read about -45 LUFS.
+  as well (1.48, and again on Databased S2E7), so the export had no music.
+  Turning `normalizeTo` on now resets that placed gain to 0 and says so, but
+  `tandem loudness --tracks Music` over a stretch should still read about
+  the level you set.
+- **Plain white captions with no highlight** (Databased, 2026-11-10: "big
+  plain white one-word captions" like its old editor): `tandem captions
+  --style plain --max-words 1 --size 150 --apply`, with `--color`, `--font`
+  and `--size` to change it. Patching the colour of `caption` captions
+  leaves the yellow highlight on; it comes from the preset.
 - **Pick moments that stand on their own:** a strong claim with its number,
   a rant, a "this broke" moment. Start about 0.1 s before the first word and
   end in the pause after a finished thought, checked with `tandem pauses`.

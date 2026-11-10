@@ -192,6 +192,7 @@ public final class TandemService: @unchecked Sendable {
             openIn: owner,
             headless: mode == .headless,
             jobs: analysis.jobs,
+            unmade: mode == .headless ? unmadeAnalysis(project) : nil,
             exports: running,
             recoveredEdits: session.recoveredEdits,
             apiVersion: TandemAPI.version,

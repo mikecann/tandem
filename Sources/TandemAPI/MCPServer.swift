@@ -622,13 +622,17 @@ enum MCPTools {
         ),
         Tool(
             name: "captions", title: "Add word captions",
-            description: "Adds word-by-word captions from the transcripts (a few words at a time, the spoken word highlighted, Mike's shorts style) on a Captions track. A dry run that returns the plan and the commands unless apply: true.",
+            description: "Adds word-by-word captions from the transcripts (a few words at a time, the spoken word highlighted, Mike's shorts style; style plain for white words with no highlight) on a Captions track. A dry run that returns the plan and the commands unless apply: true.",
             operation: .captions,
             properties: [
                 "from": time("Only speech after this time."), "to": time("Only speech before this time."),
                 "words": S.integer("Most words on screen at once. Default 3."),
                 "y": S.number("Height on screen, 0 top to 1 bottom. Default 0.42, between screen and camera in a short."),
                 "track": S.string("Video track to use, made if missing. Default Captions."),
+                "style": S.string("caption (Tilt Warp, the spoken word highlighted, the default) or plain (white Helvetica Neue bold, no highlight)."),
+                "color": S.string("Text colour as #RRGGBB, over the style's."),
+                "font": S.string("Font family, over the style's."),
+                "size": S.number("Font size in points at 1080p, over the style's (plain is 120; about 150 for one big word)."),
                 "apply": S.boolean("Add them. Without it nothing changes."),
                 "label": S.string("Undo label."), "author": S.string("Who made the edit."),
                 "expectedRevision": S.integer("Refuse unless the project is at this revision.")
