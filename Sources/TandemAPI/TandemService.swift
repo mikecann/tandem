@@ -596,10 +596,18 @@ public final class TandemService: @unchecked Sendable {
             TranscriptTools.speechMap(project, analysis: analysis), from: request.from, to: request.to, project: project, folder: folder
         ).map
         let planned = await VolumeTightening.plan(
-            settings: settings, protect: request.protect ?? [], midAt: request.midAt ?? [], sentenceAt: request.sentenceAt ?? [],
+            settings: settings, protect: request.protect ?? [], kinds: request.kinds ?? [],
             from: request.from, to: request.to,
             map: map, project: project, folder: folder
         )
+        // The kind of every pause is the agent's call, read from the words:
+        // Bark's punctuation can't say (a full stop wherever Mike pauses).
+        // So the cut only goes in once every pause has one.
+        let unread = planned.pauses.filter { $0.kind == nil }
+        if request.apply == true, !unread.isEmpty {
+            let list = unread.prefix(5).map { "\($0.start) (\($0.guess.rawValue)?) ...\($0.before.split(separator: " ").suffix(4).joined(separator: " ")) | \($0.after.split(separator: " ").prefix(4).joined(separator: " "))..." }
+            throw ServiceError(.badRequest, "\(unread.count) of \(planned.pauses.count) pauses have no kind yet, like \(list.joined(separator: "; ")). Read each pause's words and give its kind (mid, clause, sentence, topic or keep) in `kinds`: with the CLI, `tandem tighten --filmora --kinds <file>` writes the file on a dry run, then fill in every kind and run it again with --apply.")
+        }
         let cuts = planned.cuts
         let commands = TranscriptTools.commands(for: cuts)
         let removed = cuts.reduce(Time.zero) { $0 + $1.cut.duration }
@@ -619,8 +627,11 @@ public final class TandemService: @unchecked Sendable {
             durationBefore: project.duration, durationAfter: project.duration - removed,
             commands: commands, applied: nil, warnings: warnings, missing: []
         )
+        result.pauses = planned.pauses
+        // A pause whose cut no join could make clean is left whole, and said.
+        result.skipped = planned.notClean.map { SkippedPause(pause: $0.pause, reason: .notClean, kind: $0.spoken == .mid ? .mid : $0.spoken == .clause ? .comma : .sentence, keep: $0.keep ?? .zero, startEdge: nil, endEdge: nil) }
         guard !commands.isEmpty else { return result }
-        let label = request.label ?? "Cut \(cuts.count) silence\(cuts.count == 1 ? "" : "s") as Filmora did, keeping \(TimeText.duration(Time(seconds: settings.buffer))) each side"
+        let label = request.label ?? "Tighten \(cuts.count) pause\(cuts.count == 1 ? "" : "s") by kind"
         let applied = try self.apply(
             ApplyRequest(label: label, author: request.author, commands: commands, expectedRevision: revision, dryRun: request.apply != true),
             context: context

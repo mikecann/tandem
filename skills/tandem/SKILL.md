@@ -187,29 +187,20 @@ transitions, media or markers.
 
 ## How Mike likes a take cut
 
-- **Cut the pauses with `tandem tighten --filmora`,** not a script of your
-  own and not `--mike`. It cuts by volume the way his old Filmora silence
-  detection did: anything under -35 dB on every take track for 0.5 s or
-  more keeps 0.4 s at each end, so a long pause comes out at 0.8 s and a
-  shorter one is left as he said it. On 12 Nov 2026 he listened to one take
-  cut five ways (today's `--mike`, `--mike` loosened, every pause to 0.6 s,
-  every pause over 0.8 s to 0.75 s by the transcript, and Filmora's own
-  method) and picked Filmora's: "lately we've been having issues with the
-  automated silence detection... the way that I had it in Filmora before
-  ... was perfect". The transcript rules left gaps anywhere from 0.15 s to
-  1.6 s (sentence pauses closed to 0.4 s, mid-sentence ones to 0.11 s, any
-  pause with a breath or noise in it left whole); by volume every long
-  pause lands at the same length. What it keeps is anything loud enough,
-  so a stray "um", "so" or click stays with 0.4 s either side: cut those
-  with `tandem cut`. Keep his deliberate beats with `--protect
-  <time,...>`. Dry run first, then `--apply`, then `check --cuts`.
-  It closes mid-sentence pauses itself (see "Mid-sentence pauses"): read
-  the kind on each line of the plan and fix the wrong ones with
-  `--mid-at`/`--sentence-at` before `--apply`.
-  `--mike` (by the transcript, 0.4 s after a sentence, 0.12 s after a
-  comma, 0.08 s mid-sentence) is still there for when he asks for tighter
-  than Filmora (see "Mid-sentence pauses"). Bark writes most "um"s as
-  words: run `tandem cut --fillers` before tightening.
+- **Cut the pauses with `tandem tighten --filmora --kinds <file>`,** not
+  a script of your own and not `--mike`. It finds pauses by volume, as his
+  old Filmora silence detection did (under -35 dB, and quiet above 4 kHz so
+  a soft final "s" is still a word and a breath is pause, for 0.3 s or
+  more), then cuts each to a total gap by its kind (see "Pauses by kind").
+  The dry run writes every pause to the file with about eight words either
+  side and a guess; read each one, ignoring Bark's punctuation, set its
+  `kind`, then run it again with `--apply`, which refuses while any kind is
+  empty. It judges each join as `check --cuts` would and leaves out a cut
+  that can't be made clean (listed in the plan). Then `check --cuts`. What
+  it keeps is anything loud enough, so a
+  stray "um", "so" or click stays: run `tandem cut --fillers` first, and
+  cut the rest with `tandem cut`. `--mike` (by the transcript's
+  punctuation) is only for when he asks for it.
 - **Never place an edge from transcript times,** with or without a margin.
   Mike heard Ian "cut off" 10 times over 4 review rounds on the whiteboard
   interview: "it's quite a common problem that we seem to get wrong,
@@ -284,16 +275,31 @@ transitions, media or markers.
   each in-point, and no in-point may open on a 15 to 20 ms blip of the cut
   word's tail. The "time." cut passed it: it sat in the gap before the
   word, and the word went missing whole.
-- **Pauses between sentences: up to 0.8 s,** the feel of his old Filmora
-  silence detection (0.4 s softening buffer on each side of a cut, 0.5 s
-  minimum, 25% volume threshold, about -35 dB). His Filmora-cut AI Tips
-  video has no pause over about 0.85 s and most long ones at 0.65 to
-  0.85 s. Agents read the buffer as the whole gap for a month and cut to
-  0.4 s; 0.2 s sounds rushed, as if the sentences are jammed together. A
-  cut that removes a retake or a stumble should leave real silence across
-  the join too, not trim right up to the words: `tandem cut` leaves 0.8 s
-  between sentences and round a false start, as Filmora did when he
-  deleted a retake's clip, so every join matches.
+- **Pauses by kind,** speech end to speech start, a breath counted as
+  pause:
+  - **mid** (inside a phrase): 0.12 s. It "should just sound like there
+    was no pause".
+  - **clause** (a comma, before and/but/so/because/which/if, a list item):
+    0.2 s.
+  - **sentence** (the next sentence in the same train of thought): 0.4 s.
+  - **topic** (a new topic or paragraph): 0.8 s, Filmora's 0.4 s buffer
+    each side.
+  - **keep** (deliberate: a scripted beat, a demo action on screen,
+    "an intentional long pause where I'm showing something on the
+    screen"): left alone.
+
+  How it got here, all 12 Nov 2026: he picked Filmora's own method by ear
+  over the transcript rules ("the way that I had it in Filmora before ...
+  was perfect"). Its 0.8 s everywhere then drew 7 comments on the Convex
+  Auth v2 cut: 5 mid-sentence ("don't forget mid sentence no big pause")
+  and 2 between sentences at 0.59 and 0.77 s ("longer than needed pause
+  here between sentences"). So 0.8 s is only for a change of topic. His
+  own trims on the Threadbear launch landed at 0.1, 0.18 and 0.35 s. Bark
+  writes a full stop wherever he pauses ("from scratch using. The
+  latest", "call this. functions", "halfway through. You don't end up",
+  "old convex v one. And now with this convex v2,"), so the kind is read
+  from the words, never the punctuation. `tandem cut` leaves a sentence's
+  0.4 s across a retake's join.
 - **Longer gaps where they earn it:** the end of a paragraph, letting a
   point land, or while something animates on screen (a build finishing, a
   result appearing, a diagram moving). Never cut a pause while a demo
@@ -309,60 +315,33 @@ transitions, media or markers.
   doesn't want to sit there silently smiling.
 - **No clips under 2 s,** where all it takes is putting back a pause of a
   second or less between sentences. Never bring back a thinking pause or a
-  long silence to do it. `tighten --filmora` does this by itself
-  (`--min-clip 2`). Filmora had no minimum clip length, only Volume
-  Threshold, Minimum Duration (the shortest silence it cuts) and Softening
-  Buffer; this rule is Mike's own, from Build Your Own Convex.
+  long silence to do it. `tighten --filmora --min-clip 2` does this,
+  putting back only a sentence or topic pause. It's off by default: with
+  mid-sentence pauses closed, most clips are short phrases, and on the Auth
+  v2 take it put back 34 sentence pauses, the long gaps he'd just flagged.
+  Use it on a long stretch with him full screen and nothing over it.
+  Filmora had no minimum clip length, only Volume Threshold, Minimum
+  Duration (the shortest silence it cuts) and Softening Buffer; this rule
+  is Mike's own, from Build Your Own Convex.
 - **The ending:** run on about 4 s after the sign-off, with a 3 s fade to
   black that starts about a second after it, and fade the music out with
   it. A 2 s fade at the end of a 5 s run-on "can probably start to fade
   out a bit sooner" (Muse Wonder, 2026-10-13). Run on with the real
   footage: a freeze of his last frame "looks weird" (What I Need video,
   2026-10-09).
-- **Mid-sentence pauses:** `--filmora` only shortens a pause over 0.8 s,
-  which is right between sentences, but a 0.8 s pause mid-sentence still
-  sounds broken. On the Convex Auth v2 video (12 Nov 2026, the same day he
-  picked Filmora) he flagged "using. [0.8 s] The latest and greatest":
-  "There's weird pause here when it's mid sentence... don't forget mid
-  sentence no big pause." So `--filmora` closes his thinking pauses, 0.5 s
-  or longer, right up (0.08 s of quiet each side mid-sentence, 0.1 s after
-  a comma), so a sentence sounds like one thought. It goes by the word
-  before the pause, and Bark puts a full stop where he stops to think
-  ("using." was one), so a full stop after a word that never ends a
-  sentence (using, the, and, of...) counts as mid-sentence. That doesn't
-  catch them all: read each "sentence" pause in the plan in context, and
-  pass the times of the ones that aren't with `--mid-at` (and
-  `--sentence-at` for the other way round). Leave
-  shorter ones (a breath, a natural pause) as he said them: closing every
-  gap of 0.2 s or more made 818 cuts in a 38-minute video, one every 2.8 s,
-  and the picture jumped around (Mike, 2026-10-05). The 0.4 s is for
-  between sentences. Leave live demo reactions alone.
-  On an unscripted screen demo, though, he wants the shorter mid-sentence
-  pauses gone too: "There's a heap of these like little micro pauses here
-  when I'm mid sentence. Can you get rid of them please?", applied to the
-  whole video (Threadbear launch, 2026-11-03, a screen demo with him in the
-  corner most of the time). What closed them: quiet gaps of about 0.25 s or
-  more mid-sentence down to about 0.13 s, and commas over 0.3 s to 0.15 s,
-  leaving breaths under that alone. Bark's full stops and capitals can't be
-  trusted in his fast runs ("some of the other really nice little. |
-  Productivity features" was the pause he flagged, and a 0.4 s sentence
-  keep had left it in), so read each long kept pause in context and decide
-  sentence or not yourself. Then let `check --cuts` move any edge that
-  clipped a word: edges from a level threshold cut soft word ends.
-  That still wasn't enough: on his next full watch he made dozens of 0.2 to
-  0.5 s mid-sentence trims himself and wrote "I've had to make lots of
-  little minor mid-sentence tightenings. I thought you had all these
-  fixed." Measure each gap from the take's own level, speech end to speech
-  start at about -42 dB, so a breath counts as part of the pause rather than
-  splitting it into two short quiet runs, then cut mid-sentence gaps over
-  0.2 s to about 0.1 s, gaps before but/and/so/because over 0.3 s to 0.18 s,
-  and sentence gaps over 0.5 s to 0.35 s (his own trims landed there).
-  Leave his own joins, the card gaps, the prompter-read cold open and his
-  sign-off beat alone, and never plan across a word a cut has half removed.
-  `check --cuts` then flags many of the new joins: apply its trim-to-pause
-  fixes, but its put-back fixes undo the cut, so only take those where the
-  clip's edge sits under 15 dB below speech and let `--listen` judge the
-  rest (two cuts came back unnoticed when the whole fix line was applied).
+- **Mid-sentence pauses:** the `mid` and `clause` kinds close them (see
+  "Pauses by kind"). History worth keeping: closing every gap of 0.2 s or
+  more on Build Your Own Convex made 818 cuts in 38 minutes and the
+  picture jumped about (2026-10-05), so pauses under 0.3 s are left as he
+  said them. On the Threadbear launch
+  (a screen demo, 2026-11-03) he still made dozens of 0.2 to 0.5 s
+  mid-sentence trims himself: "I thought you had all these fixed". Leave
+  his own joins, the card gaps, the prompter-read cold open and his
+  sign-off beat alone (`keep`), and never plan across a word a cut has
+  half removed. `check --cuts` may flag new joins: apply its
+  trim-to-pause fixes, but its put-back fixes undo the cut, so only take
+  those where the clip's edge sits under 15 dB below speech and let
+  `--listen` judge the rest.
 - **Live demos: keep the playback.** When Mike plays the timeline back to
   show the viewer ("let's have a look", "let's listen"), keep that stretch
   even though he's silent: "When I'm explicitly telling the user I'm
@@ -435,8 +414,9 @@ usually like to edit." Check each one before `tandem handback`:
   says full screen: the caveats "whiz down on the side of the screen with
   me still on the screen when I say asterisk", an overlay, not full-frame
   B-roll.
-- **Mid-sentence pauses closed** (see "Mid-sentence pauses"). `tandem
-  check` notes the ones left, with the `--mid-at` that closes each.
+- **Every pause given its kind** in the kinds file, read from the words
+  (see "Pauses by kind"). `tandem check` notes the mid-sentence pauses
+  still left long, with a fix for each.
 
 From his review comments on the Daytona and Build Your Own Convex videos
 (October 2026). The reasons matter more than the numbers.

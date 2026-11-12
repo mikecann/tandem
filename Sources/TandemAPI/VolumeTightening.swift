@@ -12,6 +12,15 @@ import TandemMedia
 /// Softening Buffer as Mike had them. Measured on his Filmora-cut AI Tips
 /// video, no pause was longer than about 0.85 s.
 ///
+/// Then each pause is cut to its kind (`SpokenPause`): 0.12 s mid-phrase,
+/// 0.2 s at a clause, 0.4 s between sentences, Filmora's 0.8 s at a new
+/// topic, and a deliberate one kept. On the Convex Auth v2 cut (12 Nov 2026)
+/// Filmora's 0.8 s everywhere drew 7 comments: 5 mid-sentence ("no big
+/// pause") and 2 between sentences at 0.59 and 0.77 s ("longer than needed
+/// pause here between sentences"). Bark puts a full stop wherever he pauses,
+/// so the kind is read from the words by the agent doing the edit: the dry
+/// run guesses, and `apply` needs every pause's kind given.
+///
 /// Why not the transcript's gaps (`SoundTightening`): on 12 Nov 2026 Mike
 /// listened to one take cut five ways and picked this one. The transcript
 /// rules closed sentence pauses to 0.4 s and mid-sentence ones to 0.11 s,
@@ -26,7 +35,8 @@ public enum VolumeTightening {
         public var threshold: Double
         /// The shortest silence that's cut.
         public var minimum: Double
-        /// What each silence keeps at each end.
+        /// What a new topic's silence keeps at each end (Filmora's softening
+        /// buffer). The other kinds keep `SpokenPause.total`.
         public var buffer: Double
         /// The shortest clip a cut may leave between two others: a shorter
         /// one gets the pause beside it put back, if that pause is
@@ -38,26 +48,24 @@ public enum VolumeTightening {
         /// The longest pause put back for `minimumClip`: never a thinking
         /// pause or a long silence.
         public static let putBackLimit = 1.0
-        /// What a silence after a comma, and one mid-sentence, keeps at
-        /// each end. Filmora kept 0.4 s everywhere, and a 0.8 s pause
-        /// mid-sentence sounds broken: "don't forget mid sentence no big
-        /// pause" (Convex Auth v2, 12 Nov 2026). At -35 dB a word's tail is
-        /// already well inside what's kept, so these come out about where
-        /// `--mike` put them (0.12 s after a comma, about 0.1 s mid-sentence).
-        public var commaBuffer = 0.1
-        public var midBuffer = 0.08
-
-        func buffer(for kind: PauseKind) -> Double {
-            switch kind {
-            case .sentence: return buffer
-            case .comma: return commaBuffer
-            case .mid: return midBuffer
-            }
-        }
-
         /// Mike's Filmora settings. Its 25% volume threshold was matched
         /// to -35 dB on his recordings (automate-filmora's rough-cut plan).
-        public static let filmora = Settings(threshold: -35, minimum: 0.5, buffer: 0.4, minimumClip: 2)
+        /// The minimum is 0.3 s rather than Filmora's 0.5 s, so a thinking
+        /// pause of 0.3 to 0.5 s mid-sentence is closed too (his own trims
+        /// on the Threadbear launch took gaps like that to 0.1 s).
+        public static let filmora = Settings(threshold: -35, minimum: 0.3, buffer: 0.4, minimumClip: 0)
+
+        /// What a pause of `kind` keeps after the word before and before
+        /// the word after, nil when it's kept whole. A new topic splits
+        /// evenly, as Filmora did; the rest keep about a third after the
+        /// word (at least 40 ms, a word's tail) and the rest before the
+        /// next (at least 70 ms, as a voice starts before its burst).
+        func keeps(for kind: SpokenPause) -> (after: Double, before: Double)? {
+            guard let total = kind.total else { return nil }
+            if kind == .topic { return (buffer, buffer) }
+            let after = max(0.04, 0.35 * total)
+            return (after, max(0.07, total - after))
+        }
     }
 
     public struct Plan: Sendable {
@@ -65,13 +73,17 @@ public enum VolumeTightening {
         public var protected: [Pause] = []
         /// Cuts left out so no clip is under `Settings.minimumClip`.
         public var putBack: [PlannedCut] = []
+        /// Every pause found, with its guessed and given kind.
+        public var pauses: [FilmoraPause] = []
+        /// Cuts left out because no place for them gave a clean join.
+        public var notClean: [PlannedCut] = []
         public var warnings: [String] = []
     }
 
     /// Silent stretches of a run of frame levels: every frame under the
     /// threshold, for at least the minimum. `levels` nil is a frame nothing
     /// plays on, which is never silent: a hole in the take isn't a pause.
-    static func silences(_ levels: [Float?], start: Double, frame: Double, threshold: Double, minimum: Double) -> [ClosedRange<Double>] {
+    static func silences(_ levels: [Float?], hiss: [Float]? = nil, start: Double, frame: Double, threshold: Double, minimum: Double) -> [ClosedRange<Double>] {
         var found: [ClosedRange<Double>] = []
         var runStart: Int?
         func close(_ end: Int) {
@@ -81,7 +93,10 @@ public enum VolumeTightening {
             if range.upperBound - range.lowerBound >= minimum - 1e-9 { found.append(range) }
         }
         for (index, level) in levels.enumerated() {
-            if let level, Double(level) < threshold {
+            // Quiet in the full band and above 4 kHz: a final "s" or "t"
+            // under the threshold is still a word. A breath (-53 to -60 dB
+            // on the Auth v2 take) is quiet in both, so it's pause.
+            if let level, Double(level) < threshold, (hiss.map { index >= $0.count || $0[index] < hissFloor } ?? true) {
                 if runStart == nil { runStart = index }
             } else {
                 close(index)
@@ -103,26 +118,34 @@ public enum VolumeTightening {
     /// Above 4 kHz, louder than this is a word's hiss (an "s", a "t"
     /// released), not the room.
     static let hissFloor: Float = -50
-    /// Kept past the last hiss at a silence's end.
-    static let hissPad = 0.03
 
-    /// What a short keep leaves after the word before and before the word
-    /// after: `buffer`, or more where hiss runs on into the silence (up to
-    /// `limit`, the sentence buffer).
-    static func clearOfHiss(_ silence: ClosedRange<Double>, buffer: Double, limit: Double, hiss: [Float], start: Double, frame: Double) -> (after: Double, before: Double) {
-        func index(_ time: Double) -> Int { Int(((time - start) / frame).rounded(.down)) }
-        let first = max(0, index(silence.lowerBound)), last = min(hiss.count, index(silence.upperBound))
-        guard first < last else { return (buffer, buffer) }
-        let reach = Int((limit / frame).rounded(.down))
-        var after = buffer, before = buffer
-        // The last hissing frame near the start, and the first near the end.
-        if let tail = (first..<min(last, first + reach)).last(where: { hiss[$0] >= hissFloor }) {
-            after = max(buffer, min(limit, Double(tail + 1) * frame + start - silence.lowerBound + hissPad))
-        }
-        if let lead = (max(first, last - reach)..<last).first(where: { hiss[$0] >= hissFloor }) {
-            before = max(buffer, min(limit, silence.upperBound - (Double(lead) * frame + start) + hissPad))
-        }
-        return (after, before)
+    /// Under these (RMS, and RMS above 4 kHz) a frame has no word in it:
+    /// what the Auth v2 agent's hand cuts went by, which `check --cuts
+    /// --listen` heard clean on all 63. A breath (-53 to -60 dB) is under.
+    static let wordFloor: Float = -47
+    static let wordHissFloor: Float = -58
+    /// How far a word's soft edge is followed into a pause.
+    static let edgeReach = 0.3
+
+    /// The silence from where the word before it really ends to where the
+    /// next really starts: each end moved in past any frame loud enough to
+    /// be a word (`wordFloor`, `wordHissFloor`), up to `edgeReach`. Never
+    /// past the timeline's own ends, which have no word beside them.
+    static func speechEdges(_ silence: ClosedRange<Double>, rms: [Float], hiss: [Float], start: Double, frame: Double) -> ClosedRange<Double> {
+        func index(_ time: Double) -> Int { Int(((time - start) / frame).rounded()) }
+        let first = max(0, index(silence.lowerBound)), last = min(rms.count, hiss.count, index(silence.upperBound))
+        guard first < last else { return silence }
+        func word(_ i: Int) -> Bool { rms[i] >= wordFloor || hiss[i] >= wordHissFloor }
+        let reach = Int((edgeReach / frame).rounded())
+        var low = first
+        // The last word-loud frame near the start, and the first near the end.
+        if let tail = (first..<min(last, first + reach)).last(where: word) { low = tail + 1 }
+        var high = last
+        if let lead = (max(low, last - reach)..<last).first(where: word) { high = lead }
+        guard high > low else { return silence.lowerBound...silence.lowerBound }
+        let lower = silence.lowerBound <= 1e-6 ? silence.lowerBound : start + Double(low) * frame
+        let upper = start + Double(high) * frame
+        return lower...max(lower, min(silence.upperBound, upper))
     }
 
     static func cut(in silence: ClosedRange<Double>, after: Double, before: Double, timelineEnd: Time, rate: FrameRate) -> TimeRange? {
@@ -147,13 +170,15 @@ public enum VolumeTightening {
     /// `to` (timeline seconds), nil where nothing on them plays, and the
     /// files that couldn't be read (whose stretches stay nil, so they're
     /// never cut).
-    static func levels(from: Double, to: Double, project: Project, folder: ProjectFolder) async -> (levels: [Float?], hiss: [Float], unread: [String]) {
+    static func levels(from: Double, to: Double, project: Project, folder: ProjectFolder) async -> (levels: [Float?], hiss: [Float], rms: [Float], unread: [String]) {
         let frame = SpeechEnergy.frameSeconds
         let count = max(0, Int(((to - from) / frame).rounded(.down)))
         var levels = [Float?](repeating: nil, count: count)
         // The loudest any track is above 4 kHz in each frame: a word's
         // final "s" or "t" can be under the threshold and still be heard.
         var hiss = [Float](repeating: -120, count: count)
+        // And how loud it is on average (RMS): where a word really ends.
+        var rms = [Float](repeating: -120, count: count)
         var unread: [String] = []
         // A long take is read a minute of the file at a time, so a whole
         // hour's sound is never in memory at once, even sped up.
@@ -188,6 +213,7 @@ public enum VolumeTightening {
                             for i in a...b where i >= 0 && i < energy.peak.count {
                                 loudest = max(loudest ?? -120, energy.peak[i])
                                 if i < energy.high.count { hiss[index] = max(hiss[index], energy.high[i]) }
+                                if i < energy.full.count { rms[index] = max(rms[index], energy.full[i]) }
                             }
                             // Nothing measured (the file's last few ms, which
                             // don't fill a frame): never call it silent.
@@ -210,14 +236,14 @@ public enum VolumeTightening {
                 }
             }
         }
-        return (levels, hiss, unread)
+        return (levels, hiss, rms, unread)
     }
 
     /// Filmora's cuts over the timeline (or `from` to `to`): every silence
     /// on every take track at once, less a buffer at each end. A silence
     /// with a `protect` time in it is left alone.
     static func plan(
-        settings: Settings, protect: [Time], midAt: [Time] = [], sentenceAt: [Time] = [], from: Time?, to: Time?,
+        settings: Settings, protect: [Time], kinds: [PauseKindMark] = [], from: Time?, to: Time?,
         map: TranscriptTools.SpeechMap, project: Project, folder: ProjectFolder
     ) async -> Plan {
         var plan = Plan()
@@ -231,29 +257,135 @@ public enum VolumeTightening {
         }
         let rate = project.settings.frameRate
         // Only the timeline's own ends are cut to the edge. A silence that
-        // runs into a `from` or `to` inside the timeline keeps its buffer
+        // runs into a `from` or `to` inside the timeline keeps its keep
         // there, as if a word were beyond it.
-        for silence in silences(read.levels, start: start, frame: frame, threshold: settings.threshold, minimum: settings.minimum) {
+        for silence in silences(read.levels, hiss: read.hiss, start: start, frame: frame, threshold: settings.threshold, minimum: settings.minimum) {
             let pause = Self.pause(silence, map: map, project: project)
             if protect.contains(where: { $0.seconds >= silence.lowerBound && $0.seconds <= silence.upperBound }) {
                 plan.protected.append(pause)
                 continue
             }
-            func marked(_ times: [Time]) -> Bool { times.contains { $0.seconds >= silence.lowerBound && $0.seconds <= silence.upperBound } }
-            let kind: PauseKind = marked(sentenceAt) ? .sentence : marked(midAt) ? .mid : Self.kind(of: silence, map: map)
-            let buffer = settings.buffer(for: kind)
-            // A short keep moves out past any hiss at the silence's ends, so a
-            // soft final "s" under the threshold isn't cut off; never past
-            // the sentence buffer.
-            let (after, before) = kind == .sentence ? (buffer, buffer)
-                : clearOfHiss(silence, buffer: buffer, limit: settings.buffer, hiss: read.hiss, start: start, frame: frame)
-            guard let cut = cut(in: silence, after: after, before: before, timelineEnd: project.duration, rate: rate) else { continue }
-            plan.cuts.append(PlannedCut(pause: pause, cut: cut, kind: kind, keep: Time(seconds: after + before)))
+            let guess = Self.guess(silence, map: map)
+            let given = kinds.last { $0.at.seconds >= silence.lowerBound && $0.at.seconds <= silence.upperBound }?.kind
+            plan.pauses.append(FilmoraPause(
+                start: pause.start, end: pause.end, heard: pause.duration,
+                before: Self.words(map, before: silence.lowerBound), after: Self.words(map, after: silence.upperBound),
+                guess: guess, kind: given
+            ))
+            let kind = given ?? guess
+            // The keep is measured from where the words really end and
+            // start: a soft "v" or a vowel's onset can sit under the
+            // threshold that found the pause ("We now have | north" lost the
+            // end of "have" on the Auth v2 take).
+            let speech = Self.speechEdges(silence, rms: read.rms, hiss: read.hiss, start: start, frame: frame)
+            guard let keep = settings.keeps(for: kind),
+                  let cut = cut(in: speech, after: keep.after, before: keep.before, timelineEnd: project.duration, rate: rate) else { continue }
+            plan.cuts.append(PlannedCut(pause: pause, cut: cut, keep: Time(seconds: keep.after + keep.before), spoken: kind, guessed: given == nil))
         }
-        let (kept, putBack) = keepingClips(plan.cuts, minimum: settings.minimumClip, timelineEnd: project.duration)
+        // Each join judged as `check --cuts` would, and moved further into
+        // the pause until it's clean, or the cut left out: a soft lead-in to
+        // a word ("have | north" on the Auth v2 take) can read as pause by
+        // volume and as voice to the ear.
+        let judged = await judgingJoins(plan.cuts, project: project, folder: folder, rate: rate)
+        plan.notClean = judged.notClean
+        let (kept, putBack) = keepingClips(judged.kept, minimum: settings.minimumClip, timelineEnd: project.duration)
         plan.cuts = kept
         plan.putBack = putBack
         return plan
+    }
+
+    /// The cuts with each join judged on every take track that plays there
+    /// (`GapSound.judge`, as `check --cuts` judges): a side that isn't clean
+    /// moves a frame at a time into the pause, keeping more of it, while the
+    /// cut still takes out a frame; a cut that can't be made clean is left
+    /// out. Where a file can't be read the cut stays as planned.
+    static func judgingJoins(_ cuts: [PlannedCut], project: Project, folder: ProjectFolder, rate: FrameRate) async -> (kept: [PlannedCut], notClean: [PlannedCut]) {
+        guard !cuts.isEmpty else { return (cuts, []) }
+        let tracks = SoundTightening.audibleTracks(project)
+        let margin = SoundTightening.readMargin
+        // Each file's stretches round the cuts, read once each.
+        var needed: [String: [ClosedRange<Double>]] = [:]
+        var items: [String: MediaItem] = [:]
+        for cut in cuts {
+            for track in tracks {
+                for clip in track.clips where clip.start < cut.cut.end + Time(seconds: margin) && clip.end > cut.cut.start - Time(seconds: margin) {
+                    guard let item = SoundTightening.plays(clip, in: project) else { continue }
+                    func media(_ time: Double) -> Double { clip.sourceStart.seconds + (time - clip.start.seconds) * clip.speed }
+                    let from = max(clip.start.seconds, cut.cut.start.seconds - 1), to = min(clip.end.seconds, cut.cut.end.seconds + 1)
+                    guard to > from else { continue }
+                    needed[item.id, default: []].append(max(0, media(from) - margin)...(media(to) + margin))
+                    items[item.id] = item
+                }
+            }
+        }
+        var readings: [String: [CutPlacer]] = [:]
+        for (id, ranges) in needed {
+            guard let item = items[id] else { continue }
+            var merged: [ClosedRange<Double>] = []
+            for range in ranges.sorted(by: { $0.lowerBound < $1.lowerBound }) {
+                if let last = merged.last, range.lowerBound <= last.upperBound {
+                    merged[merged.count - 1] = last.lowerBound...max(last.upperBound, range.upperBound)
+                } else {
+                    merged.append(range)
+                }
+            }
+            guard let energies = try? await merged.asyncMap({ try await SpeechEnergy.read(url: folder.url(for: item), from: $0.lowerBound, to: $0.upperBound) }) else { continue }
+            let levels = SpeechLevels(of: energies)
+            readings[id] = energies.map { CutPlacer($0, levels: levels) }
+        }
+
+        var kept: [PlannedCut] = [], notClean: [PlannedCut] = []
+        let frame = rate.frameDuration
+        for planned in cuts {
+            var layers: [SoundLayer] = []
+            var unheard = false
+            for track in tracks {
+                var pieces: [SoundLayer.Piece] = []
+                for clip in track.clips where clip.start < planned.cut.end + Time(seconds: 1) && clip.end > planned.cut.start - Time(seconds: 1) {
+                    guard let item = SoundTightening.plays(clip, in: project) else { continue }
+                    let media = clip.sourceStart.seconds + (max(clip.start, planned.cut.start - Time(seconds: 1)) - clip.start).seconds * clip.speed
+                    guard let placer = readings[item.id]?.first(where: { $0.energy.start <= media && media <= $0.energy.end }) else {
+                        unheard = true
+                        continue
+                    }
+                    pieces.append(SoundLayer.Piece(timeline: clip.start.seconds..<clip.end.seconds, mediaStart: clip.sourceStart.seconds, speed: clip.speed, placer: placer))
+                }
+                if !pieces.isEmpty { layers.append(SoundLayer(name: track.name, pieces: pieces)) }
+            }
+            guard !unheard, !layers.isEmpty else { kept.append(planned); continue }
+            var cut = planned.cut
+            var joins = GapSound.judge(layers, from: cut.start.seconds, to: cut.end.seconds)
+            // The timeline's own ends have nothing beside them to clip.
+            let atStart = cut.start == .zero, atEnd = cut.end >= project.duration
+            while (joins.start.verdict != .clean && !atStart) || (joins.end.verdict != .clean && !atEnd) {
+                var moved = cut
+                if joins.start.verdict != .clean && !atStart { moved = TimeRange(start: moved.start + frame, end: moved.end) }
+                if joins.end.verdict != .clean && !atEnd { moved = TimeRange(start: moved.start, end: moved.end - frame) }
+                guard moved.duration >= frame else { break }
+                cut = moved
+                joins = GapSound.judge(layers, from: cut.start.seconds, to: cut.end.seconds)
+            }
+            var judged = planned
+            judged.cut = cut
+            if (joins.start.verdict == .clean || atStart) && (joins.end.verdict == .clean || atEnd) {
+                kept.append(judged)
+            } else {
+                notClean.append(planned)
+            }
+        }
+        return (kept, notClean)
+    }
+
+    /// About eight words before `time`, and after it, for reading a
+    /// pause's kind.
+    static func words(_ map: TranscriptTools.SpeechMap, before time: Double) -> String {
+        let index = map.words.firstIndex { $0.start.seconds >= time } ?? map.words.count
+        return TranscriptTools.context(map.words, upTo: index, count: 8)
+    }
+
+    static func words(_ map: TranscriptTools.SpeechMap, after time: Double) -> String {
+        let index = map.words.firstIndex { $0.start.seconds >= time - 0.15 } ?? map.words.count
+        return TranscriptTools.context(map.words, from: index, count: 8)
     }
 
     /// The cuts with the pause put back beside every clip shorter than
@@ -280,10 +412,12 @@ public enum VolumeTightening {
                 let shorter = kept[index - 1].cut.duration <= kept[index].cut.duration ? index - 1 : index
                 let other = shorter == index ? index - 1 : index
                 // The shorter pause if it's short enough, or else the other.
-                // Only one between sentences: putting back a thinking pause
-                // mid-sentence is the big pause Mike doesn't want.
+                // Only one between sentences or topics: putting back a
+                // thinking pause mid-sentence is the big pause Mike doesn't
+                // want.
                 guard let back = [shorter, other].first(where: {
-                    kept[$0].cut.duration.seconds <= Settings.putBackLimit + 1e-9 && (kept[$0].kind ?? .sentence) == .sentence
+                    kept[$0].cut.duration.seconds <= Settings.putBackLimit + 1e-9
+                        && (kept[$0].kind ?? .sentence) == .sentence && [nil, .sentence, .topic].contains(kept[$0].spoken)
                 }) else { continue }
                 putBack.append(kept.remove(at: back))
                 changed = true
@@ -293,16 +427,14 @@ public enum VolumeTightening {
         return (kept, putBack.sorted { $0.cut.start < $1.cut.start })
     }
 
-    /// What a silence follows, by the word before it as it's spoken
-    /// (`TranscriptTools.spokenKind`). With no word before or after (the
-    /// take's start or end, or sound no word accounts for at the edge),
-    /// it's a sentence's: the long keep is the safe one.
-    static func kind(of silence: ClosedRange<Double>, map: TranscriptTools.SpeechMap) -> PauseKind {
-        // The word that ends at the silence (started before it) and the one
-        // that starts after it. A word starting inside the silence is a
-        // phantom or a mumble and doesn't count; words far from the
-        // silence (sound no transcript covers in between) say nothing
-        // about it.
+    /// Words that start a clause after a pause with no punctuation.
+    static let clauseStarters: Set<String> = ["and", "but", "so", "because", "which", "if", "or", "where", "when", "while", "then"]
+
+    /// The dry run's guess at a pause's kind, from the transcript: a
+    /// starting point for the agent, who reads the words and decides. With
+    /// no word before or after (the take's start or end, or sound no word
+    /// accounts for at the edge), it's a sentence's: the safe side.
+    static func guess(_ silence: ClosedRange<Double>, map: TranscriptTools.SpeechMap) -> SpokenPause {
         let reach = 1.0
         guard let before = map.words.last(where: { $0.start.seconds < silence.lowerBound }),
               before.end.seconds > silence.lowerBound - reach,
@@ -312,7 +444,12 @@ public enum VolumeTightening {
               // clip, no transcript) could end a sentence of its own.
               !map.unknown.contains(where: { $0.overlaps(TimeRange(start: before.end, end: max(before.end, after.start))) })
         else { return .sentence }
-        return TranscriptTools.spokenKind(after: before.text)
+        let next = after.text.lowercased().trimmingCharacters(in: CharacterSet.letters.inverted)
+        switch TranscriptTools.spokenKind(after: before.text) {
+        case .mid: return clauseStarters.contains(next) ? .clause : .mid
+        case .comma: return .clause
+        case .sentence: return silence.upperBound - silence.lowerBound > 1.5 ? .topic : .sentence
+        }
     }
 
     /// A silence as a `Pause`, with the words either side for the plan.
@@ -330,5 +467,15 @@ public enum VolumeTightening {
             after: TranscriptTools.context(map.words, from: after),
             clipIDs: clips
         )
+    }
+}
+
+extension Array {
+    /// Each element mapped in turn, awaiting each.
+    func asyncMap<T>(_ transform: (Element) async throws -> T) async rethrows -> [T] {
+        var result: [T] = []
+        result.reserveCapacity(count)
+        for element in self { result.append(try await transform(element)) }
+        return result
     }
 }

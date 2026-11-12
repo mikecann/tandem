@@ -84,10 +84,16 @@ final class VolumeTighteningTests: XCTestCase {
         return h
     }
 
-    func testCutsEverySilenceOverTheMinimumDownToTheBufferEachSide() async throws {
+    /// Every pause the dry run found, given `kind`.
+    private func every(_ plan: TightenResult, _ kind: SpokenPause) -> [PauseKindMark] {
+        (plan.pauses ?? []).map { PauseKindMark(at: Time(seconds: ($0.start.seconds + $0.end.seconds) / 2), kind: kind) }
+    }
+
+    func testEveryPauseATopicIsFilmorasCut() async throws {
         let h = try harness()
         defer { h.close() }
-        let plan = try await h.service.tighten(TightenRequest(filmora: true, minClip: 0), context: h.context)
+        let found = try await h.service.tighten(TightenRequest(min: 0.5, filmora: true, minClip: 0), context: h.context)
+        let plan = try await h.service.tighten(TightenRequest(min: 0.5, filmora: true, minClip: 0, kinds: every(found, .topic)), context: h.context)
         // 0-1 at the timeline's start goes to the edge; 3-4 keeps 0.4 s
         // each side; 6-6.6 and 8-8.3 are too short; the quiet noise in 9-12
         // counts as silence; 29-30 and file 32-40 are one silence across the
@@ -101,32 +107,123 @@ final class VolumeTighteningTests: XCTestCase {
             XCTAssertLessThanOrEqual(cut.cut.end.seconds, end + 1e-6, plan.readableText)
             XCTAssertGreaterThanOrEqual(cut.cut.end.seconds, end - 0.034, plan.readableText)
         }
-        XCTAssertEqual(plan.buffer, Self.t(0.4))
-        XCTAssertTrue(plan.readableText.contains("as Filmora did"), plan.readableText)
+        XCTAssertTrue(plan.cuts.allSatisfy { $0.spoken == .topic && $0.guessed == false })
 
         // A lower threshold hears the quiet noise, so 9-12 is two silences.
-        let strict = try await h.service.tighten(TightenRequest(filmora: true, threshold: -45, minClip: 0), context: h.context)
+        let strict = try await h.service.tighten(TightenRequest(min: 0.5, filmora: true, threshold: -45, minClip: 0), context: h.context)
         XCTAssertEqual(strict.cuts.filter { $0.cut.start.seconds > 9 && $0.cut.end.seconds < 12 }.count, 2, strict.readableText)
     }
 
-    func testProtectFromAndToAndApply() async throws {
+    func testHissAboveFourKilohertzIsntSilence() {
+        // 5 ms frames: all under the threshold, but hiss (a soft "s") in the
+        // first 0.2 s of a second.
+        let levels = [Float?](repeating: -60, count: 200)
+        let hiss = Array(repeating: Float(-40), count: 40) + Array(repeating: Float(-90), count: 160)
+        let found = VolumeTightening.silences(levels, hiss: hiss, start: 0, frame: 0.005, threshold: -35, minimum: 0.3)
+        XCTAssertEqual(found.count, 1)
+        XCTAssertEqual(found[0].lowerBound, 0.2, accuracy: 1e-9)
+    }
+
+    func testTheKeepIsMeasuredFromWhereTheWordsReallyEndAndStart() {
+        // 5 ms frames over a 1 s pause: a soft "v" at -45 dB RMS for 0.1 s,
+        // then room tone, then a vowel's onset at -50 dB for 0.05 s.
+        let rms = Array(repeating: Float(-45), count: 20) + Array(repeating: Float(-70), count: 170) + Array(repeating: Float(-50), count: 10)
+        let hiss = [Float](repeating: -90, count: 200)
+        let edges = VolumeTightening.speechEdges(10...11, rms: rms, hiss: hiss, start: 10, frame: 0.005)
+        XCTAssertEqual(edges.lowerBound, 10.1, accuracy: 1e-9)
+        XCTAssertEqual(edges.upperBound, 11.0, accuracy: 1e-9, "-50 dB is under the word floor: it is pause")
+        let loud = Array(repeating: Float(-45), count: 20) + Array(repeating: Float(-70), count: 170) + Array(repeating: Float(-40), count: 10)
+        XCTAssertEqual(VolumeTightening.speechEdges(10...11, rms: loud, hiss: hiss, start: 10, frame: 0.005).upperBound, 10.95, accuracy: 1e-9)
+        let onset = Array(repeating: Float(-70), count: 185) + Array(repeating: Float(-40), count: 15)
+        XCTAssertEqual(VolumeTightening.speechEdges(10...11, rms: onset, hiss: hiss, start: 10, frame: 0.005).upperBound, 10.925, accuracy: 1e-9)
+    }
+
+    func testEachKindKeepsItsGapAndTheDryRunGuesses() async throws {
+        let h = try harness()
+        defer { h.close() }
+        h.analysis.transcripts["med_camera"] = Transcript(language: "en", engine: "fake", words: [
+            TranscriptWord(text: "Built", start: Self.t(1.0), end: Self.t(2.0)),
+            TranscriptWord(text: "using.", start: Self.t(2.1), end: Self.t(3.0)),
+            TranscriptWord(text: "The", start: Self.t(4.0), end: Self.t(5.0)),
+            TranscriptWord(text: "latest", start: Self.t(5.1), end: Self.t(6.0)),
+            TranscriptWord(text: "and", start: Self.t(6.6), end: Self.t(8.0)),
+            TranscriptWord(text: "done.", start: Self.t(8.3), end: Self.t(9.0)),
+            TranscriptWord(text: "Next", start: Self.t(12.0), end: Self.t(29.0))
+        ])
+        let plan = try await h.service.tighten(TightenRequest(filmora: true, minClip: 0), context: h.context)
+        func cut(at time: Double, in plan: TightenResult) -> PlannedCut? {
+            plan.cuts.first { $0.pause.start.seconds <= time && time <= $0.pause.end.seconds }
+        }
+        // "using." is Bark's full stop on a thinking pause: mid, 0.12 s, a
+        // third after the word. "latest | and" is a clause, "and | done"
+        // (0.3 s, a hair under the minimum on 5 ms frames) isn't a pause,
+        // "done. | Next" over 1.5 s is a new topic, and the two after the
+        // last word are sentences (the safe side).
+        let guesses = (plan.pauses ?? []).map { $0.guess }
+        XCTAssertEqual(guesses, [.sentence, .mid, .clause, .topic, .sentence, .sentence], plan.readableText)
+        let mid = try XCTUnwrap(cut(at: 3.5, in: plan), plan.readableText)
+        XCTAssertEqual(mid.spoken, .mid)
+        XCTAssertEqual(mid.guessed, true)
+        XCTAssertEqual(mid.cut.start.seconds, 3.067, accuracy: 0.001, plan.readableText)
+        XCTAssertEqual(mid.cut.end.seconds, 3.9, accuracy: 0.001, plan.readableText)
+        let clause = try XCTUnwrap(cut(at: 6.3, in: plan), plan.readableText)
+        XCTAssertEqual(clause.cut.start.seconds, 6.1, accuracy: 0.034, plan.readableText)
+        XCTAssertTrue(plan.readableText.contains("only a guessed kind"), plan.readableText)
+
+        // Given kinds win over the guesses, and nothing given is a guess.
+        var kinds = every(plan, .mid)
+        kinds[3] = PauseKindMark(at: kinds[3].at, kind: .sentence)
+        kinds[2] = PauseKindMark(at: kinds[2].at, kind: .keep)
+        let given = try await h.service.tighten(TightenRequest(filmora: true, minClip: 0, kinds: kinds), context: h.context)
+        let sentence = try XCTUnwrap(cut(at: 10.5, in: given), given.readableText)
+        XCTAssertEqual(sentence.spoken, .sentence)
+        // 0.14 s after "done.", 0.26 s before "Next", on frames inwards.
+        XCTAssertEqual(sentence.cut.start.seconds, 9.167, accuracy: 0.001, given.readableText)
+        XCTAssertEqual(sentence.cut.end.seconds, 11.733, accuracy: 0.001, given.readableText)
+        XCTAssertNil(cut(at: 6.3, in: given), "keep is left alone")
+        XCTAssertTrue(given.cuts.allSatisfy { $0.guessed == false })
+    }
+
+    func testApplyNeedsEveryPausesKind() async throws {
+        let h = try harness()
+        defer { h.close() }
+        do {
+            _ = try await h.service.tighten(TightenRequest(filmora: true, apply: true), context: h.context)
+            XCTFail("apply with guessed kinds should be refused")
+        } catch let error as ServiceError {
+            XCTAssertTrue(error.message.contains("no kind yet"), error.message)
+        }
+        let plan = try await h.service.tighten(TightenRequest(filmora: true, minClip: 0), context: h.context)
+        var kinds = every(plan, .sentence)
+        kinds.removeLast()
+        do {
+            _ = try await h.service.tighten(TightenRequest(filmora: true, minClip: 0, kinds: kinds, apply: true), context: h.context)
+            XCTFail("one pause with no kind should still be refused")
+        } catch let error as ServiceError {
+            XCTAssertTrue(error.message.contains("1 of"), error.message)
+        }
+        let applied = try await h.service.tighten(TightenRequest(filmora: true, minClip: 0, kinds: every(plan, .sentence), apply: true), context: h.context)
+        XCTAssertNotNil(applied.applied)
+        let removed = applied.cuts.reduce(0) { $0 + $1.cut.duration.seconds }
+        XCTAssertEqual(h.service.coordinator.project.duration.seconds, 60 - removed, accuracy: 0.001)
+    }
+
+    func testProtectAndFromAndTo() async throws {
         let h = try harness()
         defer { h.close() }
         let kept = try await h.service.tighten(TightenRequest(filmora: true, minClip: 0, protect: [Self.t(10)]), context: h.context)
         XCTAssertFalse(kept.cuts.contains { $0.cut.start.seconds > 9 && $0.cut.end.seconds < 12 })
         XCTAssertEqual(kept.protected.count, 1)
 
-        // A silence running into `from` keeps its buffer there.
+        // A silence running into `from` keeps its keep there, as if a word
+        // were before it: a sentence's 0.14 s after, 0.26 s before. The
+        // quiet noise at 10-10.5 (-45 dB RMS) is loud enough to be sound, and
+        // is followed as a word's soft edge as far as the 0.3 s reach: the
+        // keep starts from 10.3.
         let bounded = try await h.service.tighten(TightenRequest(filmora: true, minClip: 0, from: Self.t(10), to: Self.t(20)), context: h.context)
         XCTAssertEqual(bounded.cuts.count, 1, bounded.readableText)
-        XCTAssertEqual(bounded.cuts[0].cut.start.seconds, 10.4, accuracy: 0.001)
-        XCTAssertEqual(bounded.cuts[0].cut.end.seconds, 11.6, accuracy: 0.034)
-
-        let applied = try await h.service.tighten(TightenRequest(filmora: true, minClip: 0, apply: true), context: h.context)
-        XCTAssertNotNil(applied.applied)
-        let removed = applied.cuts.reduce(0) { $0 + $1.cut.duration.seconds }
-        XCTAssertEqual(h.service.coordinator.project.duration.seconds, 60 - removed, accuracy: 0.001)
-        XCTAssertEqual(removed, 0.6 + 0.2 + 2.2 + 8.2 + 11.6, accuracy: 5 * 0.034)
+        XCTAssertEqual(bounded.cuts[0].cut.start.seconds, 10.467, accuracy: 0.001)
+        XCTAssertEqual(bounded.cuts[0].cut.end.seconds, 11.733, accuracy: 0.034)
     }
 
     func testAFullStopAfterAWordThatNeverEndsASentenceIsMidSentence() {
@@ -148,53 +245,9 @@ final class VolumeTighteningTests: XCTestCase {
         XCTAssertEqual(TranscriptTools.spokenKind(after: "the?"), .sentence)
     }
 
-    func testMidSentenceSilencesAreClosedTightAndSentenceOnesKeepFilmorasBuffer() async throws {
-        let h = try harness()
-        defer { h.close() }
-        // 3-4 follows "using." (Bark's full stop, mid-sentence), 9-12
-        // follows "done." (a sentence), 8-8.3 and 6-6.6 are too short.
-        h.analysis.transcripts["med_camera"] = Transcript(language: "en", engine: "fake", words: [
-            TranscriptWord(text: "Built", start: Self.t(1.0), end: Self.t(2.0)),
-            TranscriptWord(text: "using.", start: Self.t(2.1), end: Self.t(3.0)),
-            TranscriptWord(text: "The", start: Self.t(4.0), end: Self.t(5.0)),
-            TranscriptWord(text: "latest", start: Self.t(5.1), end: Self.t(6.0)),
-            TranscriptWord(text: "and", start: Self.t(6.6), end: Self.t(8.0)),
-            TranscriptWord(text: "done.", start: Self.t(8.3), end: Self.t(9.0)),
-            TranscriptWord(text: "Next", start: Self.t(12.0), end: Self.t(29.0))
-        ])
-        let plan = try await h.service.tighten(TightenRequest(filmora: true, minClip: 0), context: h.context)
-        let mid = try XCTUnwrap(plan.cuts.first { $0.pause.start.seconds > 2.9 && $0.pause.start.seconds < 3.1 }, plan.readableText)
-        XCTAssertEqual(mid.kind, .mid)
-        // 0.08 s each side, on frames inwards: 3.1 to 3.9.
-        XCTAssertEqual(mid.cut.start.seconds, 3.1, accuracy: 0.034, plan.readableText)
-        XCTAssertEqual(mid.cut.end.seconds, 3.9, accuracy: 0.034, plan.readableText)
-        let sentence = try XCTUnwrap(plan.cuts.first { $0.pause.start.seconds > 8.9 && $0.pause.start.seconds < 9.1 }, plan.readableText)
-        XCTAssertEqual(sentence.kind, .sentence)
-        XCTAssertEqual(sentence.cut.start.seconds, 9.4, accuracy: 0.034)
-        XCTAssertTrue(plan.readableText.contains(" mid -> cut"), plan.readableText)
-
-        // Marked by hand, either way round.
-        let marked = try await h.service.tighten(TightenRequest(filmora: true, minClip: 0, midAt: [Self.t(10)], sentenceAt: [Self.t(3.5)]), context: h.context)
-        XCTAssertEqual(marked.cuts.first { $0.pause.start.seconds > 2.9 && $0.pause.start.seconds < 3.1 }?.kind, .sentence)
-        XCTAssertEqual(marked.cuts.first { $0.pause.start.seconds > 8.9 && $0.pause.start.seconds < 9.1 }?.kind, .mid)
-    }
-
-    func testAShortKeepMovesOutPastAWordsHiss() {
-        // 5 ms frames from 0: hiss (a soft "s") for the first 0.2 s of a
-        // 1 s silence, quiet after.
-        let hiss = Array(repeating: Float(-40), count: 40) + Array(repeating: Float(-90), count: 160)
-        let (after, before) = VolumeTightening.clearOfHiss(0...1, buffer: 0.08, limit: 0.4, hiss: hiss, start: 0, frame: 0.005)
-        XCTAssertEqual(after, 0.23, accuracy: 0.006, "past the hiss, and 30 ms more")
-        XCTAssertEqual(before, 0.08, accuracy: 1e-9)
-        let long = Array(repeating: Float(-40), count: 200)
-        XCTAssertEqual(VolumeTightening.clearOfHiss(0...1, buffer: 0.08, limit: 0.4, hiss: long, start: 0, frame: 0.005).after, 0.4, accuracy: 1e-9)
-        // Never less than the keep, even with a sentence buffer under it.
-        XCTAssertEqual(VolumeTightening.clearOfHiss(0...1, buffer: 0.08, limit: 0.02, hiss: hiss, start: 0, frame: 0.005).after, 0.08, accuracy: 1e-9)
-    }
-
     func testAThinkingPauseIsNeverPutBackForTheMinimumClip() {
         var mid = planned(5, 5.3)
-        mid.kind = .mid
+        mid.spoken = .mid
         // The short clip 5.3-6.3 sits between a mid-sentence cut and a long one.
         let (_, back) = VolumeTightening.keepingClips([planned(0, 2), mid, planned(6.3, 9), planned(12, 13)], minimum: 2)
         XCTAssertTrue(back.isEmpty, "\(back)")

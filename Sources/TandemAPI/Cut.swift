@@ -657,9 +657,10 @@ extension TandemService {
             && abs((first.end - last.start).seconds) < 1e-6 && abs((first.sourceEnd - last.sourceStart).seconds) < 1e-6
     }
 
-    /// A join between sentences or round a false start: Filmora's 0.4 s
-    /// softening buffer on each side (`VolumeTightening.Settings.filmora`).
-    static var filmoraJoin: Double { VolumeTightening.Settings.filmora.buffer * 2 }
+    /// A join between sentences or round a false start: a sentence's pause
+    /// in the same train of thought (`SpokenPause.sentence`). A retake picks
+    /// the same thought up again; Filmora's 0.8 s is for a new topic.
+    static var filmoraJoin: Double { SpokenPause.sentence.total ?? 0.4 }
 
     func plan(_ range: TimeRange, falseStart: Bool?, in project: Project) -> Planned {
         var planned = Planned(
@@ -723,12 +724,10 @@ extension TandemService {
             let kind = TranscriptTools.spokenKind(after: word.text)
             if let keep = TranscriptTools.mikeRules.keep(for: kind) { planned.keep = keep.seconds }
             planned.tightenFrom = TranscriptTools.mikeRules.shortest(for: kind).seconds
-            // Between sentences, or round a false start, the join leaves what
-            // Filmora did when Mike deleted a retake's clip: the 0.4 s
-            // softening buffer either side, so it matches every other pause
-            // `tighten --filmora` leaves (he picked that by ear, 12 Nov 2026).
-            // Mid-sentence and comma joins stay tight: Filmora never split
-            // there.
+            // Between sentences, or round a false start, the join leaves a
+            // sentence's 0.4 s, as `tighten --filmora` does for a pause in
+            // the same train of thought. Mid-sentence and comma joins stay
+            // tight.
             if kind == .sentence || planned.falseStart { planned.filmoraKeep = max(planned.keep, Self.filmoraJoin) }
         } else {
             planned.filmoraKeep = max(planned.keep, Self.filmoraJoin)
