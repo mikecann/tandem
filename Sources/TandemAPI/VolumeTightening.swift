@@ -117,10 +117,10 @@ public enum VolumeTightening {
         var after = buffer, before = buffer
         // The last hissing frame near the start, and the first near the end.
         if let tail = (first..<min(last, first + reach)).last(where: { hiss[$0] >= hissFloor }) {
-            after = min(limit, max(buffer, Double(tail + 1) * frame + start - silence.lowerBound + hissPad))
+            after = max(buffer, min(limit, Double(tail + 1) * frame + start - silence.lowerBound + hissPad))
         }
         if let lead = (max(first, last - reach)..<last).first(where: { hiss[$0] >= hissFloor }) {
-            before = min(limit, max(buffer, silence.upperBound - (Double(lead) * frame + start) + hissPad))
+            before = max(buffer, min(limit, silence.upperBound - (Double(lead) * frame + start) + hissPad))
         }
         return (after, before)
     }
@@ -304,10 +304,14 @@ public enum VolumeTightening {
         // silence (sound no transcript covers in between) say nothing
         // about it.
         let reach = 1.0
-        guard let before = map.words.last(where: { $0.start.seconds < silence.lowerBound + 0.05 }),
+        guard let before = map.words.last(where: { $0.start.seconds < silence.lowerBound }),
               before.end.seconds > silence.lowerBound - reach,
               let after = map.words.first(where: { $0.start.seconds >= silence.upperBound - 0.15 }),
-              after.start.seconds < silence.upperBound + reach else { return .sentence }
+              after.start.seconds < silence.upperBound + reach,
+              // Between them, sound the transcript doesn't cover (another
+              // clip, no transcript) could end a sentence of its own.
+              !map.unknown.contains(where: { $0.overlaps(TimeRange(start: before.end, end: max(before.end, after.start))) })
+        else { return .sentence }
         return TranscriptTools.spokenKind(after: before.text)
     }
 

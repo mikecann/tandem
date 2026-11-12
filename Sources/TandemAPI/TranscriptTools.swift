@@ -237,10 +237,10 @@ public enum TranscriptTools {
         // Only words that hardly ever end a sentence in speech: "Try
         // this.", "Yes you can.", "Sign in." and "I think so." all do, so
         // those aren't here.
-        "a", "an", "the", "and", "but", "or", "nor", "because", "cause", "if", "than",
-        "to", "of", "from", "into", "onto", "using", "via",
-        "my", "your", "our", "their", "its", "very", "just", "whether",
-        "i", "we", "they", "it's", "i'm", "we're", "you're", "they're", "that's", "there's", "kind", "sort"
+        "a", "an", "the", "and", "but", "or", "nor", "because", "if", "than",
+        "of", "into", "onto", "using", "via",
+        "my", "your", "our", "their", "its", "very", "whether",
+        "i", "we", "they", "it's", "i'm", "we're", "you're", "they're", "that's", "there's"
     ]
 
     /// What a pause follows, as it's spoken: `pauseKind`, except that a

@@ -143,6 +143,8 @@ final class VolumeTighteningTests: XCTestCase {
         XCTAssertEqual(TranscriptTools.spokenKind(after: "this."), .sentence)
         XCTAssertEqual(TranscriptTools.spokenKind(after: "can."), .sentence)
         XCTAssertEqual(TranscriptTools.spokenKind(after: "in."), .sentence)
+        XCTAssertEqual(TranscriptTools.spokenKind(after: "cause."), .sentence)
+        XCTAssertEqual(TranscriptTools.spokenKind(after: "from."), .sentence)
         XCTAssertEqual(TranscriptTools.spokenKind(after: "the?"), .sentence)
     }
 
@@ -186,6 +188,8 @@ final class VolumeTighteningTests: XCTestCase {
         XCTAssertEqual(before, 0.08, accuracy: 1e-9)
         let long = Array(repeating: Float(-40), count: 200)
         XCTAssertEqual(VolumeTightening.clearOfHiss(0...1, buffer: 0.08, limit: 0.4, hiss: long, start: 0, frame: 0.005).after, 0.4, accuracy: 1e-9)
+        // Never less than the keep, even with a sentence buffer under it.
+        XCTAssertEqual(VolumeTightening.clearOfHiss(0...1, buffer: 0.08, limit: 0.02, hiss: hiss, start: 0, frame: 0.005).after, 0.08, accuracy: 1e-9)
     }
 
     func testAThinkingPauseIsNeverPutBackForTheMinimumClip() {

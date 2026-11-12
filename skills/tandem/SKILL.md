@@ -322,7 +322,7 @@ transitions, media or markers.
   a comma), so a sentence sounds like one thought. It goes by the word
   before the pause, and Bark puts a full stop where he stops to think
   ("using." was one), so a full stop after a word that never ends a
-  sentence (using, the, and, to...) counts as mid-sentence. That doesn't
+  sentence (using, the, and, of...) counts as mid-sentence. That doesn't
   catch them all: read each "sentence" pause in the plan in context, and
   pass the times of the ones that aren't with `--mid-at` (and
   `--sentence-at` for the other way round). Leave
