@@ -474,6 +474,9 @@ public struct TightenRequest: ServiceCall {
     public var threshold: Double?
     /// With `filmora`: what each silence keeps at each end.
     public var buffer: Double?
+    /// With `filmora`: the shortest clip a cut may leave; a shorter one
+    /// gets a pause of a second or less beside it put back. 0 for none.
+    public var minClip: Double?
     /// Pauses containing any of these timeline times are left alone.
     public var protect: [Time]?
     /// Widen joins between speech clips that leave less than the keep, from
@@ -490,7 +493,7 @@ public struct TightenRequest: ServiceCall {
 
     public init(
         min: Double? = nil, keep: Double? = nil, sentence: Double? = nil, comma: Double? = nil, mid: Double? = nil,
-        midMin: Double? = nil, mike: Bool? = nil, filmora: Bool? = nil, threshold: Double? = nil, buffer: Double? = nil,
+        midMin: Double? = nil, mike: Bool? = nil, filmora: Bool? = nil, threshold: Double? = nil, buffer: Double? = nil, minClip: Double? = nil,
         protect: [Time]? = nil, widen: Bool? = nil,
         apply: Bool? = nil, from: Time? = nil, to: Time? = nil,
         label: String? = nil, author: String? = nil, expectedRevision: Int? = nil
@@ -505,6 +508,7 @@ public struct TightenRequest: ServiceCall {
         self.filmora = filmora
         self.threshold = threshold
         self.buffer = buffer
+        self.minClip = minClip
         self.protect = protect
         self.widen = widen
         self.apply = apply
@@ -527,6 +531,7 @@ public struct TightenRequest: ServiceCall {
         filmora = try c.decodeIfPresent(Bool.self, forKey: .filmora)
         threshold = try c.decodeIfPresent(Double.self, forKey: .threshold)
         buffer = try c.decodeSeconds(.buffer)
+        minClip = try c.decodeSeconds(.minClip)
         protect = try c.decodeTimes(.protect)
         widen = try c.decodeIfPresent(Bool.self, forKey: .widen)
         apply = try c.decodeIfPresent(Bool.self, forKey: .apply)
@@ -627,6 +632,10 @@ public struct TightenResult: Codable, Sendable {
     /// each end, and the level under which the take is silent.
     public var buffer: Time? = nil
     public var threshold: Double? = nil
+    /// With `filmora`: the shortest clip a cut may leave, and the pauses
+    /// put back for it.
+    public var minClip: Time? = nil
+    public var putBack: [Pause] = []
     public var cuts: [PlannedCut]
     /// Joins widened back out (`widen`).
     public var widened: [PlannedWiden]
@@ -664,6 +673,8 @@ extension TightenResult {
         midMinimum = try c.decodeIfPresent(Time.self, forKey: .midMinimum)
         buffer = try c.decodeIfPresent(Time.self, forKey: .buffer)
         threshold = try c.decodeIfPresent(Double.self, forKey: .threshold)
+        minClip = try c.decodeIfPresent(Time.self, forKey: .minClip)
+        putBack = try c.decodeIfPresent([Pause].self, forKey: .putBack) ?? []
         cuts = try c.decode([PlannedCut].self, forKey: .cuts)
         widened = try c.decode([PlannedWiden].self, forKey: .widened)
         protected = try c.decode([Pause].self, forKey: .protected)

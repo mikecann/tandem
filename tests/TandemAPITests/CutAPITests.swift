@@ -86,13 +86,13 @@ final class CutAPITests: XCTestCase {
         XCTAssertEqual(plan.cuts[0].text, "as I said")
         XCTAssertEqual(plan.cuts[0].before, "This is fine.")
         // In the pause after "fine." and the one before "we", on frames,
-        // leaving a sentence's 0.4 s between them.
+        // leaving Filmora's 0.8 s between sentences (0.4 s each side).
         XCTAssertTrue((11.0...11.5).contains(cut.start.seconds), "\(cut)")
         XCTAssertTrue((12.2...12.7).contains(cut.end.seconds), "\(cut)")
         XCTAssertEqual(cut.start, cut.start.roundedToFrame(.fps30))
         XCTAssertEqual(cut.end, cut.end.roundedToFrame(.fps30))
         let kept = try XCTUnwrap(plan.cuts[0].keptBefore) + XCTUnwrap(plan.cuts[0].keptAfter)
-        XCTAssertEqual(kept.seconds, 0.4, accuracy: 0.07)
+        XCTAssertEqual(kept.seconds, 0.8, accuracy: 0.07)
         XCTAssertEqual(plan.cuts[0].startEdge?.verdict, .clean)
         XCTAssertEqual(plan.cuts[0].endEdge?.verdict, .clean)
         XCTAssertGreaterThan(try XCTUnwrap(plan.cuts[0].startEdge?.margin), 15)
@@ -142,9 +142,9 @@ final class CutAPITests: XCTestCase {
         ).run(on: h.service, context: h.context)
         XCTAssertEqual(result.cuts.map(\.status), [.cut, .cut])
         // The second "fine.", with 3 s of silence before it and after:
-        // the join keeps a sentence's 0.4 s of it, as tighten would.
+        // the join keeps Filmora's 0.8 s of it, as tighten --filmora would.
         let fine = try XCTUnwrap(result.cuts[0].cut)
-        XCTAssertTrue((22.0...22.3).contains(fine.start.seconds), "\(fine)")
+        XCTAssertTrue((22.2...22.6).contains(fine.start.seconds), "\(fine)")
         XCTAssertGreaterThan(fine.end.seconds, 25.5)
         XCTAssertEqual(result.cuts[0].text, "fine.")
         guard case .cutRanges(let ranges, nil) = try XCTUnwrap(result.commands.first) else { return XCTFail("\(result.commands)") }
@@ -248,9 +248,9 @@ final class CutAPITests: XCTestCase {
 
     func testTheKeptPauseIsTimelineSecondsOnAFastClip() async throws {
         // The first piece plays at 2x: "fine." at file time 25 is at 12.5,
-        // and the 3 s of silence before it plays in 1.5 s. The join keeps a
-        // sentence's 0.4 s on the timeline, 0.2 s of it after "keep." (file
-        // 22.0, timeline 11.0), which is 0.4 s of the file.
+        // and the 3 s of silence before it plays in 1.5 s. The join keeps
+        // Filmora's 0.8 s on the timeline, 0.4 s of it after "keep." (file
+        // 22.0, timeline 11.0), which is 0.8 s of the file.
         var project = APIFixture.project()
         project.media[0].path = "source/take1-camera.wav"
         project.audioTracks[0].clips[0].speed = 2
@@ -264,9 +264,9 @@ final class CutAPITests: XCTestCase {
         let stretch = try XCTUnwrap(plan.cuts.first)
         XCTAssertEqual(stretch.status, .cut, stretch.reason ?? "")
         let cut = try XCTUnwrap(stretch.cut)
-        XCTAssertEqual(cut.start.seconds, 11.2, accuracy: 0.02, "\(cut)")
-        XCTAssertEqual(try XCTUnwrap(stretch.keptBefore).seconds, 0.2, accuracy: 0.02)
-        XCTAssertEqual(try XCTUnwrap(stretch.mediaStart).seconds, 22.4, accuracy: 0.04)
+        XCTAssertEqual(cut.start.seconds, 11.4, accuracy: 0.02, "\(cut)")
+        XCTAssertEqual(try XCTUnwrap(stretch.keptBefore).seconds, 0.4, accuracy: 0.02)
+        XCTAssertEqual(try XCTUnwrap(stretch.mediaStart).seconds, 22.8, accuracy: 0.04)
     }
 
     func testOverlappingMatchesOfAPhraseNeedAt() async throws {

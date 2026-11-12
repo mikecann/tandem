@@ -41,6 +41,25 @@ final class VolumeTighteningTests: XCTestCase {
         XCTAssertEqual(VolumeTightening.cut(in: 30...33.365, buffer: 0.4, timelineEnd: ntscEnd, rate: ntsc)?.end, ntscEnd)
     }
 
+    private func planned(_ start: Double, _ end: Double) -> PlannedCut {
+        let pause = Pause(start: Self.t(start), end: Self.t(end), duration: Self.t(end - start), before: "", after: "", clipIDs: [])
+        return PlannedCut(pause: pause, cut: TimeRange(start: Self.t(start), end: Self.t(end)))
+    }
+
+    func testAClipUnderTheMinimumGetsAShortPauseBesideItPutBack() {
+        // Clips between the cuts: 2-5 (3 s), 5.3-6.3 (1 s, too short), 9-12.
+        let cuts = [planned(0, 2), planned(5, 5.3), planned(6.3, 9), planned(12, 13)]
+        let (kept, back) = VolumeTightening.keepingClips(cuts, minimum: 2)
+        // The 0.3 s pause before the short clip goes back, not the 2.7 s one.
+        XCTAssertEqual(back.map(\.cut.start.seconds), [5])
+        XCTAssertEqual(kept.count, 3)
+
+        // Both pauses beside it over a second: it stays short, nothing put back.
+        let long = [planned(0, 2), planned(5, 7), planned(7.5, 10)]
+        XCTAssertEqual(VolumeTightening.keepingClips(long, minimum: 2).putBack.count, 0)
+        XCTAssertEqual(VolumeTightening.keepingClips(cuts, minimum: 0).kept.count, 4)
+    }
+
     /// The fixture's voice track plays file 0-30 at 0-30 and file 32-62 at
     /// 30-60. Tones (loud) and a quiet noise (-40 dB) in file time.
     private func harness() throws -> ServiceHarness {
@@ -57,7 +76,7 @@ final class VolumeTighteningTests: XCTestCase {
     func testCutsEverySilenceOverTheMinimumDownToTheBufferEachSide() async throws {
         let h = try harness()
         defer { h.close() }
-        let plan = try await h.service.tighten(TightenRequest(filmora: true), context: h.context)
+        let plan = try await h.service.tighten(TightenRequest(filmora: true, minClip: 0), context: h.context)
         // 0-1 at the timeline's start goes to the edge; 3-4 keeps 0.4 s
         // each side; 6-6.6 and 8-8.3 are too short; the quiet noise in 9-12
         // counts as silence; 29-30 and file 32-40 are one silence across the
@@ -75,24 +94,24 @@ final class VolumeTighteningTests: XCTestCase {
         XCTAssertTrue(plan.readableText.contains("as Filmora did"), plan.readableText)
 
         // A lower threshold hears the quiet noise, so 9-12 is two silences.
-        let strict = try await h.service.tighten(TightenRequest(filmora: true, threshold: -45), context: h.context)
+        let strict = try await h.service.tighten(TightenRequest(filmora: true, threshold: -45, minClip: 0), context: h.context)
         XCTAssertEqual(strict.cuts.filter { $0.cut.start.seconds > 9 && $0.cut.end.seconds < 12 }.count, 2, strict.readableText)
     }
 
     func testProtectFromAndToAndApply() async throws {
         let h = try harness()
         defer { h.close() }
-        let kept = try await h.service.tighten(TightenRequest(filmora: true, protect: [Self.t(10)]), context: h.context)
+        let kept = try await h.service.tighten(TightenRequest(filmora: true, minClip: 0, protect: [Self.t(10)]), context: h.context)
         XCTAssertFalse(kept.cuts.contains { $0.cut.start.seconds > 9 && $0.cut.end.seconds < 12 })
         XCTAssertEqual(kept.protected.count, 1)
 
         // A silence running into `from` keeps its buffer there.
-        let bounded = try await h.service.tighten(TightenRequest(filmora: true, from: Self.t(10), to: Self.t(20)), context: h.context)
+        let bounded = try await h.service.tighten(TightenRequest(filmora: true, minClip: 0, from: Self.t(10), to: Self.t(20)), context: h.context)
         XCTAssertEqual(bounded.cuts.count, 1, bounded.readableText)
         XCTAssertEqual(bounded.cuts[0].cut.start.seconds, 10.4, accuracy: 0.001)
         XCTAssertEqual(bounded.cuts[0].cut.end.seconds, 11.6, accuracy: 0.034)
 
-        let applied = try await h.service.tighten(TightenRequest(filmora: true, apply: true), context: h.context)
+        let applied = try await h.service.tighten(TightenRequest(filmora: true, minClip: 0, apply: true), context: h.context)
         XCTAssertNotNil(applied.applied)
         let removed = applied.cuts.reduce(0) { $0 + $1.cut.duration.seconds }
         XCTAssertEqual(h.service.coordinator.project.duration.seconds, 60 - removed, accuracy: 0.001)

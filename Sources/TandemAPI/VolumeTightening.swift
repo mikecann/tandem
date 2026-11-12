@@ -28,15 +28,27 @@ public enum VolumeTightening {
         public var minimum: Double
         /// What each silence keeps at each end.
         public var buffer: Double
+        /// The shortest clip a cut may leave between two others: a shorter
+        /// one gets the pause beside it put back, if that pause is
+        /// `putBackLimit` or less. 0 is no minimum. Filmora had no such
+        /// setting; it's Mike's "no clips under 2 s" (Build Your Own Convex,
+        /// Oct 2026), because a run of very short clips makes the picture
+        /// jump about.
+        public var minimumClip: Double = 0
+        /// The longest pause put back for `minimumClip`: never a thinking
+        /// pause or a long silence.
+        public static let putBackLimit = 1.0
 
         /// Mike's Filmora settings. Its 25% volume threshold was matched
         /// to -35 dB on his recordings (automate-filmora's rough-cut plan).
-        public static let filmora = Settings(threshold: -35, minimum: 0.5, buffer: 0.4)
+        public static let filmora = Settings(threshold: -35, minimum: 0.5, buffer: 0.4, minimumClip: 2)
     }
 
     public struct Plan: Sendable {
         public var cuts: [PlannedCut] = []
         public var protected: [Pause] = []
+        /// Cuts left out so no clip is under `Settings.minimumClip`.
+        public var putBack: [PlannedCut] = []
         public var warnings: [String] = []
     }
 
@@ -180,7 +192,38 @@ public enum VolumeTightening {
             guard let cut = cut(in: silence, buffer: settings.buffer, timelineEnd: project.duration, rate: rate) else { continue }
             plan.cuts.append(PlannedCut(pause: pause, cut: cut, keep: Time(seconds: settings.buffer * 2)))
         }
+        let (kept, putBack) = keepingClips(plan.cuts, minimum: settings.minimumClip)
+        plan.cuts = kept
+        plan.putBack = putBack
         return plan
+    }
+
+    /// The cuts with the pause put back beside every clip shorter than
+    /// `minimum` that one could lengthen: of the two cuts round it, the one
+    /// that takes out less, if it takes out `putBackLimit` or less. Putting
+    /// one back joins the clip to its neighbour, so it goes round again
+    /// until nothing changes. The timeline's first and last pieces don't
+    /// count: they're the take's lead-in and run-out.
+    static func keepingClips(_ cuts: [PlannedCut], minimum: Double) -> (kept: [PlannedCut], putBack: [PlannedCut]) {
+        guard minimum > 0 else { return (cuts, []) }
+        var kept = cuts.sorted { $0.cut.start < $1.cut.start }
+        var putBack: [PlannedCut] = []
+        var changed = true
+        while changed {
+            changed = false
+            for index in kept.indices.dropFirst() {
+                let clip = (kept[index].cut.start - kept[index - 1].cut.end).seconds
+                guard clip < minimum - 1e-9 else { continue }
+                let shorter = kept[index - 1].cut.duration <= kept[index].cut.duration ? index - 1 : index
+                let other = shorter == index ? index - 1 : index
+                // The shorter pause if it's short enough, or else the other.
+                guard let back = [shorter, other].first(where: { kept[$0].cut.duration.seconds <= Settings.putBackLimit + 1e-9 }) else { continue }
+                putBack.append(kept.remove(at: back))
+                changed = true
+                break
+            }
+        }
+        return (kept, putBack.sorted { $0.cut.start < $1.cut.start })
     }
 
     /// A silence as a `Pause`, with the words either side for the plan.

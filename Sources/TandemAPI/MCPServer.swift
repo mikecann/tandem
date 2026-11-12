@@ -573,6 +573,7 @@ enum MCPTools {
                 "filmora": S.boolean("Cut by volume as Mike's old Filmora silence detection did, which he prefers: every silence under threshold (-35 dB) for min (0.5 s) or more keeps buffer (0.4 s) at each end. Not with mike, keep, sentence, comma, mid, midMin or widen."),
                 "threshold": S.number("With filmora: peak level in dBFS under which the take is silent. Default -35."),
                 "buffer": time("With filmora: what each silence keeps at each end. Default 0.4 s."),
+                "minClip": time("With filmora: the shortest clip a cut may leave; a shorter one gets the pause beside it put back if that pause is 1 s or less. Default 2 s, 0 for none."),
                 "mike": S.boolean("Mike's older rules, by the transcript: sentence 0.4, comma 0.12, mid 0.08, min 0.5, midMin 0.5. The other fields override them."),
                 "sentence": time("Keep this much after a word ending . ? or !"),
                 "comma": time("Keep this much after a word ending , ; or : (default: the mid keep)."),

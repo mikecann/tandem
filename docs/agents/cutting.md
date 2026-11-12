@@ -24,7 +24,10 @@ right to the edge; a silence running into `--from` or `--to` keeps its
 buffer there. Quiet noise and breaths count as silence, so every long pause
 lands the same length, and anything loud enough stays, a stray "um" or a
 click included: cut those with `tandem cut`. Stretches where no take track
-plays, and files whose sound can't be read, are never cut. It doesn't
+plays, and files whose sound can't be read, are never cut. `--min-clip`
+(2 s, 0 for none) puts back the pause beside any clip a cut would leave
+shorter than that, if the pause is a second or less, so the picture doesn't
+jump about; Filmora had no such setting, it's Mike's rule. It doesn't
 listen for clipped words the way the transcript rules do (0.4 s of quiet
 either side doesn't need it), so run `check --cuts` after.
 
@@ -200,9 +203,12 @@ roughly where the words are and which ones stay. A real pause is 80 ms or
 more of quiet, full band and above 4 kHz alike; a word the transcript has
 0.2 s late still lands on the right side of it.
 
-The join keeps the pause Mike's tighten rules would (0.4 s after a
-sentence, 0.12 s after a comma, 0.08 s mid-sentence, by the word before the
-cut), split either side as `tighten` splits it but never under 0.03 s after
+Between sentences, round a false start and at the take's start, the join
+keeps 0.8 s, what Filmora left when Mike deleted a retake's clip (its 0.4 s
+softening buffer each side), so it matches the pauses `tighten --filmora`
+leaves. A cut that's only fillers, or one after a comma or mid-sentence,
+keeps the pause Mike's tighter rules would (0.12 s after a comma, 0.08 s
+mid-sentence, by the word before the cut), split either side as `tighten` splits it but never under 0.03 s after
 the word before or 0.08 s before the word after, and never closer than
 0.03 s to the words cut. Where neither pause was 0.5 s, the join keeps the
 longer one as it was. Each edge goes on a frame where one lands in its

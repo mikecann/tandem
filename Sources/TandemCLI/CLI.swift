@@ -314,7 +314,7 @@ struct CLI {
                 min: try seconds(args, "min"), keep: try seconds(args, "keep"),
                 sentence: try seconds(args, "sentence"), comma: try seconds(args, "comma"), mid: try seconds(args, "mid"),
                 midMin: try seconds(args, "mid-min"), mike: args.has("mike") ? true : nil,
-                filmora: args.has("filmora") ? true : nil, threshold: try args.number("threshold"), buffer: try seconds(args, "buffer"),
+                filmora: args.has("filmora") ? true : nil, threshold: try args.number("threshold"), buffer: try seconds(args, "buffer"), minClip: try seconds(args, "min-clip"),
                 protect: protect.isEmpty ? nil : protect, widen: args.has("widen") ? true : nil,
                 apply: args.has("apply"), from: try time(args, "from"), to: try time(args, "to"),
                 label: args.options["label"], expectedRevision: try args.integer("expect")

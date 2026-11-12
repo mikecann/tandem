@@ -583,6 +583,7 @@ public final class TandemService: @unchecked Sendable {
         if let min = request.min { settings.minimum = min }
         if let buffer = request.buffer { settings.buffer = buffer }
         if let threshold = request.threshold { settings.threshold = threshold }
+        if let minClip = request.minClip { settings.minimumClip = minClip }
         guard settings.minimum > 0 else { throw ServiceError(.badRequest, "`min` must be more than 0 seconds.") }
         guard settings.buffer >= 0 else { throw ServiceError(.badRequest, "`buffer` can't be less than 0 seconds.") }
         guard settings.threshold < 0 else { throw ServiceError(.badRequest, "`threshold` is in dBFS, under 0, like -35.") }
@@ -608,6 +609,7 @@ public final class TandemService: @unchecked Sendable {
             revision: revision, minimum: Time(seconds: settings.minimum), keep: Time(seconds: settings.buffer * 2),
             sentence: nil, comma: nil, mid: nil, midMinimum: nil,
             buffer: Time(seconds: settings.buffer), threshold: settings.threshold,
+            minClip: settings.minimumClip > 0 ? Time(seconds: settings.minimumClip) : nil, putBack: planned.putBack.map(\.pause),
             cuts: cuts, widened: [], protected: planned.protected, skipped: [], removed: removed, added: .zero,
             durationBefore: project.duration, durationAfter: project.duration - removed,
             commands: commands, applied: nil, warnings: warnings, missing: []
