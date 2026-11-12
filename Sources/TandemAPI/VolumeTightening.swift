@@ -266,7 +266,14 @@ public enum VolumeTightening {
                 continue
             }
             let guess = Self.guess(silence, map: map)
-            let given = kinds.last { $0.at.seconds >= silence.lowerBound && $0.at.seconds <= silence.upperBound }?.kind
+            let marks = Set(kinds.filter { $0.at.seconds >= silence.lowerBound && $0.at.seconds <= silence.upperBound }.map(\.kind))
+            // Two kinds in one pause: the pauses aren't the ones the kinds
+            // were read for (other settings, or an edit since). Neither is
+            // trusted, so it counts as not given and apply refuses.
+            if marks.count > 1 {
+                plan.warnings.append("The pause at \(pause.start)-\(pause.end) has \(marks.count) kinds given (\(marks.map(\.rawValue).sorted().joined(separator: ", "))): two pauses the kinds were read for are one now. Make the kinds file again with the same settings.")
+            }
+            let given = marks.count == 1 ? marks.first : nil
             plan.pauses.append(FilmoraPause(
                 start: pause.start, end: pause.end, heard: pause.duration,
                 before: Self.words(map, before: silence.lowerBound), after: Self.words(map, after: silence.upperBound),
@@ -303,18 +310,26 @@ public enum VolumeTightening {
         guard !cuts.isEmpty else { return (cuts, []) }
         let tracks = SoundTightening.audibleTracks(project)
         let margin = SoundTightening.readMargin
-        // Each file's stretches round the cuts, read once each.
+        // How far either side of an edge it can move or is judged over.
+        let around = 1.0
+        // Only the sound round each edge is read, never the whole of a
+        // long cut, so a long take is never in memory at once.
+        func windows(_ cut: TimeRange) -> [ClosedRange<Double>] {
+            [(cut.start.seconds - around)...(cut.start.seconds + around), (cut.end.seconds - around)...(cut.end.seconds + around)]
+        }
         var needed: [String: [ClosedRange<Double>]] = [:]
         var items: [String: MediaItem] = [:]
         for cut in cuts {
-            for track in tracks {
-                for clip in track.clips where clip.start < cut.cut.end + Time(seconds: margin) && clip.end > cut.cut.start - Time(seconds: margin) {
-                    guard let item = SoundTightening.plays(clip, in: project) else { continue }
-                    func media(_ time: Double) -> Double { clip.sourceStart.seconds + (time - clip.start.seconds) * clip.speed }
-                    let from = max(clip.start.seconds, cut.cut.start.seconds - 1), to = min(clip.end.seconds, cut.cut.end.seconds + 1)
-                    guard to > from else { continue }
-                    needed[item.id, default: []].append(max(0, media(from) - margin)...(media(to) + margin))
-                    items[item.id] = item
+            for window in windows(cut.cut) {
+                for track in tracks {
+                    for clip in track.clips where clip.start.seconds < window.upperBound && clip.end.seconds > window.lowerBound {
+                        guard let item = SoundTightening.plays(clip, in: project) else { continue }
+                        func media(_ time: Double) -> Double { clip.sourceStart.seconds + (time - clip.start.seconds) * clip.speed }
+                        let from = max(clip.start.seconds, window.lowerBound), to = min(clip.end.seconds, window.upperBound)
+                        guard to > from else { continue }
+                        needed[item.id, default: []].append(max(0, min(media(from), media(to)) - margin)...(max(media(from), media(to)) + margin))
+                        items[item.id] = item
+                    }
                 }
             }
         }
@@ -323,7 +338,8 @@ public enum VolumeTightening {
             guard let item = items[id] else { continue }
             var merged: [ClosedRange<Double>] = []
             for range in ranges.sorted(by: { $0.lowerBound < $1.lowerBound }) {
-                if let last = merged.last, range.lowerBound <= last.upperBound {
+                // Neighbouring edges merge only while the read stays short.
+                if let last = merged.last, range.lowerBound <= last.upperBound, range.upperBound - last.lowerBound <= 60 {
                     merged[merged.count - 1] = last.lowerBound...max(last.upperBound, range.upperBound)
                 } else {
                     merged.append(range)
@@ -334,44 +350,57 @@ public enum VolumeTightening {
             readings[id] = energies.map { CutPlacer($0, levels: levels) }
         }
 
-        var kept: [PlannedCut] = [], notClean: [PlannedCut] = []
-        let frame = rate.frameDuration
-        for planned in cuts {
+        /// The take's tracks round one edge, each clip with the reading
+        /// that holds that edge.
+        func layers(at edge: Double) -> [SoundLayer]? {
             var layers: [SoundLayer] = []
-            var unheard = false
             for track in tracks {
                 var pieces: [SoundLayer.Piece] = []
-                for clip in track.clips where clip.start < planned.cut.end + Time(seconds: 1) && clip.end > planned.cut.start - Time(seconds: 1) {
+                for clip in track.clips where clip.start.seconds < edge + around && clip.end.seconds > edge - around {
                     guard let item = SoundTightening.plays(clip, in: project) else { continue }
-                    let media = clip.sourceStart.seconds + (max(clip.start, planned.cut.start - Time(seconds: 1)) - clip.start).seconds * clip.speed
-                    guard let placer = readings[item.id]?.first(where: { $0.energy.start <= media && media <= $0.energy.end }) else {
-                        unheard = true
-                        continue
-                    }
+                    let at = min(max(edge, clip.start.seconds), clip.end.seconds)
+                    let media = clip.sourceStart.seconds + (at - clip.start.seconds) * clip.speed
+                    guard let placer = readings[item.id]?.first(where: { $0.energy.start <= media && media <= $0.energy.end }) else { return nil }
                     pieces.append(SoundLayer.Piece(timeline: clip.start.seconds..<clip.end.seconds, mediaStart: clip.sourceStart.seconds, speed: clip.speed, placer: placer))
                 }
                 if !pieces.isEmpty { layers.append(SoundLayer(name: track.name, pieces: pieces)) }
             }
-            guard !unheard, !layers.isEmpty else { kept.append(planned); continue }
+            return layers.isEmpty ? nil : layers
+        }
+
+        var kept: [PlannedCut] = [], notClean: [PlannedCut] = []
+        let frame = rate.frameDuration
+        for planned in cuts {
+            // Unheard (a file that can't be read): the cut stays as planned.
+            guard let startLayers = layers(at: planned.cut.start.seconds), let endLayers = layers(at: planned.cut.end.seconds) else {
+                kept.append(planned)
+                continue
+            }
+            // Each side judged on the sound read round it.
+            func judge(_ cut: TimeRange) -> (start: CutAudit.Verdict, end: CutAudit.Verdict) {
+                (GapSound.judge(startLayers, from: cut.start.seconds, to: cut.end.seconds).start.verdict,
+                 GapSound.judge(endLayers, from: cut.start.seconds, to: cut.end.seconds).end.verdict)
+            }
             var cut = planned.cut
-            var joins = GapSound.judge(layers, from: cut.start.seconds, to: cut.end.seconds)
+            var joins = judge(cut)
             // The timeline's own ends have nothing beside them to clip.
             let atStart = cut.start == .zero, atEnd = cut.end >= project.duration
-            while (joins.start.verdict != .clean && !atStart) || (joins.end.verdict != .clean && !atEnd) {
+            func clean(_ joins: (start: CutAudit.Verdict, end: CutAudit.Verdict)) -> Bool {
+                (joins.start == .clean || atStart) && (joins.end == .clean || atEnd)
+            }
+            // A side moves at most `around` into the pause, where it was read.
+            let limit = Time(seconds: around - 0.05)
+            while !clean(joins) {
                 var moved = cut
-                if joins.start.verdict != .clean && !atStart { moved = TimeRange(start: moved.start + frame, end: moved.end) }
-                if joins.end.verdict != .clean && !atEnd { moved = TimeRange(start: moved.start, end: moved.end - frame) }
-                guard moved.duration >= frame else { break }
+                if joins.start != .clean && !atStart { moved = TimeRange(start: moved.start + frame, end: moved.end) }
+                if joins.end != .clean && !atEnd { moved = TimeRange(start: moved.start, end: moved.end - frame) }
+                guard moved.duration >= frame, moved.start - planned.cut.start <= limit, planned.cut.end - moved.end <= limit else { break }
                 cut = moved
-                joins = GapSound.judge(layers, from: cut.start.seconds, to: cut.end.seconds)
+                joins = judge(cut)
             }
             var judged = planned
             judged.cut = cut
-            if (joins.start.verdict == .clean || atStart) && (joins.end.verdict == .clean || atEnd) {
-                kept.append(judged)
-            } else {
-                notClean.append(planned)
-            }
+            if clean(joins) { kept.append(judged) } else { notClean.append(planned) }
         }
         return (kept, notClean)
     }

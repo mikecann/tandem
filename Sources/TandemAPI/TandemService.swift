@@ -507,6 +507,9 @@ public final class TandemService: @unchecked Sendable {
 
     public func tighten(_ request: TightenRequest, context: CallContext) async throws -> TightenResult {
         if request.filmora == true { return try await tightenByVolume(request, context: context) }
+        if request.kinds != nil || request.minClip != nil || request.buffer != nil || request.threshold != nil {
+            throw ServiceError(.badRequest, "`kinds`, `minClip`, `buffer` and `threshold` go with `filmora`.")
+        }
         let rules = try pauseRules(for: request)
         let (project, revision) = coordinator.snapshot()
         try checkExpected(request.expectedRevision, at: revision)

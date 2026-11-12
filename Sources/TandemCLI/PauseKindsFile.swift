@@ -22,11 +22,21 @@ struct PauseKindsFile: Codable {
     }
 
     var revision: Int
+    /// What the pauses were found with: an apply with other settings finds
+    /// other pauses, so it's refused.
+    var settings: Settings?
+    struct Settings: Codable, Equatable {
+        var threshold: Double?
+        var min: Double?
+        var from: Double?
+        var to: Double?
+    }
     var kinds = "mid: inside a phrase, no pause heard (0.12 s). clause: a comma, before and/but/so/because/which/if, a list item (0.2 s). sentence: between sentences in the same train of thought (0.4 s). topic: a new topic or paragraph (0.8 s). keep: deliberate, a scripted beat or a demo action on screen (left alone). Ignore Bark's punctuation: read the words."
     var pauses: [Entry]
 
-    init(revision: Int, pauses: [FilmoraPause]) {
+    init(revision: Int, settings: Settings, pauses: [FilmoraPause]) {
         self.revision = revision
+        self.settings = settings
         self.pauses = pauses.map {
             Entry(start: $0.start.seconds, end: $0.end.seconds, heard: $0.heard.seconds, before: $0.before, after: $0.after, guess: $0.guess.rawValue, kind: $0.kind?.rawValue)
         }

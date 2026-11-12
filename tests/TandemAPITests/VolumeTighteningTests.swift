@@ -208,6 +208,31 @@ final class VolumeTighteningTests: XCTestCase {
         XCTAssertEqual(h.service.coordinator.project.duration.seconds, 60 - removed, accuracy: 0.001)
     }
 
+    func testTwoKindsInOnePauseAreNotTrustedAndKindsNeedFilmora() async throws {
+        let h = try harness()
+        defer { h.close() }
+        let plan = try await h.service.tighten(TightenRequest(filmora: true), context: h.context)
+        var kinds = every(plan, .sentence)
+        // A second, different kind inside the pause at 3-4 (as when two
+        // pauses the kinds were read for have become one).
+        kinds.append(PauseKindMark(at: Self.t(3.2), kind: .keep))
+        let mixed = try await h.service.tighten(TightenRequest(filmora: true, kinds: kinds), context: h.context)
+        XCTAssertEqual(mixed.pauses?.filter { $0.kind == nil }.count, 1, mixed.readableText)
+        XCTAssertTrue(mixed.warnings.contains { $0.contains("kinds given") }, "\(mixed.warnings)")
+        do {
+            _ = try await h.service.tighten(TightenRequest(filmora: true, kinds: kinds, apply: true), context: h.context)
+            XCTFail("an untrusted kind should stop apply")
+        } catch let error as ServiceError {
+            XCTAssertTrue(error.message.contains("no kind yet"), error.message)
+        }
+        do {
+            _ = try await h.service.tighten(TightenRequest(kinds: kinds, apply: true), context: h.context)
+            XCTFail("kinds without filmora should be refused")
+        } catch let error as ServiceError {
+            XCTAssertTrue(error.message.contains("go with `filmora`"), error.message)
+        }
+    }
+
     func testProtectAndFromAndTo() async throws {
         let h = try harness()
         defer { h.close() }

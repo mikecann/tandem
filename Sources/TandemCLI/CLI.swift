@@ -321,7 +321,22 @@ struct CLI {
                 } catch {
                     throw UsageError(message: "Couldn't read \(kindsPath.path) as a kinds file: \(error.localizedDescription)")
                 }
-            } else if kindsPath != nil, args.has("apply") {
+            }
+            if kindsPath != nil, !args.has("filmora") {
+                throw UsageError(message: "--kinds goes with --filmora.")
+            }
+            // The pauses are found with these; the file says what it was made with.
+            let found = PauseKindsFile.Settings(
+                threshold: try args.number("threshold"), min: try seconds(args, "min"),
+                from: try time(args, "from")?.seconds, to: try time(args, "to")?.seconds
+            )
+            if let kindsFile, let made = kindsFile.settings, made != found {
+                throw UsageError(message: "\(args.options["kinds"] ?? "") was made with other settings (threshold, min, from, to): give the same ones, or make a new kinds file. Other settings find other pauses.")
+            }
+            if let kindsFile, let expect = try args.integer("expect"), expect != kindsFile.revision {
+                throw UsageError(message: "\(args.options["kinds"] ?? "") is for revision \(kindsFile.revision), not \(expect): times have moved since. Make a new kinds file.")
+            }
+            if kindsFile == nil, kindsPath != nil, args.has("apply") {
                 throw UsageError(message: "No kinds file at \(args.options["kinds"] ?? ""). Run it without --apply first: that writes the file, with a guess for every pause to check and fill in.")
             }
             var request = TightenRequest(
@@ -339,7 +354,7 @@ struct CLI {
             if let kindsFile, request.apply == true, request.expectedRevision == nil { request.expectedRevision = kindsFile.revision }
             let result = try await client().call(request)
             if let kindsPath, kindsFile == nil, let pauses = result.pauses {
-                let file = PauseKindsFile(revision: result.revision, pauses: pauses)
+                let file = PauseKindsFile(revision: result.revision, settings: found, pauses: pauses)
                 let encoder = JSONEncoder()
                 encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
                 try encoder.encode(file).write(to: kindsPath)
