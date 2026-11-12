@@ -167,16 +167,23 @@ their own beside it, and reports, with the clips on screen there:
     punctuate. A question or "!" always ends one. `tighten --filmora`
     closes mid-sentence pauses itself, by a narrower reading, so these are
     what an older tighten, a hand edit or that reading left: the note's fix
-    is `tandem tighten --filmora --from --to --mid-at <time>`, which closes
-    it whatever the words say. Eight are listed, then one note for the
-    rest with one command for them all. Not in conversations. It reads the
-    take's sound, so it's in a quick check too.
+    is `tandem tighten --filmora --from --to --mid-at <time>` over just
+    that pause (never the whole edit, which would re-cut every long
+    silence, a deliberate beat too), with a time in each stretch of quiet
+    in it, which closes it whatever the words say. Up to 40 are listed,
+    then a note says how many more to check again for. Not in
+    conversations. It reads the take's sound, so it's in a quick check
+    too.
   - PiP that isn't Mike's usual (`offStylePip`): a camera clip shown
     smaller than the frame that isn't `pipRight` or `pipLeft` with the
     cutout on, at its 50% in the corner: a cropped face box, the cutout
-    off, or a size or place of its own. One note for each run of them on a
-    track, with the `applyLayout` that puts them back. A split screen is
-    left alone, and so is a Short, whose face box is the layout Mike
+    off, or a size or place of its own. It judges where the PiP rests, in
+    the corner it rests in, so slides in and out pass; one that never
+    rests is judged at its keyframes. Moments under a full-frame opaque
+    layer, or with a second camera shown small (a conversation's boxes),
+    don't count. One note for each run of them on a track, with the
+    `applyLayout` that puts them back. A split screen is left alone, and
+    so is a Short, whose face box is the layout Mike
     passed for portrait. On the Auth v2 video the matte wasn't made, so the
     agent framed his face instead: "This is not our usual way". Start the
     matte when the project is made (`tandem new` says so) and wait for it.
