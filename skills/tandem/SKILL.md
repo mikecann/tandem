@@ -196,6 +196,8 @@ transitions, media or markers.
   so a stray "um", "so" or click stays with 0.4 s either side: cut those
   with `tandem cut`. Keep his deliberate beats with `--protect
   <time,...>`. Dry run first, then `--apply`, then `check --cuts`.
+  Then close the mid-sentence thinking pauses Filmora leaves at 0.8 s:
+  `tandem tighten --mid 0.1 --mid-min 0.5` (see "Mid-sentence pauses").
   `--mike` (by the transcript, 0.4 s after a sentence, 0.12 s after a
   comma, 0.08 s mid-sentence) is still there for when he asks for tighter
   than Filmora (see "Mid-sentence pauses"). Bark writes most "um"s as
@@ -310,9 +312,12 @@ transitions, media or markers.
   footage: a freeze of his last frame "looks weird" (What I Need video,
   2026-10-09).
 - **Mid-sentence pauses:** `--filmora` only shortens a pause over 0.8 s,
-  and that's what he picked on 12 Nov 2026 (on a screen demo take, too).
-  The notes below are from before, when he asked for tighter; do them only
-  when he asks again. Close his thinking pauses, 0.5 s or longer,
+  which is right between sentences, but a 0.8 s pause mid-sentence still
+  sounds broken. On the Convex Auth v2 video (12 Nov 2026, the same day he
+  picked Filmora) he flagged "using. [0.8 s] The latest and greatest":
+  "There's weird pause here when it's mid sentence... don't forget mid
+  sentence no big pause." So on every take, after `--filmora`, close his
+  thinking pauses, 0.5 s or longer,
   right up (to about 0.08 s, `--mid 0.08 --mid-min 0.5`, part of `--mike`),
   so a sentence sounds like one thought. Leave
   shorter ones (a breath, a natural pause) as he said them: closing every
@@ -389,6 +394,34 @@ transitions, media or markers.
   both the note and what it points at.
 
 ## How Mike likes the rest of the edit
+
+### Before the first hand-back, every time
+
+Mike's words on the Convex Auth v2 video (12 Nov 2026), after a first cut
+that missed these: "It doesn't seem like you... remember the ways that we
+usually like to edit." Check each one before `tandem handback`:
+
+- **Start the cutout matte when the project is made.** PiP is `pipRight`
+  with the cutout, always. A long 4K take mattes for hours, so put one
+  camera clip in `pipRight` straight after placing the take (that starts
+  the job), and never swap to a framed face box to save time: "what's going
+  on with the picture in picture here? This is not our usual way".
+- **A Convex wipe at every section change,** the cold open into the first
+  section included, not just into and out of demos and the outro: "Can we
+  have a swipe here? ... I want section swipes, particularly the outro,
+  intro, etc."
+- **Proof on screen for every claim, including the lines he rewrote or
+  ad-libbed,** not only the script's callouts: "v2 is finally here" (the
+  docs or announcement), "non-beta forever" (the old beta label), "no per
+  user billing like Clerk or WorkOS" (their pricing pages), "drop it into
+  your next project" (the quick start). "We need to show something here",
+  "justify what I'm saying". Read the final transcript line by line for
+  anything that names a thing or makes a claim with nothing over it.
+- **Gags he describes on screen keep his face in shot** unless the note
+  says full screen: the caveats "whiz down on the side of the screen with
+  me still on the screen when I say asterisk", an overlay, not full-frame
+  B-roll.
+- **Mid-sentence pauses closed** (see "Mid-sentence pauses").
 
 From his review comments on the Daytona and Build Your Own Convex videos
 (October 2026). The reasons matter more than the numbers.
