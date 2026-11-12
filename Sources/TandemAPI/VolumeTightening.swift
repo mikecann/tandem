@@ -75,7 +75,10 @@ public enum VolumeTightening {
             // Up to the next frame, so the buffer is kept whole; a hair's
             // tolerance so a time on a frame stays on it.
             : Time.frames(Int64(((silence.lowerBound + buffer) * fps - 1e-6).rounded(.up)), at: rate)
-        let end = silence.upperBound >= timelineEnd.seconds - 1e-6
+        // The levels stop at the last whole 5 ms frame, so a silence that
+        // reaches within a frame of the end is at the end (29.97 fps
+        // timelines rarely end on one).
+        let end = silence.upperBound >= timelineEnd.seconds - SpeechEnergy.frameSeconds - 1e-6
             ? timelineEnd
             : Time.frames(Int64(((silence.upperBound - buffer) * fps + 1e-6).rounded(.down)), at: rate)
         guard end - start >= rate.frameDuration else { return nil }
@@ -91,14 +94,15 @@ public enum VolumeTightening {
         let count = max(0, Int(((to - from) / frame).rounded(.down)))
         var levels = [Float?](repeating: nil, count: count)
         var unread: [String] = []
-        // A long take is read a minute at a time, so a whole hour's sound
-        // is never in memory at once.
-        let chunk = 60.0
+        // A long take is read a minute of the file at a time, so a whole
+        // hour's sound is never in memory at once, even sped up.
+        let fileChunk = 60.0
         for track in SoundTightening.audibleTracks(project) {
             for clip in track.clips where clip.start.seconds < to && clip.end.seconds > from {
                 guard let item = SoundTightening.plays(clip, in: project) else { continue }
                 let clipFrom = max(from, clip.start.seconds), clipTo = min(to, clip.end.seconds)
                 let speed = clip.speed
+                let chunk = fileChunk / max(abs(speed), 1e-3)
                 func media(_ time: Double) -> Double { clip.sourceStart.seconds + (time - clip.start.seconds) * speed }
                 var piece = clipFrom
                 while piece < clipTo {
@@ -123,8 +127,9 @@ public enum VolumeTightening {
                             for i in a...b where i >= 0 && i < energy.peak.count {
                                 loudest = max(loudest ?? -120, energy.peak[i])
                             }
-                            // Past the end of the file is silent.
-                            let level = loudest ?? -120
+                            // Nothing measured (the file's last few ms, which
+                            // don't fill a frame): never call it silent.
+                            let level = loudest ?? 0
                             levels[index] = max(levels[index] ?? -120, level)
                         }
                     }

@@ -34,6 +34,11 @@ final class VolumeTighteningTests: XCTestCase {
         XCTAssertNil(VolumeTightening.cut(in: 3.0...3.8, buffer: 0.4, timelineEnd: end, rate: rate))
         XCTAssertEqual(VolumeTightening.cut(in: 0...1.0, buffer: 0.4, timelineEnd: end, rate: rate)?.start, .zero)
         XCTAssertEqual(VolumeTightening.cut(in: 58...60, buffer: 0.4, timelineEnd: end, rate: rate)?.end, end)
+        // A 29.97 fps timeline ending off the 5 ms grid: the levels stop at
+        // the last whole frame, and that still counts as the end.
+        let ntsc = FrameRate(30000, 1001)
+        let ntscEnd = Time.frames(1000, at: ntsc)
+        XCTAssertEqual(VolumeTightening.cut(in: 30...33.365, buffer: 0.4, timelineEnd: ntscEnd, rate: ntsc)?.end, ntscEnd)
     }
 
     /// The fixture's voice track plays file 0-30 at 0-30 and file 32-62 at
