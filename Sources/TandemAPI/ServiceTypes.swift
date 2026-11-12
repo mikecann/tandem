@@ -477,6 +477,10 @@ public struct TightenRequest: ServiceCall {
     /// With `filmora`: the shortest clip a cut may leave; a shorter one
     /// gets a pause of a second or less beside it put back. 0 for none.
     public var minClip: Double?
+    /// With `filmora`: the silences holding these times are mid-sentence,
+    /// or between sentences, whatever the transcript's punctuation says.
+    public var midAt: [Time]?
+    public var sentenceAt: [Time]?
     /// Pauses containing any of these timeline times are left alone.
     public var protect: [Time]?
     /// Widen joins between speech clips that leave less than the keep, from
@@ -493,7 +497,7 @@ public struct TightenRequest: ServiceCall {
 
     public init(
         min: Double? = nil, keep: Double? = nil, sentence: Double? = nil, comma: Double? = nil, mid: Double? = nil,
-        midMin: Double? = nil, mike: Bool? = nil, filmora: Bool? = nil, threshold: Double? = nil, buffer: Double? = nil, minClip: Double? = nil,
+        midMin: Double? = nil, mike: Bool? = nil, filmora: Bool? = nil, threshold: Double? = nil, buffer: Double? = nil, minClip: Double? = nil, midAt: [Time]? = nil, sentenceAt: [Time]? = nil,
         protect: [Time]? = nil, widen: Bool? = nil,
         apply: Bool? = nil, from: Time? = nil, to: Time? = nil,
         label: String? = nil, author: String? = nil, expectedRevision: Int? = nil
@@ -509,6 +513,8 @@ public struct TightenRequest: ServiceCall {
         self.threshold = threshold
         self.buffer = buffer
         self.minClip = minClip
+        self.midAt = midAt
+        self.sentenceAt = sentenceAt
         self.protect = protect
         self.widen = widen
         self.apply = apply
@@ -532,6 +538,8 @@ public struct TightenRequest: ServiceCall {
         threshold = try c.decodeIfPresent(Double.self, forKey: .threshold)
         buffer = try c.decodeSeconds(.buffer)
         minClip = try c.decodeSeconds(.minClip)
+        midAt = try c.decodeTimes(.midAt)
+        sentenceAt = try c.decodeTimes(.sentenceAt)
         protect = try c.decodeTimes(.protect)
         widen = try c.decodeIfPresent(Bool.self, forKey: .widen)
         apply = try c.decodeIfPresent(Bool.self, forKey: .apply)

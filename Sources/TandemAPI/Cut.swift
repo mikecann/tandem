@@ -718,7 +718,9 @@ extension TandemService {
         // 0.08 s mid-sentence). With no word before, it's the take's start.
         // Pauses under 0.5 s are left as they are, as tighten leaves them.
         if let word = keptBefore.last {
-            let kind = TranscriptTools.pauseKind(after: word.text)
+            // As it's spoken: Bark's full stop after "using" isn't the end
+            // of a sentence.
+            let kind = TranscriptTools.spokenKind(after: word.text)
             if let keep = TranscriptTools.mikeRules.keep(for: kind) { planned.keep = keep.seconds }
             planned.tightenFrom = TranscriptTools.mikeRules.shortest(for: kind).seconds
             // Between sentences, or round a false start, the join leaves what

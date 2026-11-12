@@ -310,11 +310,16 @@ struct CLI {
             let protect = try (args.repeated["protect"] ?? [])
                 .flatMap { $0.split(separator: ",") }
                 .map { try parseTime($0.trimmingCharacters(in: .whitespaces)) }
+            func times(_ option: String) throws -> [Time]? {
+                let found = try (args.repeated[option] ?? []).flatMap { $0.split(separator: ",") }
+                    .map { try parseTime($0.trimmingCharacters(in: .whitespaces)) }
+                return found.isEmpty ? nil : found
+            }
             let request = TightenRequest(
                 min: try seconds(args, "min"), keep: try seconds(args, "keep"),
                 sentence: try seconds(args, "sentence"), comma: try seconds(args, "comma"), mid: try seconds(args, "mid"),
                 midMin: try seconds(args, "mid-min"), mike: args.has("mike") ? true : nil,
-                filmora: args.has("filmora") ? true : nil, threshold: try args.number("threshold"), buffer: try seconds(args, "buffer"), minClip: try seconds(args, "min-clip"),
+                filmora: args.has("filmora") ? true : nil, threshold: try args.number("threshold"), buffer: try seconds(args, "buffer"), minClip: try seconds(args, "min-clip"), midAt: try times("mid-at"), sentenceAt: try times("sentence-at"),
                 protect: protect.isEmpty ? nil : protect, widen: args.has("widen") ? true : nil,
                 apply: args.has("apply"), from: try time(args, "from"), to: try time(args, "to"),
                 label: args.options["label"], expectedRevision: try args.integer("expect")
