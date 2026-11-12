@@ -506,6 +506,7 @@ public final class TandemService: @unchecked Sendable {
     }
 
     public func tighten(_ request: TightenRequest, context: CallContext) async throws -> TightenResult {
+        if request.filmora == true { return try await tightenByVolume(request, context: context) }
         let rules = try pauseRules(for: request)
         let (project, revision) = coordinator.snapshot()
         try checkExpected(request.expectedRevision, at: revision)
@@ -562,6 +563,61 @@ public final class TandemService: @unchecked Sendable {
             expectedRevision: revision, dryRun: request.apply != true
         )
         let applied = try self.apply(apply, context: context)
+        result.durationAfter = applied.duration
+        result.warnings += applied.warnings
+        if request.apply == true { result.applied = applied }
+        return result
+    }
+
+    /// `tighten` with `filmora`: cut by volume, as Mike's old Filmora
+    /// silence detection did (`VolumeTightening`).
+    func tightenByVolume(_ request: TightenRequest, context: CallContext) async throws -> TightenResult {
+        let transcriptOnly: [(String, Bool)] = [
+            ("keep", request.keep != nil), ("sentence", request.sentence != nil), ("comma", request.comma != nil),
+            ("mid", request.mid != nil), ("midMin", request.midMin != nil), ("mike", request.mike == true), ("widen", request.widen == true)
+        ]
+        if let clash = transcriptOnly.first(where: { $0.1 }) {
+            throw ServiceError(.badRequest, "`\(clash.0)` is for tightening by the transcript. With `filmora`, give `min`, `buffer` and `threshold` instead.")
+        }
+        var settings = VolumeTightening.Settings.filmora
+        if let min = request.min { settings.minimum = min }
+        if let buffer = request.buffer { settings.buffer = buffer }
+        if let threshold = request.threshold { settings.threshold = threshold }
+        guard settings.minimum > 0 else { throw ServiceError(.badRequest, "`min` must be more than 0 seconds.") }
+        guard settings.buffer >= 0 else { throw ServiceError(.badRequest, "`buffer` can't be less than 0 seconds.") }
+        guard settings.threshold < 0 else { throw ServiceError(.badRequest, "`threshold` is in dBFS, under 0, like -35.") }
+
+        let (project, revision) = coordinator.snapshot()
+        try checkExpected(request.expectedRevision, at: revision)
+        let map = TranscriptTools.speechMap(project, analysis: analysis)
+        let planned = await VolumeTightening.plan(
+            settings: settings, protect: request.protect ?? [], from: request.from, to: request.to,
+            map: map, project: project, folder: folder
+        )
+        let cuts = planned.cuts
+        let commands = TranscriptTools.commands(for: cuts)
+        let removed = cuts.reduce(Time.zero) { $0 + $1.cut.duration }
+        var warnings = planned.warnings
+        let locked = project.allTracks.filter { $0.rippleMode == .cut && $0.locked }.map(\.name)
+        if !locked.isEmpty && !commands.isEmpty {
+            let message = "Track \(locked.map { "\"\($0)\"" }.joined(separator: ", ")) is locked, so tightening would put the take out of sync. Unlock it first."
+            if request.apply == true { throw ServiceError(.locked, message) }
+            warnings.append(message)
+        }
+        var result = TightenResult(
+            revision: revision, minimum: Time(seconds: settings.minimum), keep: Time(seconds: settings.buffer * 2),
+            sentence: nil, comma: nil, mid: nil, midMinimum: nil,
+            buffer: Time(seconds: settings.buffer), threshold: settings.threshold,
+            cuts: cuts, widened: [], protected: planned.protected, skipped: [], removed: removed, added: .zero,
+            durationBefore: project.duration, durationAfter: project.duration - removed,
+            commands: commands, applied: nil, warnings: warnings, missing: []
+        )
+        guard !commands.isEmpty else { return result }
+        let label = request.label ?? "Cut \(cuts.count) silence\(cuts.count == 1 ? "" : "s") as Filmora did, keeping \(TimeText.duration(Time(seconds: settings.buffer))) each side"
+        let applied = try self.apply(
+            ApplyRequest(label: label, author: request.author, commands: commands, expectedRevision: revision, dryRun: request.apply != true),
+            context: context
+        )
         result.durationAfter = applied.duration
         result.warnings += applied.warnings
         if request.apply == true { result.applied = applied }
