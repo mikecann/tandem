@@ -23,7 +23,7 @@ extension QualityCheck {
     /// one for each run of them on a track, with the `applyLayout` that
     /// puts them back. A split screen is a layout of its own and left alone.
     public static func offStylePip(in project: Project, ranges: [TimeRange]) -> [CheckProblem] {
-        guard project.settings.width >= project.settings.height, !conversation(project), !camerasSideBySide(project) else { return [] }
+        guard project.settings.width >= project.settings.height, !conversation(project) else { return [] }
         let media = Dictionary(project.media.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
         struct Found { var clip: Clip; var reason: String; var left: Bool }
         var notes: [CheckProblem] = []
@@ -65,23 +65,22 @@ extension QualityCheck {
         // that only takes in a slide-in would never see where it settles.
         guard ranges.contains(where: { clip.range.intersection($0).map { $0.duration > .zero } ?? false }) else { return nil }
         let shown = [clip.range]
-        var seen: VideoProperties?
-        var cutoutOff = false, cropped = false
-        // Moments it's on screen small and at rest, and of those, in place.
-        var visible = 0, placed = 0
-        var left = false
+        var cutoutOff = false, cropped = false, anyShown = false
+        // Where it sits at the moments it's on screen small and at rest.
+        var resting: [Transform] = []
+        func small(at time: Time) -> Bool {
+            guard let box = onScreen(clip, item: item, at: time, in: project) else { return false }
+            return box.area < pipLargest
+        }
         for piece in shown {
             for step in 0..<pipSamples {
                 let share = (Double(step) + 0.5) / Double(pipSamples)
                 let time = piece.start + Time(seconds: piece.duration.seconds * share)
-                guard let box = onScreen(clip, item: item, at: time, in: project), box.area < pipLargest,
-                      !hidden(at: time, by: above, in: project) else { continue }
+                guard small(at: time), !hidden(at: time, by: above, in: project),
+                      !otherCameraSmall(at: time, besides: item.id, in: project) else { continue }
                 let video = clip.resolvedVideo(at: time - clip.start)
                 if video.layoutPreset == LayoutPreset.split.rawValue { return nil }
-                if seen == nil {
-                    seen = video
-                    left = video.transform.position.x < 0.5
-                }
+                anyShown = true
                 if video.cutout?.enabled != true {
                     cutoutOff = true
                     if !video.crop.isIdentity { cropped = true }
@@ -89,41 +88,49 @@ extension QualityCheck {
                 // Only where it's at rest: part way through a slide says
                 // nothing about where it sits.
                 let soon = clip.resolvedVideo(at: min(clip.duration, time - clip.start + Time(seconds: 0.1))).transform
-                guard abs(soon.scale - video.transform.scale) < 0.001, abs(soon.position.x - video.transform.position.x) < 0.001,
-                      abs(soon.position.y - video.transform.position.y) < 0.001 else { continue }
-                visible += 1
-                let place = left ? LayoutPreset.pipLeftPosition : LayoutPreset.pipRightPosition
-                if abs(video.transform.scale - LayoutPreset.pipScale) <= pipSlack
-                    && abs(video.transform.position.x - place.x) <= pipSlack && abs(video.transform.position.y - place.y) <= pipSlack {
-                    placed += 1
-                }
+                if same(soon, video.transform) { resting.append(video.transform) }
             }
         }
-        guard let seen else { return nil }
+        guard anyShown else { return nil }
+        // Never at rest while it shows (a slide out that starts at once, or
+        // a size that changes all along): where its moves start and end.
+        if resting.isEmpty {
+            let keys = (clip.keyframes["video.transform.position"] ?? []) + (clip.keyframes["video.transform.scale"] ?? [])
+            resting = keys.map(\.time).filter { small(at: clip.start + $0) }.map { clip.resolvedVideo(at: $0).transform }
+        }
+        // The corner it rests in most, then whether it's at the preset's
+        // size and place there for most of that time: a slide in or out
+        // passes, a PiP that settles at another size doesn't.
+        let left = resting.filter { $0.position.x < 0.5 }.count * 2 > resting.count
+        let place = left ? LayoutPreset.pipLeftPosition : LayoutPreset.pipRightPosition
+        func placed(_ transform: Transform) -> Bool {
+            abs(transform.scale - LayoutPreset.pipScale) <= pipSlack
+                && abs(transform.position.x - place.x) <= pipSlack && abs(transform.position.y - place.y) <= pipSlack
+        }
         var reasons: [String] = []
         if cutoutOff { reasons.append("cutout off") }
         if cropped { reasons.append("cropped") }
-        // In its corner for most of the time it shows: a slide in or out
-        // passes, a PiP that settles at another size doesn't.
-        if placed * 2 < visible {
+        if resting.filter(placed).count * 2 < resting.count, let off = resting.first(where: { !placed($0) }) {
             let preset = left ? LayoutPreset.pipLeft : .pipRight
-            reasons.append(String(format: "%.0f%% at (%.2f, %.2f), not %@'s 50%% in the corner", seen.transform.scale * 100, seen.transform.position.x, seen.transform.position.y, preset.rawValue))
+            reasons.append(String(format: "%.0f%% at (%.2f, %.2f), not %@'s 50%% in the corner", off.scale * 100, off.position.x, off.position.y, preset.rawValue))
         }
         return reasons.isEmpty ? nil : (clip, reasons.joined(separator: ", "), left)
     }
 
-    /// Two different camera files shown at once: a conversation's boxes
-    /// side by side, laid out for the people in them, not Mike's corner.
-    static func camerasSideBySide(_ project: Project) -> Bool {
-        var shown: [(media: String, range: TimeRange)] = []
-        for track in project.videoTracks where !track.hidden {
-            for clip in track.clips where clip.enabled {
-                guard let id = clip.mediaID, project.media(id)?.role == .camera, (clip.video?.opacity ?? 1) > 0.01 else { continue }
-                if shown.contains(where: { $0.media != id && $0.range.overlaps(clip.range) }) { return true }
-                shown.append((id, clip.range))
-            }
+    static func same(_ a: Transform, _ b: Transform) -> Bool {
+        abs(a.scale - b.scale) < 0.001 && abs(a.position.x - b.position.x) < 0.001 && abs(a.position.y - b.position.y) < 0.001
+    }
+
+    /// Another camera file shown small at the same moment: a conversation's
+    /// boxes side by side, laid out for the people in them, not Mike's
+    /// corner. Only those moments are left alone, so a second angle
+    /// somewhere else in the edit doesn't switch the check off.
+    static func otherCameraSmall(at time: Time, besides mediaID: String, in project: Project) -> Bool {
+        project.videoTracks.contains { track in
+            guard !track.hidden, let clip = track.clip(at: time), clip.enabled, let id = clip.mediaID, id != mediaID,
+                  let item = project.media(id), item.role == .camera, let box = onScreen(clip, item: item, at: time, in: project) else { return false }
+            return box.area < pipLargest
         }
-        return false
     }
 
     /// Moments looked at in each clip.

@@ -554,7 +554,9 @@ extension TandemService {
             // The longest real pause in it: the span can hold a breath or a
             // click, which `tandem pauses` hears as sound.
             let quiet = sound.quiet.max { $0.duration < $1.duration } ?? TimeRange(start: sound.start, end: sound.start)
-            return QualityCheck.HeardPause(start: quiet.start, end: quiet.end, gap: gap, before: pause.before, after: pause.after, clipIDs: pause.clipIDs)
+            return QualityCheck.HeardPause(
+                start: quiet.start, end: quiet.end, gap: gap, before: pause.before, after: pause.after, clipIDs: pause.clipIDs, quiets: sound.quiet
+            )
         }
     }
 

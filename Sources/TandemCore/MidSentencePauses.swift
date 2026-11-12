@@ -174,14 +174,18 @@ extension QualityCheck {
         public var before: String
         public var after: String
         public var clipIDs: [String]
+        /// Every stretch of real quiet in it, the longest included: a click
+        /// or a breath can split it.
+        public var quiets: [TimeRange]
 
-        public init(start: Time, end: Time, gap: TimeRange? = nil, before: String, after: String, clipIDs: [String] = []) {
+        public init(start: Time, end: Time, gap: TimeRange? = nil, before: String, after: String, clipIDs: [String] = [], quiets: [TimeRange]? = nil) {
             self.start = start
             self.end = end
             self.gap = gap ?? TimeRange(start: start, end: end)
             self.before = before
             self.after = after
             self.clipIDs = clipIDs
+            self.quiets = quiets ?? (end > start ? [TimeRange(start: start, end: end)] : [])
         }
 
         /// The quiet in it.
@@ -207,26 +211,24 @@ extension QualityCheck {
     /// breath or the words' tails) needs this much between the words, since
     /// the transcript's word edges can be 0.1 s or more off the sound.
     static let midSentenceBreathyPause = Time(seconds: 0.6)
-    /// The longest a check lists one by one; the rest go in one note.
-    static let midSentencePausesListed = 8
+    /// The most a check lists; past that it says how many more there are,
+    /// to check again once these are closed.
+    static let midSentencePausesListed = 40
 
     /// What closes a pause: `tighten --filmora` over it, which cuts by
     /// volume (a breath counts as silence) and keeps 0.08 s each side
-    /// mid-sentence, 0.1 s after a comma. `--mid-at` makes it read a pause
-    /// it would take for a sentence end as mid-sentence, since its own
-    /// reading of the words is narrower than this check's.
-    static func midSentenceFix(_ pauses: [HeardPause], from: Time? = nil, to: Time? = nil) -> String {
-        var command = "tandem tighten --filmora"
-        if let from, let to { command += " --from \(from) --to \(to)" }
-        // A comma's pause is one to tighten already; the rest are marked.
-        let marked = pauses.filter { SpokenPause.punctuation(SpokenPause.edgeWord($0.before, last: true)) != .comma }
-        if !marked.isEmpty {
-            command += " --mid-at " + marked.map { pause -> String in
-                let range = pause.range
-                return "\(range.start + Time(seconds: range.duration.seconds / 2))"
-            }.joined(separator: ",")
-        }
-        return command
+    /// mid-sentence. `--mid-at` makes it read the pause as mid-sentence
+    /// whatever it makes of the words, since it picks the word before by
+    /// the sound's edges and reads it more narrowly than this check does.
+    /// A time in each stretch of real quiet, as a click can split the
+    /// silence it finds in two. Only ever over the pause (`from`, `to`):
+    /// over the whole edit it would re-cut every long silence, a
+    /// deliberate beat included.
+    static func midSentenceFix(_ pause: HeardPause, from: Time, to: Time) -> String {
+        let quiet = pause.quiets.filter { $0.duration >= Time(seconds: 0.1) }
+        let marks = quiet.isEmpty ? [pause.range] : quiet
+        let times = marks.map { "\($0.start + Time(seconds: $0.duration.seconds / 2))" }.joined(separator: ",")
+        return "tandem tighten --filmora --from \(from) --to \(to) --mid-at \(times)"
     }
 
     /// Notes for pauses of `midSentencePauseMinimum` or more, heard, in the
@@ -260,7 +262,7 @@ extension QualityCheck {
             // Wide enough that the silence and the words either side are in.
             let from = max(.zero, range.start - Time(seconds: 0.5)), to = range.end + Time(seconds: 0.5)
             let message = "Mid-sentence pause: \(quote(pause)), \(why(pause)). Mike: \"don't forget mid sentence no big pause\". "
-                + "Close it: \(midSentenceFix([pause], from: from, to: to)) (dry run, then --apply), then check --cuts."
+                + "Close it: \(midSentenceFix(pause, from: from, to: to)) (dry run, then --apply), then check --cuts."
             return CheckProblem(kind: .midSentencePause, start: range.start, end: range.end, message: message, clipIDs: pause.clipIDs)
         }
         let rest = found.dropFirst(midSentencePausesListed)
@@ -268,7 +270,7 @@ extension QualityCheck {
             notes.append(CheckProblem(
                 kind: .midSentencePause, start: first.range.start, end: last.range.end,
                 message: "\(rest.count) more mid-sentence pause\(rest.count == 1 ? "" : "s") of \(seconds(midSentencePauseMinimum)) or more, \(found.count) in all, from \(quote(first)) on. "
-                    + "Close them all: \(midSentenceFix(Array(rest))) (dry run, then --apply), then check --cuts.",
+                    + "Close the ones above, then check again for these.",
                 clipIDs: first.clipIDs
             ))
         }

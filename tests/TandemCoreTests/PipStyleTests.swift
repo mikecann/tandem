@@ -150,6 +150,29 @@ final class PipStyleTests: XCTestCase {
         XCTAssertEqual(notes(covered).map(\.clipIDs), [["clip_box"]])
     }
 
+    func testFromTheThirdReview() {
+        // A pipLeft that slides in from the right is judged in its corner.
+        var fromRight = cam("clip_left", 0, 4, layout(.pipLeft))
+        fromRight.keyframes["video.transform.position"] = [
+            Keyframe(time: .zero, value: .point(Point(x: 1.1, y: 0.77))), Keyframe(time: t(1), value: .point(Point(x: 0.13, y: 0.77)))
+        ]
+        XCTAssertEqual(notes(project([fromRight])), [])
+        // A size that changes all along, never the preset's, is noted.
+        var growing = cam("clip_grow", 0, 4, layout(.pipRight))
+        growing.keyframes["video.transform.scale"] = [
+            Keyframe(time: .zero, value: .number(0.6), interpolation: .linear), Keyframe(time: t(4), value: .number(0.8), interpolation: .linear)
+        ]
+        XCTAssertEqual(notes(project([growing])).map(\.clipIDs), [["clip_grow"]])
+        // A second angle full frame somewhere doesn't switch the check off.
+        let angle = MediaItem(id: "med_angle", path: "source/angle2.mov", kind: .video, role: .camera, duration: t(600), frameRate: .fps30, width: 3840, height: 2160, hasVideo: true)
+        var withAngle = project([cam("clip_box", 10, 15, faceBox)])
+        withAngle.media.append(angle)
+        withAngle.videoTracks.append(Track(id: "trk_angle", kind: .video, name: "Angle 2", clips: [
+            Clip(id: "clip_angle", content: .media(mediaID: "med_angle"), start: t(30), duration: t(5), sourceStart: .zero)
+        ], rippleMode: .cut))
+        XCTAssertEqual(notes(withAngle).map(\.clipIDs), [["clip_box"]])
+    }
+
     func testAConversationsCameraBoxesArentNoted() {
         let guest = MediaItem(id: "med_guest", path: "source/guest-camera.mov", kind: .video, role: .camera, duration: t(600), frameRate: .fps30, width: 3840, height: 2160, hasVideo: true)
         var boxes = project([cam("clip_host", 0, 20, faceBox)])
