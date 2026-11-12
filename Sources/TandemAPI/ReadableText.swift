@@ -286,6 +286,9 @@ extension TightenResult: ReadableResult {
             if added > .zero { change += ", adds \(TimeText.duration(added))" }
             lines.append("\(change): \(durationBefore) -> \(durationAfter).")
         }
+        if let minClip, !putBack.isEmpty {
+            lines.append("Put back \(putBack.count) pause\(putBack.count == 1 ? "" : "s") so no clip is under \(TimeText.duration(minClip)): \(putBack.map { "\($0.start)-\($0.end)" }.joined(separator: ", ")).")
+        }
         if !protected.isEmpty {
             lines.append("Left \(protected.count) protected pause\(protected.count == 1 ? "" : "s") alone: \(protected.map { "\($0.start)-\($0.end)" }.joined(separator: ", ")).")
         }

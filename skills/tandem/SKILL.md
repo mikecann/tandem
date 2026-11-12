@@ -281,8 +281,9 @@ transitions, media or markers.
   0.85 s. Agents read the buffer as the whole gap for a month and cut to
   0.4 s; 0.2 s sounds rushed, as if the sentences are jammed together. A
   cut that removes a retake or a stumble should leave real silence across
-  the join too, not trim right up to the words (`tandem cut` still leaves
-  0.4 s there).
+  the join too, not trim right up to the words: `tandem cut` leaves 0.8 s
+  between sentences and round a false start, as Filmora did when he
+  deleted a retake's clip, so every join matches.
 - **Longer gaps where they earn it:** the end of a paragraph, letting a
   point land, or while something animates on screen (a build finishing, a
   result appearing, a diagram moving). Never cut a pause while a demo
@@ -298,7 +299,10 @@ transitions, media or markers.
   doesn't want to sit there silently smiling.
 - **No clips under 2 s,** where all it takes is putting back a pause of a
   second or less between sentences. Never bring back a thinking pause or a
-  long silence to do it.
+  long silence to do it. `tighten --filmora` does this by itself
+  (`--min-clip 2`). Filmora had no minimum clip length, only Volume
+  Threshold, Minimum Duration (the shortest silence it cuts) and Softening
+  Buffer; this rule is Mike's own, from Build Your Own Convex.
 - **The ending:** run on about 4 s after the sign-off, with a 3 s fade to
   black that starts about a second after it, and fade the music out with
   it. A 2 s fade at the end of a 5 s run-on "can probably start to fade

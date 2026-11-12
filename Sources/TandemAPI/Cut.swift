@@ -313,6 +313,10 @@ extension TandemService {
             } else {
                 var planned = plan(ask.range, falseStart: ask.falseStart, in: project)
                 planned.filled = ask.order == nil && ask.fillers > 0
+                // A filler on its own is a filled pause, kept as tight as
+                // tighten would leave it; anything else asked for gets
+                // Filmora's join where it has one.
+                if !planned.filled, !planned.onlyFillers, let keep = planned.filmoraKeep { planned.keep = keep }
                 plans.append(planned)
             }
             stretches.append(CutStretch(
@@ -613,6 +617,12 @@ extension TandemService {
         /// Fillers on their own are a filled pause, the minimum going by
         /// the whole of it (`CutPlanner.plan`'s `filled`).
         var filled = false
+        /// The keep Filmora's join gives this stretch, when it isn't only
+        /// fillers (see `filmoraJoin`).
+        var filmoraKeep: Double?
+        /// Every word it cuts is a filler, however it was asked for
+        /// (`tandem cut "um"` as much as `--fillers`).
+        var onlyFillers = false
         var removedText: String
         var before: String
         var after: String
@@ -646,6 +656,10 @@ extension TandemService {
         return first.mediaID == last.mediaID && first.speed == last.speed
             && abs((first.end - last.start).seconds) < 1e-6 && abs((first.sourceEnd - last.sourceStart).seconds) < 1e-6
     }
+
+    /// A join between sentences or round a false start: Filmora's 0.4 s
+    /// softening buffer on each side (`VolumeTightening.Settings.filmora`).
+    static var filmoraJoin: Double { VolumeTightening.Settings.filmora.buffer * 2 }
 
     func plan(_ range: TimeRange, falseStart: Bool?, in project: Project) -> Planned {
         var planned = Planned(
@@ -695,6 +709,7 @@ extension TandemService {
         )
 
         let removed = same ? cutFirst : cutFirst + cutLast
+        planned.onlyFillers = !removed.isEmpty && removed.allSatisfy { TranscriptTools.filler($0.text) != nil }
         planned.removedText = removed.map(\.text).joined(separator: " ")
         planned.before = keptBefore.suffix(4).map(\.text).joined(separator: " ")
         planned.after = keptAfter.prefix(4).map(\.text).joined(separator: " ")
@@ -706,6 +721,15 @@ extension TandemService {
             let kind = TranscriptTools.pauseKind(after: word.text)
             if let keep = TranscriptTools.mikeRules.keep(for: kind) { planned.keep = keep.seconds }
             planned.tightenFrom = TranscriptTools.mikeRules.shortest(for: kind).seconds
+            // Between sentences, or round a false start, the join leaves what
+            // Filmora did when Mike deleted a retake's clip: the 0.4 s
+            // softening buffer either side, so it matches every other pause
+            // `tighten --filmora` leaves (he picked that by ear, 12 Nov 2026).
+            // Mid-sentence and comma joins stay tight: Filmora never split
+            // there.
+            if kind == .sentence || planned.falseStart { planned.filmoraKeep = max(planned.keep, Self.filmoraJoin) }
+        } else {
+            planned.filmoraKeep = max(planned.keep, Self.filmoraJoin)
         }
         return planned
     }

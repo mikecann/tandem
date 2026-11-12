@@ -17,7 +17,7 @@ struct Arguments {
 
     /// Options that take a value.
     static let valueOptions: Set<String> = [
-        "project", "author", "from", "to", "min", "keep", "threshold", "buffer", "limit", "label", "key", "expect",
+        "project", "author", "from", "to", "min", "keep", "threshold", "buffer", "min-clip", "limit", "label", "key", "expect",
         "output", "preset", "width", "height", "port", "timeout", "name", "format",
         "out", "search", "rewrite", "recipe", "max-words", "y", "track", "size",
         "kind", "provider", "at", "duration", "variations", "clips", "field", "value", "mode", "kicker", "marker", "anchor", "media", "count", "every", "step", "tracks",
