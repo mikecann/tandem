@@ -12,7 +12,7 @@ import TandemMedia
 /// Softening Buffer as Mike had them. Measured on his Filmora-cut AI Tips
 /// video, no pause was longer than about 0.85 s.
 ///
-/// Then each pause is cut to its kind (`SpokenPause`): 0.12 s mid-phrase,
+/// Then each pause is cut to its kind (`FilmoraKind`): 0.12 s mid-phrase,
 /// 0.2 s at a clause, 0.4 s between sentences, Filmora's 0.8 s at a new
 /// topic, and a deliberate one kept. On the Convex Auth v2 cut (12 Nov 2026)
 /// Filmora's 0.8 s everywhere drew 7 comments: 5 mid-sentence ("no big
@@ -36,7 +36,7 @@ public enum VolumeTightening {
         /// The shortest silence that's cut.
         public var minimum: Double
         /// What a new topic's silence keeps at each end (Filmora's softening
-        /// buffer). The other kinds keep `SpokenPause.total`.
+        /// buffer). The other kinds keep `FilmoraKind.total`.
         public var buffer: Double
         /// The shortest clip a cut may leave between two others: a shorter
         /// one gets the pause beside it put back, if that pause is
@@ -60,7 +60,7 @@ public enum VolumeTightening {
         /// evenly, as Filmora did; the rest keep about a third after the
         /// word (at least 40 ms, a word's tail) and the rest before the
         /// next (at least 70 ms, as a voice starts before its burst).
-        func keeps(for kind: SpokenPause) -> (after: Double, before: Double)? {
+        func keeps(for kind: FilmoraKind) -> (after: Double, before: Double)? {
             guard let total = kind.total else { return nil }
             if kind == .topic { return (buffer, buffer) }
             let after = max(0.04, 0.35 * total)
@@ -468,7 +468,7 @@ public enum VolumeTightening {
     /// starting point for the agent, who reads the words and decides. With
     /// no word before or after (the take's start or end, or sound no word
     /// accounts for at the edge), it's a sentence's: the safe side.
-    static func guess(_ silence: ClosedRange<Double>, map: TranscriptTools.SpeechMap) -> SpokenPause {
+    static func guess(_ silence: ClosedRange<Double>, map: TranscriptTools.SpeechMap) -> FilmoraKind {
         let reach = 1.0
         guard let before = map.words.last(where: { $0.start.seconds < silence.lowerBound }),
               before.end.seconds > silence.lowerBound - reach,

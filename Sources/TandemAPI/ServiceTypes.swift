@@ -453,7 +453,7 @@ public enum PauseKind: String, Codable, Sendable {
 /// Threadbear launch, Nov 2026): mid-sentence "should just sound like there
 /// was no pause", between sentences "a pause is more natural", and "an
 /// intentional long pause where I'm showing something on the screen".
-public enum SpokenPause: String, Codable, Sendable, CaseIterable {
+public enum FilmoraKind: String, Codable, Sendable, CaseIterable {
     /// Inside a phrase: no pause heard.
     case mid
     /// A clause boundary: a comma, before and/but/so/because/which/if, a
@@ -481,8 +481,8 @@ public enum SpokenPause: String, Codable, Sendable, CaseIterable {
 /// The kind of the pause holding `at`, as the agent read it.
 public struct PauseKindMark: Codable, Equatable, Sendable {
     public var at: Time
-    public var kind: SpokenPause
-    public init(at: Time, kind: SpokenPause) {
+    public var kind: FilmoraKind
+    public init(at: Time, kind: FilmoraKind) {
         self.at = at
         self.kind = kind
     }
@@ -497,8 +497,8 @@ public struct FilmoraPause: Codable, Equatable, Sendable {
     public var heard: Time
     public var before: String
     public var after: String
-    public var guess: SpokenPause
-    public var kind: SpokenPause?
+    public var guess: FilmoraKind
+    public var kind: FilmoraKind?
 }
 
 public struct TightenRequest: ServiceCall {
@@ -623,10 +623,10 @@ public struct PlannedCut: Codable, Equatable, Sendable {
     public var startEdge: CutJoinSide?
     public var endEdge: CutJoinSide?
     /// With `filmora`: the pause's kind, and whether it's only a guess.
-    public var spoken: SpokenPause?
+    public var spoken: FilmoraKind?
     public var guessed: Bool?
 
-    public init(pause: Pause, cut: TimeRange, kind: PauseKind? = nil, keep: Time? = nil, startEdge: CutJoinSide? = nil, endEdge: CutJoinSide? = nil, spoken: SpokenPause? = nil, guessed: Bool? = nil) {
+    public init(pause: Pause, cut: TimeRange, kind: PauseKind? = nil, keep: Time? = nil, startEdge: CutJoinSide? = nil, endEdge: CutJoinSide? = nil, spoken: FilmoraKind? = nil, guessed: Bool? = nil) {
         self.spoken = spoken
         self.guessed = guessed
         self.pause = pause

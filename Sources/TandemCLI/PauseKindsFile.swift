@@ -46,7 +46,7 @@ struct PauseKindsFile: Codable {
     func marks() throws -> [PauseKindMark] {
         try pauses.compactMap { entry in
             guard let text = entry.kind?.trimmingCharacters(in: .whitespaces).lowercased(), !text.isEmpty else { return nil }
-            guard let kind = SpokenPause(rawValue: text) else {
+            guard let kind = FilmoraKind(rawValue: text) else {
                 throw UsageError(message: "\"\(text)\" at \(entry.start) isn't a kind: use mid, clause, sentence, topic or keep.")
             }
             return PauseKindMark(at: Time(seconds: (entry.start + entry.end) / 2), kind: kind)

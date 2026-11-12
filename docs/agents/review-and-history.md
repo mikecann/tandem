@@ -167,10 +167,11 @@ their own beside it, and reports, with the clips on screen there:
     punctuate. A question or "!" always ends one. `tighten --filmora`
     closes mid-sentence pauses itself, by a narrower reading, so these are
     what an older tighten, a hand edit or that reading left: the note's fix
-    is `tandem tighten --filmora --from --to --mid-at <time>` over just
-    that pause (never the whole edit, which would re-cut every long
-    silence, a deliberate beat too), with a time in each stretch of quiet
-    in it, which closes it whatever the words say. Up to 40 are listed,
+    is `tandem tighten --filmora --from --to --kinds <file>` over just
+    that pause (never the whole edit, which would list every long
+    silence, a deliberate beat too): set its pauses' kind to `mid` in the
+    file, then run it again with `--apply`, which closes it whatever the
+    words say. Up to 40 are listed,
     then a note says how many more to check again for. Not in
     conversations. It reads the take's sound, so it's in a quick check
     too.

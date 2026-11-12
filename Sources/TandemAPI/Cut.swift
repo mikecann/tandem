@@ -658,9 +658,9 @@ extension TandemService {
     }
 
     /// A join between sentences or round a false start: a sentence's pause
-    /// in the same train of thought (`SpokenPause.sentence`). A retake picks
+    /// in the same train of thought (`FilmoraKind.sentence`). A retake picks
     /// the same thought up again; Filmora's 0.8 s is for a new topic.
-    static var filmoraJoin: Double { SpokenPause.sentence.total ?? 0.4 }
+    static var filmoraJoin: Double { FilmoraKind.sentence.total ?? 0.4 }
 
     func plan(_ range: TimeRange, falseStart: Bool?, in project: Project) -> Planned {
         var planned = Planned(

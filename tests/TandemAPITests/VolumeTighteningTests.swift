@@ -85,7 +85,7 @@ final class VolumeTighteningTests: XCTestCase {
     }
 
     /// Every pause the dry run found, given `kind`.
-    private func every(_ plan: TightenResult, _ kind: SpokenPause) -> [PauseKindMark] {
+    private func every(_ plan: TightenResult, _ kind: FilmoraKind) -> [PauseKindMark] {
         (plan.pauses ?? []).map { PauseKindMark(at: Time(seconds: ($0.start.seconds + $0.end.seconds) / 2), kind: kind) }
     }
 

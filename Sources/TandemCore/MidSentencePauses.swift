@@ -10,7 +10,8 @@ import Foundation
 // the word before the pause, but an edit tightened before that, or by hand,
 // or where its reading of the words missed one, still has them. So the
 // check looks for what's left, and its fix is `--filmora` over the pause
-// with `--mid-at`, which closes it whatever the words say.
+// with a kinds file, its kind set to `mid`, which closes it whatever the
+// words say.
 //
 // Bark's full stops can't be trusted in his fast runs: it wrote "using."
 // there, "OS. | but more on that" and "etc. | so you can" on the same
@@ -215,20 +216,16 @@ extension QualityCheck {
     /// to check again once these are closed.
     static let midSentencePausesListed = 40
 
-    /// What closes a pause: `tighten --filmora` over it, which cuts by
-    /// volume (a breath counts as silence) and keeps 0.08 s each side
-    /// mid-sentence. `--mid-at` makes it read the pause as mid-sentence
-    /// whatever it makes of the words, since it picks the word before by
-    /// the sound's edges and reads it more narrowly than this check does.
-    /// A time in each stretch of real quiet, as a click can split the
-    /// silence it finds in two. Only ever over the pause (`from`, `to`):
-    /// over the whole edit it would re-cut every long silence, a
+    /// What closes a pause: `tighten --filmora` over it, which finds it by
+    /// volume (a breath counts as silence) and cuts it to its kind's gap
+    /// (0.12 s mid-sentence). Its kinds file is written on a dry run; the
+    /// pauses in it here get kind `mid` (or `clause` after a comma), then
+    /// the same command with `--apply`. Only ever over the pause (`from`,
+    /// `to`): over the whole edit it would list every long silence, a
     /// deliberate beat included.
     static func midSentenceFix(_ pause: HeardPause, from: Time, to: Time) -> String {
-        let quiet = pause.quiets.filter { $0.duration >= Time(seconds: 0.1) }
-        let marks = quiet.isEmpty ? [pause.range] : quiet
-        let times = marks.map { "\($0.start + Time(seconds: $0.duration.seconds / 2))" }.joined(separator: ",")
-        return "tandem tighten --filmora --from \(from) --to \(to) --mid-at \(times)"
+        let file = "/tmp/pause-\(Int((from.seconds * 1000).rounded())).json"
+        return "tandem tighten --filmora --from \(from) --to \(to) --kinds \(file), set its pauses' kind to mid, then the same with --apply"
     }
 
     /// Notes for pauses of `midSentencePauseMinimum` or more, heard, in the

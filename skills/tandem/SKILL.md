@@ -127,7 +127,8 @@ rounds up.
    - mid-sentence pause: half a second or more in the middle of a
      sentence or after a comma. It goes by the words, not just Bark's full
      stops ("using. | The latest" counts). Read it in context, then run the
-     `tighten --filmora --mid-at` it gives (see "Mid-sentence pauses").
+     `tighten --filmora --kinds` it gives, with the pause's kind set to
+     `mid` (see "Pauses by kind").
    - PiP that isn't his usual: a camera clip shown small that isn't
      `pipRight`/`pipLeft` with the cutout on. Apply the layout it gives; if
      the matte isn't made yet, wait for it rather than framing his face.
