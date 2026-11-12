@@ -7,38 +7,44 @@ Recipes for tightening pauses, taking out fillers, cutting a phrase, a false sta
 ```bash
 tandem pauses --min 0.5                      # what's there
 tandem cut --fillers --apply                 # first, the ums and uhs between pauses
-tandem tighten --filmora                     # the plan, nothing changes
-tandem tighten --filmora --protect 2:14.5,5:03 --apply
+tandem tighten --filmora --kinds /tmp/kinds.json      # writes every pause, nothing changes
+# read each pause's words in /tmp/kinds.json and set "kind"
+tandem tighten --filmora --kinds /tmp/kinds.json --apply
 tandem check --cuts                          # every join clean
 tandem clip 0:00 1:00 -o /tmp/review.mp4     # watch the result
 tandem undo                                  # if it's off
 ```
 
-`--filmora` is how Mike likes a take cut: by volume, the way his old
-Filmora silence detection did, which he picked by ear over the transcript
-rules below. Every stretch where all the take's tracks are under
-`--threshold` (-35 dB peak) for at least `--min` (0.5 s) keeps `--buffer`
-(0.4 s) at each end, on whole frames, so a long pause comes out at 0.8 s
-and a shorter one isn't touched. Mid-sentence, a 0.8 s pause sounds
-broken ("don't forget mid sentence no big pause"), so a silence keeps less
-by the word before it: 0.08 s each side mid-sentence, 0.1 s after a comma.
-Bark puts a full stop where Mike pauses to think, so a full stop after a
-word that never ends a sentence (using, the, and, of...) is mid-sentence;
-each line of the plan says which kind it took, and `--mid-at` and
-`--sentence-at` (a time in the silence) set it where the transcript's
-wrong. The minimum clip never puts a mid-sentence pause back. The timeline's own start and end are cut
-right to the edge; a silence running into `--from` or `--to` keeps its
-buffer there. Quiet noise and breaths count as silence, so every long pause
-lands the same length, and anything loud enough stays, a stray "um" or a
-click included: cut those with `tandem cut`. Stretches where no take track
-plays, and files whose sound can't be read, are never cut. `--min-clip`
-(2 s, 0 for none) puts back the pause beside any clip a cut would leave
-shorter than that, if putting it back adds a second or less, so the picture doesn't
-jump about; Filmora had no such setting, it's Mike's rule. It doesn't
-listen for clipped words the way the transcript rules do (0.4 s of quiet
-either side doesn't need it), so run `check --cuts` after.
+`--filmora` finds pauses by volume, the way Mike's old Filmora silence
+detection did: every stretch where all the take's tracks are under
+`--threshold` (-35 dB peak) and quiet above 4 kHz, for at least `--min`
+(0.3 s). A soft final "s" is still a word; a breath is pause. Each pause
+then keeps a total gap, speech end to speech start, by its kind: `mid`
+0.12 s, `clause` 0.2 s, `sentence` 0.4 s, `topic` 0.8 s (`--buffer` each
+side, as Filmora did) and `keep` left alone. A short keep goes about a
+third after the word before (at least 40 ms) and the rest before the next
+(at least 70 ms). The timeline's own start and end are cut right to the
+edge; a silence running into `--from` or `--to` keeps its keep there.
+Stretches where no take track plays, and files whose sound can't be read,
+are never cut.
 
-The transcript rules, for when Mike asks for tighter than that:
+The kind is the agent's call. Bark puts a full stop wherever Mike pauses
+("call this. functions"), so punctuation can't say. The dry run guesses
+from it (a comma or a clause word after is `clause`, a full stop
+`sentence`, or `topic` over 1.5 s, and the rest `mid`); `--kinds <file>`
+writes every pause with about eight words either side and the guess, with
+`kind` empty. Fill in every one, then `--apply` with the same file. It
+refuses while any is empty, and if the timeline changed since the file was
+written (re-run the dry run into a new file). In MCP, the dry run's
+`pauses` has the same list and `kinds` takes `{at, kind}`.
+
+`--min-clip` (off unless given, `--min-clip 2` for Mike's old "no clips under 2 s") puts back the pause beside any clip a cut
+would leave shorter than that, if putting it back adds a second or less
+and it's a `sentence` or `topic` pause; Filmora had no such setting, it's
+Mike's rule. Anything loud enough stays, a stray "um" or a click included:
+cut those with `tandem cut` first.
+
+The transcript rules, only when Mike asks for them:
 
 ```bash
 tandem tighten --mike --protect 2:14.5,5:03 --widen --apply

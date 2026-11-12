@@ -310,21 +310,60 @@ struct CLI {
             let protect = try (args.repeated["protect"] ?? [])
                 .flatMap { $0.split(separator: ",") }
                 .map { try parseTime($0.trimmingCharacters(in: .whitespaces)) }
-            func times(_ option: String) throws -> [Time]? {
-                let found = try (args.repeated[option] ?? []).flatMap { $0.split(separator: ",") }
-                    .map { try parseTime($0.trimmingCharacters(in: .whitespaces)) }
-                return found.isEmpty ? nil : found
+            // `--kinds <file>`: the pause kinds the agent read from the words.
+            // On a dry run with no file yet, the plan's pauses are written to
+            // it with a guess each and the kind left empty, to fill in.
+            let kindsPath = args.options["kinds"].map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath) }
+            var kindsFile: PauseKindsFile?
+            if let kindsPath, FileManager.default.fileExists(atPath: kindsPath.path) {
+                do {
+                    kindsFile = try JSONDecoder().decode(PauseKindsFile.self, from: Data(contentsOf: kindsPath))
+                } catch {
+                    throw UsageError(message: "Couldn't read \(kindsPath.path) as a kinds file: \(error.localizedDescription)")
+                }
             }
-            let request = TightenRequest(
+            if kindsPath != nil, !args.has("filmora") {
+                throw UsageError(message: "--kinds goes with --filmora.")
+            }
+            // The pauses are found with these; the file says what it was made with.
+            let found = PauseKindsFile.Settings(
+                threshold: try args.number("threshold"), min: try seconds(args, "min"),
+                from: try time(args, "from")?.seconds, to: try time(args, "to")?.seconds
+            )
+            if let kindsFile, kindsFile.settings == nil {
+                throw UsageError(message: "\(args.options["kinds"] ?? "") doesn't say what settings found its pauses (an older file): make a new one with a dry run.")
+            }
+            if let kindsFile, let made = kindsFile.settings, made != found {
+                throw UsageError(message: "\(args.options["kinds"] ?? "") was made with other settings (threshold, min, from, to): give the same ones, or make a new kinds file. Other settings find other pauses.")
+            }
+            if let kindsFile, let expect = try args.integer("expect"), expect != kindsFile.revision {
+                throw UsageError(message: "\(args.options["kinds"] ?? "") is for revision \(kindsFile.revision), not \(expect): times have moved since. Make a new kinds file.")
+            }
+            if kindsFile == nil, kindsPath != nil, args.has("apply") {
+                throw UsageError(message: "No kinds file at \(args.options["kinds"] ?? ""). Run it without --apply first: that writes the file, with a guess for every pause to check and fill in.")
+            }
+            var request = TightenRequest(
                 min: try seconds(args, "min"), keep: try seconds(args, "keep"),
                 sentence: try seconds(args, "sentence"), comma: try seconds(args, "comma"), mid: try seconds(args, "mid"),
                 midMin: try seconds(args, "mid-min"), mike: args.has("mike") ? true : nil,
-                filmora: args.has("filmora") ? true : nil, threshold: try args.number("threshold"), buffer: try seconds(args, "buffer"), minClip: try seconds(args, "min-clip"), midAt: try times("mid-at"), sentenceAt: try times("sentence-at"),
+                filmora: args.has("filmora") ? true : nil, threshold: try args.number("threshold"), buffer: try seconds(args, "buffer"),
+                minClip: try seconds(args, "min-clip"), kinds: try kindsFile?.marks(),
                 protect: protect.isEmpty ? nil : protect, widen: args.has("widen") ? true : nil,
                 apply: args.has("apply"), from: try time(args, "from"), to: try time(args, "to"),
                 label: args.options["label"], expectedRevision: try args.integer("expect")
             )
-            return show(try await client().call(request), json: json)
+            // The kinds are for the revision they were read at: times move
+            // with any edit since.
+            if let kindsFile, request.apply == true, request.expectedRevision == nil { request.expectedRevision = kindsFile.revision }
+            let result = try await client().call(request)
+            if let kindsPath, kindsFile == nil, let pauses = result.pauses {
+                let file = PauseKindsFile(revision: result.revision, settings: found, pauses: pauses)
+                let encoder = JSONEncoder()
+                encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+                try encoder.encode(file).write(to: kindsPath)
+                FileHandle.standardError.write(Data("Wrote \(pauses.count) pauses to \(kindsPath.path): read each one's words, set its \"kind\" (mid, clause, sentence, topic or keep), then run this again with --apply.\n".utf8))
+            }
+            return show(result, json: json)
         case "cut":
             // Phrases are the positionals; each --at goes with the phrase
             // in the same place, for one said more than once.

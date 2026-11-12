@@ -82,7 +82,7 @@ final class MidSentencePauseTests: XCTestCase {
         let message = found.first?.message ?? ""
         XCTAssertTrue(message.contains("using. [0.80 s] The latest"), message)
         XCTAssertTrue(message.contains("full stop after \"using\""), message)
-        XCTAssertTrue(message.contains("tandem tighten --filmora --from 00:40.500 --to 00:42.300 --mid-at 00:41.400"), message)
+        XCTAssertTrue(message.contains("tandem tighten --filmora --from 00:40.500 --to 00:42.300 --kinds /tmp/pause-"), message)
         XCTAssertEqual(found.first?.start, t(41.0))
         XCTAssertEqual(found.first?.clipIDs, ["clip_voice"])
     }
@@ -100,7 +100,7 @@ final class MidSentencePauseTests: XCTestCase {
         let message = found.first?.message ?? ""
         XCTAssertTrue(message.contains("using. [0.65 s] The latest"), message)
         // tighten --filmora cuts by volume, so the breath goes with the quiet.
-        XCTAssertTrue(message.contains("--from 00:40.743 --to 00:42.396 --mid-at 00:41.451"), message)
+        XCTAssertTrue(message.contains("--from 00:40.743 --to 00:42.396 --kinds /tmp/pause-"), message)
         XCTAssertEqual(found.first?.start, t(41.243))
 
         // Under 0.6 s between the words with little quiet is the words' tails.
@@ -116,7 +116,7 @@ final class MidSentencePauseTests: XCTestCase {
             quiets: [TimeRange(start: t(10.0), end: t(10.58)), TimeRange(start: t(10.68), end: t(11.2))]
         )
         let message = notes([split]).first?.message ?? ""
-        XCTAssertTrue(message.contains("--mid-at 00:10.290,00:10.940"), message)
+        XCTAssertTrue(message.contains("--kinds /tmp/pause-"), message)
     }
 
     func testSentencePausesShortPausesAndBeatsArentNoted() {
@@ -136,7 +136,7 @@ final class MidSentencePauseTests: XCTestCase {
         XCTAssertEqual(found.map(\.start), [t(99.1), t(211.7)], "by time")
         XCTAssertTrue(found[1].message.contains("after a comma"), found[1].message)
         // Marked too: --filmora picks the word before by the sound's edges.
-        XCTAssertTrue(found[1].message.contains("--mid-at"), found[1].message)
+        XCTAssertTrue(found[1].message.contains("--kinds"), found[1].message)
     }
 
     func testOnlyTheStretchesCheckedAndNotConversationsOrManyAtOnce() {
@@ -147,7 +147,7 @@ final class MidSentencePauseTests: XCTestCase {
         let many = (0..<43).map { pause("and the", "thing", at: Double($0) * 10, heard: 0.7) }
         let found = notes(many)
         XCTAssertEqual(found.count, 41, "forty listed, each with its own fix, then one for the rest")
-        XCTAssertTrue(found[0].message.contains("--from 00:00.000 --to 00:01.200 --mid-at 00:00.350"), found[0].message)
+        XCTAssertTrue(found[0].message.contains("--from 00:00.000 --to 00:01.200 --kinds /tmp/pause-"), found[0].message)
         XCTAssertTrue(found[40].message.contains("3 more mid-sentence pauses"), found[40].message)
         XCTAssertFalse(found[40].message.contains("tandem tighten"), "never one tighten over the whole edit: \(found[40].message)")
     }

@@ -243,7 +243,7 @@ extension TightenResult: ReadableResult {
         var lines: [String] = []
         let mode = applied == nil ? "dry run" : "applied"
         let bySentence = sentence != nil || comma != nil || mid != nil
-        let settings = buffer.map { "silences under \(Int((threshold ?? -35).rounded())) dB of \(TimeText.duration(minimum)) or more, keeping \(TimeText.duration($0)) at each end after a sentence and less mid-sentence" }
+        let settings = buffer.map { _ in "silences under \(Int((threshold ?? -35).rounded())) dB of \(TimeText.duration(minimum)) or more, by kind: mid 0.12 s, clause 0.2 s, sentence 0.4 s, topic 0.8 s, keep left alone" }
         if cuts.isEmpty && widened.isEmpty {
             if let settings {
                 lines.append("Nothing to cut: no \(settings) would lose a frame.")
@@ -254,7 +254,7 @@ extension TightenResult: ReadableResult {
             }
         } else {
             if let settings {
-                lines.append("Cut \(cuts.count) silence\(cuts.count == 1 ? "" : "s") as Filmora did, \(settings) (\(mode), revision \(revision)):")
+                lines.append("Cut \(cuts.count) of \(pauses?.count ?? cuts.count) pause\(cuts.count == 1 ? "" : "s"), \(settings) (\(mode), revision \(revision)):")
             } else if bySentence {
                 let midMinimum = midMinimum.map { ", comma and mid-sentence ones of \(TimeText.duration($0)) or more" } ?? ""
                 lines.append("Keep \(keepsText) (sentence pauses of \(TimeText.duration(minimum)) or more\(midMinimum); \(mode), revision \(revision)):")
@@ -271,7 +271,9 @@ extension TightenResult: ReadableResult {
                     ranges.append("\(cuts[index].cut.start)-\(cuts[index].cut.end)")
                 }
                 index += 1
-                let kind = bySentence || buffer != nil ? (cut.kind.map { " \($0.rawValue)" } ?? "") : ""
+                let kind = buffer != nil
+                    ? (cut.spoken.map { " \($0.rawValue)\(cut.guessed == true ? " (guess)" : "")" } ?? "")
+                    : bySentence ? (cut.kind.map { " \($0.rawValue)" } ?? "") : ""
                 // Sound left in beside the cut is worth a listen.
                 let beside = cut.pause.sound.flatMap { $0.heard.isEmpty ? nil : ", beside \($0.heardText)" } ?? ""
                 lines.append("  \(cut.pause.start)-\(cut.pause.end)  \(TimeText.duration(cut.pause.duration))\(kind) -> cut \(ranges.joined(separator: ", "))  ...\(cut.pause.before) | \(cut.pause.after)...\(beside)")
@@ -285,6 +287,12 @@ extension TightenResult: ReadableResult {
             var change = "Removes \(TimeText.duration(removed))"
             if added > .zero { change += ", adds \(TimeText.duration(added))" }
             lines.append("\(change): \(durationBefore) -> \(durationAfter).")
+        }
+        if let pauses {
+            let unread = pauses.filter { $0.kind == nil }.count
+            if unread > 0 {
+                lines.append("\(unread) of \(pauses.count) pauses have only a guessed kind: Bark puts a full stop wherever Mike pauses, so read each one's words and give its kind (mid, clause, sentence, topic, keep) with --kinds <file> before --apply.")
+            }
         }
         if let minClip, !putBack.isEmpty {
             lines.append("Put back \(putBack.count) pause\(putBack.count == 1 ? "" : "s") so no clip is under \(TimeText.duration(minClip)): \(putBack.map { "\($0.start)-\($0.end)" }.joined(separator: ", ")).")
@@ -329,7 +337,8 @@ extension TightenResult {
                 let sides = [("start", skip.startEdge), ("end", skip.endEdge)].compactMap { name, edge in
                     edge.map { "\(name) \($0.verdict.rawValue) (\(String(format: "%.1f", $0.margin)) dB under the speech)" }
                 }
-                lines.append("  \(skip.pause.start)-\(skip.pause.end)  \(sides.joined(separator: ", "))")
+                let what = sides.isEmpty ? "...\(skip.pause.before) | \(skip.pause.after)..." : sides.joined(separator: ", ")
+                lines.append("  \(skip.pause.start)-\(skip.pause.end)  \(what)")
             }
         }
         return lines
