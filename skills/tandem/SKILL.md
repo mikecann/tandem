@@ -124,6 +124,13 @@ rounds up.
      screen has anything over it (his finished edits cover 35 to 85%). The
      first hand-back has B-roll in: show what he names as he says it, using
      the bare stretches it quotes.
+   - mid-sentence pause: half a second or more in the middle of a
+     sentence or after a comma. It goes by the words, not just Bark's full
+     stops ("using. | The latest" counts). Read it in context, then run the
+     `tighten --filmora --mid-at` it gives (see "Mid-sentence pauses").
+   - PiP that isn't his usual: a camera clip shown small that isn't
+     `pipRight`/`pipLeft` with the cutout on. Apply the layout it gives; if
+     the matte isn't made yet, wait for it rather than framing his face.
 5. **Hand back.** Open the project in the app for Mike with
    `open "<video folder>/<name>.tandem"` (skip it if `tandem status` says
    the app already has it open), rather than asking him to open it. Then
@@ -410,8 +417,9 @@ usually like to edit." Check each one before `tandem handback`:
 - **Start the cutout matte when the project is made.** PiP is `pipRight`
   with the cutout, always. A long 4K take mattes for hours, so put one
   camera clip in `pipRight` straight after placing the take (that starts
-  the job), and never swap to a framed face box to save time: "what's going
-  on with the picture in picture here? This is not our usual way".
+  the job; `tandem new` reminds you), and never swap to a framed face box
+  to save time: "what's going on with the picture in picture here? This is
+  not our usual way". `tandem check` notes a PiP that isn't the usual.
 - **A Convex wipe at every section change,** the cold open into the first
   section included, not just into and out of demos and the outro: "Can we
   have a swipe here? ... I want section swipes, particularly the outro,
@@ -427,7 +435,8 @@ usually like to edit." Check each one before `tandem handback`:
   says full screen: the caveats "whiz down on the side of the screen with
   me still on the screen when I say asterisk", an overlay, not full-frame
   B-roll.
-- **Mid-sentence pauses closed** (see "Mid-sentence pauses").
+- **Mid-sentence pauses closed** (see "Mid-sentence pauses"). `tandem
+  check` notes the ones left, with the `--mid-at` that closes each.
 
 From his review comments on the Daytona and Build Your Own Convex videos
 (October 2026). The reasons matter more than the numbers.

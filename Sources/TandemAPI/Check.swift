@@ -356,6 +356,10 @@ extension TandemService {
             }
         }
         let projectFolder = folder
+        // The words with their clips, for the pauses left mid-sentence,
+        // listened to in the take's sound: the transcript's gaps can be
+        // 0.4 s off what's heard either way.
+        let pauseMap = speech.words.isEmpty ? nil : TranscriptTools.speechMap(project, analysis: self.analysis)
         let cache = CheckCache(folder: folder)
         let analysis = self.analysis
         let notices = warnings
@@ -388,7 +392,13 @@ extension TandemService {
                     throw ServiceError.wrap(error)
                 }
             }
-            let found = QualityCheck.problems(in: project, ranges: toCheck, frames: frames, screenFrames: screenFrames, speech: speech, frameTimes: frameTimes)
+            var pauses: [QualityCheck.HeardPause]?
+            if let pauseMap {
+                pauses = await Self.checkPauses(map: pauseMap, project: project, folder: projectFolder, ranges: toCheck)
+            }
+            let found = QualityCheck.problems(
+                in: project, ranges: toCheck, frames: frames, screenFrames: screenFrames, speech: speech, pauses: pauses, frameTimes: frameTimes
+            )
             var names: [String: String] = [:]
             for id in Set(found.flatMap(\.clipIDs)) {
                 guard let clip = project.clip(id) else { continue }
@@ -511,6 +521,40 @@ extension TandemService {
                 }
             }
             return QualityCheck.Speech.Take(mediaID: mediaID, words: words)
+        }
+    }
+
+    /// The pauses in `ranges` that could be mid-sentence ones to close
+    /// (`QualityCheck.midSentencePauses`), as they're heard: from the end
+    /// of the last word's sound to the start of the next one's, as
+    /// `tandem pauses` and `tighten --mid` measure them, beside the
+    /// transcript's gap (a breath is sound to tighten, but part of the
+    /// pause to Mike). A word the
+    /// transcript has where the sound has only the room is left out, as
+    /// tighten leaves it, and a gap the voice runs through isn't a pause.
+    static func checkPauses(map: TranscriptTools.SpeechMap, project: Project, folder: ProjectFolder, ranges: [TimeRange]) async -> [QualityCheck.HeardPause] {
+        guard let first = ranges.map(\.start).min(), let last = ranges.map(\.end).max() else { return [] }
+        // Wide enough to take in a pause that only overlaps the stretches:
+        // `pauses` keeps only the gaps wholly between from and to.
+        let reach = QualityCheck.midSentencePauseLongest
+        let from = max(.zero, first - reach), to = last + reach
+        let cleaned = await SoundTightening.withoutPhantoms(map, from: from, to: to, project: project, folder: folder)
+        let shortest = SoundTightening.shortestToListen(for: QualityCheck.midSentencePauseMinimum)
+        let candidates = TranscriptTools.pauses(in: cleaned.map, minimum: shortest, from: from, to: to).filter { pause in
+            SpokenPause.kind(before: pause.before, next: pause.after) != .sentence && ranges.contains { $0.overlaps(TimeRange(start: pause.start, end: pause.end)) }
+        }
+        guard !candidates.isEmpty else { return [] }
+        let heard = await SoundTightening.listened(candidates, map: cleaned.map, project: project, folder: folder)
+        return heard.pauses.compactMap { pause in
+            let gap = TimeRange(start: pause.start, end: pause.end)
+            guard let sound = pause.sound else {
+                return QualityCheck.HeardPause(start: pause.start, end: pause.end, before: pause.before, after: pause.after, clipIDs: pause.clipIDs)
+            }
+            if sound.runsThrough { return nil }
+            // The longest real pause in it: the span can hold a breath or a
+            // click, which `tandem pauses` hears as sound.
+            let quiet = sound.quiet.max { $0.duration < $1.duration } ?? TimeRange(start: sound.start, end: sound.start)
+            return QualityCheck.HeardPause(start: quiet.start, end: quiet.end, gap: gap, before: pause.before, after: pause.after, clipIDs: pause.clipIDs)
         }
     }
 
