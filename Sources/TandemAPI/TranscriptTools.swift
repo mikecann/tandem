@@ -226,6 +226,34 @@ public enum TranscriptTools {
         }
     }
 
+    /// Words that don't end a sentence in Mike's speech, whatever
+    /// punctuation Bark put on them. Bark adds a full stop where he pauses
+    /// to think, so "built the entire thing from scratch using. [0.8 s] The
+    /// latest and greatest" read as two sentences and kept a sentence's
+    /// pause, which he flagged: "mid sentence no big pause" (Convex Auth v2,
+    /// 12 Nov 2026). Articles, conjunctions, prepositions and the like
+    /// always lead on to more.
+    static let neverEndsSentence: Set<String> = [
+        "a", "an", "the", "and", "but", "or", "nor", "so", "because", "cause", "if", "than", "then",
+        "to", "of", "in", "on", "at", "for", "with", "from", "by", "into", "onto", "about", "using",
+        "via", "through", "like", "is", "are", "was", "were", "be", "been", "am", "my", "your", "our",
+        "their", "his", "her", "its", "this", "these", "those", "very", "really", "just", "also",
+        "which", "who", "where", "when", "what", "how", "whether", "i", "we", "you", "they",
+        "it's", "i'm", "we're", "you're", "they're", "that's", "there's", "can", "could", "would",
+        "should", "will", "might", "must", "do", "does", "did", "have", "has", "had", "kind", "sort"
+    ]
+
+    /// What a pause follows, as it's spoken: `pauseKind`, except that a
+    /// full stop after a word that never ends a sentence
+    /// (`neverEndsSentence`) is a thinking pause mid-sentence.
+    public static func spokenKind(after text: String) -> PauseKind {
+        let kind = pauseKind(after: text)
+        guard kind == .sentence else { return kind }
+        let bare = text.lowercased().trimmingCharacters(in: CharacterSet.letters.union(CharacterSet(charactersIn: "'\u{2019}")).inverted)
+            .replacingOccurrences(of: "\u{2019}", with: "'")
+        return neverEndsSentence.contains(bare) ? .mid : kind
+    }
+
     /// What a pause follows, from the punctuation the transcript put on the
     /// word before it.
     public static func pauseKind(after text: String) -> PauseKind {

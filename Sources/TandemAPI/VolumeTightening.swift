@@ -38,6 +38,22 @@ public enum VolumeTightening {
         /// The longest pause put back for `minimumClip`: never a thinking
         /// pause or a long silence.
         public static let putBackLimit = 1.0
+        /// What a silence after a comma, and one mid-sentence, keeps at
+        /// each end. Filmora kept 0.4 s everywhere, and a 0.8 s pause
+        /// mid-sentence sounds broken: "don't forget mid sentence no big
+        /// pause" (Convex Auth v2, 12 Nov 2026). At -35 dB a word's tail is
+        /// already well inside what's kept, so these come out about where
+        /// `--mike` put them (0.12 s after a comma, about 0.1 s mid-sentence).
+        public var commaBuffer = 0.1
+        public var midBuffer = 0.08
+
+        func buffer(for kind: PauseKind) -> Double {
+            switch kind {
+            case .sentence: return buffer
+            case .comma: return commaBuffer
+            case .mid: return midBuffer
+            }
+        }
 
         /// Mike's Filmora settings. Its 25% volume threshold was matched
         /// to -35 dB on his recordings (automate-filmora's rough-cut plan).
@@ -167,7 +183,7 @@ public enum VolumeTightening {
     /// on every take track at once, less a buffer at each end. A silence
     /// with a `protect` time in it is left alone.
     static func plan(
-        settings: Settings, protect: [Time], from: Time?, to: Time?,
+        settings: Settings, protect: [Time], midAt: [Time] = [], sentenceAt: [Time] = [], from: Time?, to: Time?,
         map: TranscriptTools.SpeechMap, project: Project, folder: ProjectFolder
     ) async -> Plan {
         var plan = Plan()
@@ -189,8 +205,11 @@ public enum VolumeTightening {
                 plan.protected.append(pause)
                 continue
             }
-            guard let cut = cut(in: silence, buffer: settings.buffer, timelineEnd: project.duration, rate: rate) else { continue }
-            plan.cuts.append(PlannedCut(pause: pause, cut: cut, keep: Time(seconds: settings.buffer * 2)))
+            func marked(_ times: [Time]) -> Bool { times.contains { $0.seconds >= silence.lowerBound && $0.seconds <= silence.upperBound } }
+            let kind: PauseKind = marked(sentenceAt) ? .sentence : marked(midAt) ? .mid : Self.kind(of: silence, map: map)
+            let buffer = settings.buffer(for: kind)
+            guard let cut = cut(in: silence, buffer: buffer, timelineEnd: project.duration, rate: rate) else { continue }
+            plan.cuts.append(PlannedCut(pause: pause, cut: cut, kind: kind, keep: Time(seconds: buffer * 2)))
         }
         let (kept, putBack) = keepingClips(plan.cuts, minimum: settings.minimumClip, timelineEnd: project.duration)
         plan.cuts = kept
@@ -222,13 +241,28 @@ public enum VolumeTightening {
                 let shorter = kept[index - 1].cut.duration <= kept[index].cut.duration ? index - 1 : index
                 let other = shorter == index ? index - 1 : index
                 // The shorter pause if it's short enough, or else the other.
-                guard let back = [shorter, other].first(where: { kept[$0].cut.duration.seconds <= Settings.putBackLimit + 1e-9 }) else { continue }
+                // Only one between sentences: putting back a thinking pause
+                // mid-sentence is the big pause Mike doesn't want.
+                guard let back = [shorter, other].first(where: {
+                    kept[$0].cut.duration.seconds <= Settings.putBackLimit + 1e-9 && (kept[$0].kind ?? .sentence) == .sentence
+                }) else { continue }
                 putBack.append(kept.remove(at: back))
                 changed = true
                 break
             }
         }
         return (kept, putBack.sorted { $0.cut.start < $1.cut.start })
+    }
+
+    /// What a silence follows, by the word before it as it's spoken
+    /// (`TranscriptTools.spokenKind`). With no word before or after (the
+    /// take's start or end, or sound no word accounts for at the edge),
+    /// it's a sentence's: the long keep is the safe one.
+    static func kind(of silence: ClosedRange<Double>, map: TranscriptTools.SpeechMap) -> PauseKind {
+        let middle = (silence.lowerBound + silence.upperBound) / 2
+        guard let before = map.words.last(where: { $0.start.seconds < middle }),
+              map.words.contains(where: { $0.start.seconds >= middle }) else { return .sentence }
+        return TranscriptTools.spokenKind(after: before.text)
     }
 
     /// A silence as a `Pause`, with the words either side for the plan.

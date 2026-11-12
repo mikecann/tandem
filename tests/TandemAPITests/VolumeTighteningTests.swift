@@ -77,6 +77,10 @@ final class VolumeTighteningTests: XCTestCase {
         try Self.write(to: h.folder.file("source/take1-camera.wav"), length: 64, loud: [
             (1.0, 3.0), (4.0, 6.0), (6.6, 8.0), (8.3, 9.0), (12.0, 29.0), (40.0, 50.0)
         ], quiet: [(10.0, 10.5)])
+        // No transcript: every silence is taken as between sentences, so
+        // these tests are Filmora's cut alone. Tests that need the kinds
+        // set their own words.
+        h.analysis.transcripts = [:]
         return h
     }
 
@@ -123,6 +127,55 @@ final class VolumeTighteningTests: XCTestCase {
         let removed = applied.cuts.reduce(0) { $0 + $1.cut.duration.seconds }
         XCTAssertEqual(h.service.coordinator.project.duration.seconds, 60 - removed, accuracy: 0.001)
         XCTAssertEqual(removed, 0.6 + 0.2 + 2.2 + 8.2 + 11.6, accuracy: 5 * 0.034)
+    }
+
+    func testAFullStopAfterAWordThatNeverEndsASentenceIsMidSentence() {
+        XCTAssertEqual(TranscriptTools.spokenKind(after: "using."), .mid)
+        XCTAssertEqual(TranscriptTools.spokenKind(after: "The."), .mid)
+        XCTAssertEqual(TranscriptTools.spokenKind(after: "it\u{2019}s."), .mid)
+        XCTAssertEqual(TranscriptTools.spokenKind(after: "done."), .sentence)
+        XCTAssertEqual(TranscriptTools.spokenKind(after: "Right?"), .sentence)
+        XCTAssertEqual(TranscriptTools.spokenKind(after: "then,"), .comma)
+        XCTAssertEqual(TranscriptTools.spokenKind(after: "scratch"), .mid)
+    }
+
+    func testMidSentenceSilencesAreClosedTightAndSentenceOnesKeepFilmorasBuffer() async throws {
+        let h = try harness()
+        defer { h.close() }
+        // 3-4 follows "using." (Bark's full stop, mid-sentence), 9-12
+        // follows "done." (a sentence), 8-8.3 and 6-6.6 are too short.
+        h.analysis.transcripts["med_camera"] = Transcript(language: "en", engine: "fake", words: [
+            TranscriptWord(text: "Built", start: Self.t(1.0), end: Self.t(2.0)),
+            TranscriptWord(text: "using.", start: Self.t(2.1), end: Self.t(3.0)),
+            TranscriptWord(text: "The", start: Self.t(4.0), end: Self.t(5.0)),
+            TranscriptWord(text: "latest", start: Self.t(5.1), end: Self.t(6.0)),
+            TranscriptWord(text: "and", start: Self.t(6.6), end: Self.t(8.0)),
+            TranscriptWord(text: "done.", start: Self.t(8.3), end: Self.t(9.0)),
+            TranscriptWord(text: "Next", start: Self.t(12.0), end: Self.t(29.0))
+        ])
+        let plan = try await h.service.tighten(TightenRequest(filmora: true, minClip: 0), context: h.context)
+        let mid = try XCTUnwrap(plan.cuts.first { $0.pause.start.seconds > 2.9 && $0.pause.start.seconds < 3.1 }, plan.readableText)
+        XCTAssertEqual(mid.kind, .mid)
+        // 0.08 s each side, on frames inwards: 3.1 to 3.9.
+        XCTAssertEqual(mid.cut.start.seconds, 3.1, accuracy: 0.034, plan.readableText)
+        XCTAssertEqual(mid.cut.end.seconds, 3.9, accuracy: 0.034, plan.readableText)
+        let sentence = try XCTUnwrap(plan.cuts.first { $0.pause.start.seconds > 8.9 && $0.pause.start.seconds < 9.1 }, plan.readableText)
+        XCTAssertEqual(sentence.kind, .sentence)
+        XCTAssertEqual(sentence.cut.start.seconds, 9.4, accuracy: 0.034)
+        XCTAssertTrue(plan.readableText.contains(" mid -> cut"), plan.readableText)
+
+        // Marked by hand, either way round.
+        let marked = try await h.service.tighten(TightenRequest(filmora: true, minClip: 0, midAt: [Self.t(10)], sentenceAt: [Self.t(3.5)]), context: h.context)
+        XCTAssertEqual(marked.cuts.first { $0.pause.start.seconds > 2.9 && $0.pause.start.seconds < 3.1 }?.kind, .sentence)
+        XCTAssertEqual(marked.cuts.first { $0.pause.start.seconds > 8.9 && $0.pause.start.seconds < 9.1 }?.kind, .mid)
+    }
+
+    func testAThinkingPauseIsNeverPutBackForTheMinimumClip() {
+        var mid = planned(5, 5.3)
+        mid.kind = .mid
+        // The short clip 5.3-6.3 sits between a mid-sentence cut and a long one.
+        let (_, back) = VolumeTightening.keepingClips([planned(0, 2), mid, planned(6.3, 9), planned(12, 13)], minimum: 2)
+        XCTAssertTrue(back.isEmpty, "\(back)")
     }
 
     func testTranscriptOptionsAreRefused() async throws {

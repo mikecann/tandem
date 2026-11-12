@@ -592,7 +592,8 @@ public final class TandemService: @unchecked Sendable {
         try checkExpected(request.expectedRevision, at: revision)
         let map = TranscriptTools.speechMap(project, analysis: analysis)
         let planned = await VolumeTightening.plan(
-            settings: settings, protect: request.protect ?? [], from: request.from, to: request.to,
+            settings: settings, protect: request.protect ?? [], midAt: request.midAt ?? [], sentenceAt: request.sentenceAt ?? [],
+            from: request.from, to: request.to,
             map: map, project: project, folder: folder
         )
         let cuts = planned.cuts

@@ -196,8 +196,9 @@ transitions, media or markers.
   so a stray "um", "so" or click stays with 0.4 s either side: cut those
   with `tandem cut`. Keep his deliberate beats with `--protect
   <time,...>`. Dry run first, then `--apply`, then `check --cuts`.
-  Then close the mid-sentence thinking pauses Filmora leaves at 0.8 s:
-  `tandem tighten --mid 0.1 --mid-min 0.5` (see "Mid-sentence pauses").
+  It closes mid-sentence pauses itself (see "Mid-sentence pauses"): read
+  the kind on each line of the plan and fix the wrong ones with
+  `--mid-at`/`--sentence-at` before `--apply`.
   `--mike` (by the transcript, 0.4 s after a sentence, 0.12 s after a
   comma, 0.08 s mid-sentence) is still there for when he asks for tighter
   than Filmora (see "Mid-sentence pauses"). Bark writes most "um"s as
@@ -316,10 +317,15 @@ transitions, media or markers.
   sounds broken. On the Convex Auth v2 video (12 Nov 2026, the same day he
   picked Filmora) he flagged "using. [0.8 s] The latest and greatest":
   "There's weird pause here when it's mid sentence... don't forget mid
-  sentence no big pause." So on every take, after `--filmora`, close his
-  thinking pauses, 0.5 s or longer,
-  right up (to about 0.08 s, `--mid 0.08 --mid-min 0.5`, part of `--mike`),
-  so a sentence sounds like one thought. Leave
+  sentence no big pause." So `--filmora` closes his thinking pauses, 0.5 s
+  or longer, right up (0.08 s of quiet each side mid-sentence, 0.1 s after
+  a comma), so a sentence sounds like one thought. It goes by the word
+  before the pause, and Bark puts a full stop where he stops to think
+  ("using." was one), so a full stop after a word that never ends a
+  sentence (using, the, and, to...) counts as mid-sentence. That doesn't
+  catch them all: read each "sentence" pause in the plan in context, and
+  pass the times of the ones that aren't with `--mid-at` (and
+  `--sentence-at` for the other way round). Leave
   shorter ones (a breath, a natural pause) as he said them: closing every
   gap of 0.2 s or more made 818 cuts in a 38-minute video, one every 2.8 s,
   and the picture jumped around (Mike, 2026-10-05). The 0.4 s is for

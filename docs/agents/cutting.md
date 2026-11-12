@@ -19,7 +19,14 @@ Filmora silence detection did, which he picked by ear over the transcript
 rules below. Every stretch where all the take's tracks are under
 `--threshold` (-35 dB peak) for at least `--min` (0.5 s) keeps `--buffer`
 (0.4 s) at each end, on whole frames, so a long pause comes out at 0.8 s
-and a shorter one isn't touched. The timeline's own start and end are cut
+and a shorter one isn't touched. Mid-sentence, a 0.8 s pause sounds
+broken ("don't forget mid sentence no big pause"), so a silence keeps less
+by the word before it: 0.08 s each side mid-sentence, 0.1 s after a comma.
+Bark puts a full stop where Mike pauses to think, so a full stop after a
+word that never ends a sentence (using, the, and, to...) is mid-sentence;
+each line of the plan says which kind it took, and `--mid-at` and
+`--sentence-at` (a time in the silence) set it where the transcript's
+wrong. The minimum clip never puts a mid-sentence pause back. The timeline's own start and end are cut
 right to the edge; a silence running into `--from` or `--to` keeps its
 buffer there. Quiet noise and breaths count as silence, so every long pause
 lands the same length, and anything loud enough stays, a stray "um" or a

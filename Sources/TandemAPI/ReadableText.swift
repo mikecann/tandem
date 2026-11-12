@@ -243,7 +243,7 @@ extension TightenResult: ReadableResult {
         var lines: [String] = []
         let mode = applied == nil ? "dry run" : "applied"
         let bySentence = sentence != nil || comma != nil || mid != nil
-        let settings = buffer.map { "silences under \(Int((threshold ?? -35).rounded())) dB of \(TimeText.duration(minimum)) or more, keeping \(TimeText.duration($0)) at each end" }
+        let settings = buffer.map { "silences under \(Int((threshold ?? -35).rounded())) dB of \(TimeText.duration(minimum)) or more, keeping \(TimeText.duration($0)) at each end after a sentence and less mid-sentence" }
         if cuts.isEmpty && widened.isEmpty {
             if let settings {
                 lines.append("Nothing to cut: no \(settings) would lose a frame.")
@@ -271,7 +271,7 @@ extension TightenResult: ReadableResult {
                     ranges.append("\(cuts[index].cut.start)-\(cuts[index].cut.end)")
                 }
                 index += 1
-                let kind = bySentence ? (cut.kind.map { " \($0.rawValue)" } ?? "") : ""
+                let kind = bySentence || buffer != nil ? (cut.kind.map { " \($0.rawValue)" } ?? "") : ""
                 // Sound left in beside the cut is worth a listen.
                 let beside = cut.pause.sound.flatMap { $0.heard.isEmpty ? nil : ", beside \($0.heardText)" } ?? ""
                 lines.append("  \(cut.pause.start)-\(cut.pause.end)  \(TimeText.duration(cut.pause.duration))\(kind) -> cut \(ranges.joined(separator: ", "))  ...\(cut.pause.before) | \(cut.pause.after)...\(beside)")
