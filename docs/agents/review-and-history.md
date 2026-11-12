@@ -151,12 +151,50 @@ their own beside it, and reports, with the clips on screen there:
     stretches. Mike's finished solo edits cover 35 to 86%; the Exact demo's
     first hand-back covered 19%, and he asked "How come you aren't adding
     the B-roll as usual?" Not in Shorts or conversations.
+  - mid-sentence pauses (`midSentencePause`): a pause of 0.5 s or more
+    (up to 3 s, past which it's a beat for something on screen) in the
+    middle of a sentence or after a comma. Its length is the longer of the
+    transcript's gap and the quiet `tandem pauses` hears, since a breath in
+    it is part of the pause to Mike ("using. | The latest" on the Convex
+    Auth v2 video was 0.65 s, 0.18 s of it quiet); with less than 0.5 s
+    quiet it needs 0.6 s between the words. What a pause follows goes by
+    the words as well as the punctuation, since Bark's full stops slip in
+    Mike's fast runs: a full stop after a word no sentence ends on ("the",
+    "and", "it's"), or after a preposition that isn't stranded ("from
+    scratch using." but not "the tool I'm using."), carries on, and so does
+    a full stop before a lowercase "and", "but" or "so"; no full stop
+    before a capitalised "And", "So" or "Now" is a sentence Bark didn't
+    punctuate. A question or "!" always ends one. `tighten --filmora`
+    closes mid-sentence pauses itself, by a narrower reading, so these are
+    what an older tighten, a hand edit or that reading left: the note's fix
+    is `tandem tighten --filmora --from --to --mid-at <time>` over just
+    that pause (never the whole edit, which would re-cut every long
+    silence, a deliberate beat too), with a time in each stretch of quiet
+    in it, which closes it whatever the words say. Up to 40 are listed,
+    then a note says how many more to check again for. Not in
+    conversations. It reads the take's sound, so it's in a quick check
+    too.
+  - PiP that isn't Mike's usual (`offStylePip`): a camera clip shown
+    smaller than the frame that isn't `pipRight` or `pipLeft` with the
+    cutout on, at its 50% in the corner: a cropped face box, the cutout
+    off, or a size or place of its own. It judges where the PiP rests, in
+    the corner it rests in, so slides in and out pass; one that never
+    rests is judged at its keyframes. Moments under a full-frame opaque
+    layer, or with a second camera shown small (a conversation's boxes),
+    don't count. One note for each run of them on a track, with the
+    `applyLayout` that puts them back. A split screen is left alone, and
+    so is a Short, whose face box is the layout Mike
+    passed for portrait. On the Auth v2 video the matte wasn't made, so the
+    agent framed his face instead: "This is not our usual way". Start the
+    matte when the project is made (`tandem new` says so) and wait for it.
+    Read from the timeline, so it's in a quick check.
 
 Run `tandem check --changed` before handing an edit back: it checks only
 what agents changed that's waiting for Mike's review, half a second either
 side. It exits 1 when it finds a problem; notes never fail it. `--quick`
 skips rendering, so it only finds gaps, soft pictures, slivers, double
-jumps, swells off their cards and how a Short opens, and nothing that needs the screen recordings scanned (page changes,
+jumps, swells off their cards, PiP that isn't Mike's usual, how a Short
+opens, talk cut, little B-roll and mid-sentence pauses, and nothing that needs the screen recordings scanned (page changes,
 low frame rates).
 
 It renders the timeline in 10 s pieces, several at once, and keeps what it

@@ -169,7 +169,9 @@ final class CheckAPITests: XCTestCase {
         defer { h.close() }
         let result = try await CheckRequest(from: t(0), to: t(9)).run(on: h.service, context: h.context)
         XCTAssertTrue(result.ok, "notes don't fail a check")
-        XCTAssertEqual(result.notes.map(\.kind), [.deadAir, .pageChange])
+        // The fixture's "They | help you choose fast" has a 0.7 s pause
+        // mid-sentence, which is a note of its own.
+        XCTAssertEqual(result.notes.map(\.kind), [.deadAir, .midSentencePause, .pageChange])
         let dead = try XCTUnwrap(result.notes.first)
         XCTAssertEqual(dead.start, t(3.6), "the 1.4 s pause after \"decision models.\"; the 0.7 s one isn't")
         XCTAssertEqual(dead.end, t(5.0))
@@ -243,7 +245,7 @@ final class CheckAPITests: XCTestCase {
         try h.apply(.updateClip(clipID: "clip_brl1", patch: .object(["video": .object(["transform": .object(["scale": .number(1.5)])])])))
         let result = try await CheckRequest(quick: true).run(on: h.service, context: h.context)
         XCTAssertTrue(result.ok, "notes don't fail a check")
-        XCTAssertEqual(result.notes.map(\.kind), [.soft])
+        XCTAssertEqual(result.notes.map(\.kind), [.midSentencePause, .soft], "and the fixture's 0.7 s pause in \"They | help\"")
         XCTAssertTrue(result.readableText.contains("Notes (not problems):"), result.readableText)
     }
 

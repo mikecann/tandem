@@ -84,6 +84,15 @@ public struct CheckProblem: Codable, Equatable, Sendable {
         /// is full screen (`littleBRoll`): the first hand-back has
         /// everything in.
         case littleBRoll
+        /// A pause of half a second or more, heard, in the middle of a
+        /// sentence or after a comma (`midSentencePauses`): `tighten
+        /// --filmora` leaves 0.8 s there, and Mike wants no big pause
+        /// mid-sentence.
+        case midSentencePause
+        /// A camera clip shown smaller than the frame that isn't `pipRight`
+        /// or `pipLeft` with the cutout on (`offStylePip`): a framed face
+        /// box, the cutout off, or a size or place of its own.
+        case offStylePip
 
         /// Worth knowing rather than wrong: Mike signed off softer zooms on
         /// cartoon B-roll than on screen recordings, a pause can let a point
@@ -92,7 +101,7 @@ public struct CheckProblem: Codable, Equatable, Sendable {
         public var isNote: Bool {
             self == .soft || self == .deadAir || self == .pageChange || self == .sliver || self == .lowFrameRate || self == .marginalJoin
                 || self == .heardDifferently || self == .heardWhole || self == .swellOffCard || self == .readableText || self == .shortOpening
-                || self == .cutTalk || self == .littleBRoll
+                || self == .cutTalk || self == .littleBRoll || self == .midSentencePause || self == .offStylePip
         }
     }
 
@@ -307,20 +316,24 @@ public enum QualityCheck {
     /// Every problem and note in `ranges`, by time. Without `frames` only
     /// the model checks run, plus, when there's `speech`, the notes that
     /// only read the transcript: how a Short opens, talk cut from a take
-    /// and how much B-roll covers the camera. Dead air needs `speech` as well, and page
+    /// and how much B-roll covers the camera; with `pauses` too, the pauses
+    /// left mid-sentence. Dead air needs `speech` as well, and page
     /// changes need `screenFrames`, the screen recordings scanned on their
     /// own (`screenOnly`), and low frame rates those and `frameTimes`, the
     /// recordings' own frame times by media ID.
-    public static func problems(in project: Project, ranges: [TimeRange], frames: [FrameStats]?, screenFrames: [FrameStats]? = nil, speech: Speech? = nil, frameTimes: [String: [Time]] = [:]) -> [CheckProblem] {
+    public static func problems(in project: Project, ranges: [TimeRange], frames: [FrameStats]?, screenFrames: [FrameStats]? = nil, speech: Speech? = nil, pauses: [HeardPause]? = nil, frameTimes: [String: [Time]] = [:]) -> [CheckProblem] {
         let gapProblems = gaps(in: project, ranges: ranges)
         let jumps = doubleJumps(in: project, ranges: ranges)
         var found = gapProblems + softPictures(in: project, ranges: ranges) + slivers(in: project, ranges: ranges) + jumps + sameShotTwice(in: project, ranges: ranges)
-            + swellsOffCards(in: project, ranges: ranges)
+            + swellsOffCards(in: project, ranges: ranges) + offStylePip(in: project, ranges: ranges)
         if let speech {
             // Read from the transcript, so it's in a quick check too.
             found += shortOpening(in: project, ranges: ranges, speech: speech)
             found += cutTalk(in: project, ranges: ranges, speech: speech)
             found += littleBRoll(in: project, ranges: ranges, speech: speech)
+            if let pauses {
+                found += midSentencePauses(pauses, in: project, ranges: ranges, speech: speech)
+            }
         }
         if let frames {
             let rendered = holdFixes(frameProblems(frames, in: project, skipping: gapProblems.map { TimeRange(start: $0.start, end: $0.end) }), in: project, screenFrames: screenFrames)

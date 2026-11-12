@@ -598,6 +598,7 @@ struct CLI {
             }
             if takes.count > shown { lines.append("And \(takes.count - shown) more camera takes; `tandem media` lists them.") }
             lines.append("Not the camera? \(command(takes.count == 1 ? takes[0].mediaID : "<id>", role: .other))")
+            if let line = matteLine(takes.compactMap { project.media($0.mediaID) }, in: project) { lines.append(line) }
         } else if added.contains(where: { $0.kind == .video }) {
             // The likeliest take is the longest video with sound that nothing
             // else claimed.
@@ -613,6 +614,26 @@ struct CLI {
             lines.append("Frame rate: \(String(format: "%g", rate.framesPerSecond)) fps, the camera take's. To change it: tandem apply '{\"updateSettings\": {\"patch\": {\"frameRate\": {\"numerator\": 30, \"denominator\": 1}}}}'")
         }
         return lines
+    }
+
+    /// Mike's PiP is the cutout, and Tandem mattes the whole camera file
+    /// before it shows, which for a long 4K take is hours. On the Convex Auth
+    /// v2 video (12 Nov 2026) the matte wasn't started until the PiP was
+    /// needed, so the agent framed his face in a box instead ("This is not
+    /// our usual way"). So a new project says to start it straight away.
+    /// Not for a Short, whose face box has the cutout off.
+    static func matteLine(_ takes: [MediaItem], in project: Project) -> String? {
+        guard project.settings.width >= project.settings.height else { return nil }
+        let videos = takes.filter { $0.kind == .video && $0.hasVideo }
+        guard let longest = videos.max(by: { ($0.duration ?? .zero) < ($1.duration ?? .zero) }) else { return nil }
+        let minutes = Int(((longest.duration ?? .zero).seconds / 60).rounded())
+        let size = (longest.width ?? 0) >= 3840 ? "4K " : ""
+        let article = String(minutes).hasPrefix("8") || minutes == 11 || minutes == 18 ? "an" : "a"
+        let length = minutes >= 1 ? " (this one is \(article) \(minutes)-minute \(size)take)" : ""
+        return "Start the cutout matte now: Mike's PiP is pipRight with the cutout, and Tandem mattes the whole camera file before the cutout shows, "
+            + "which takes hours for a long 4K take\(length). Once the take is placed, put one camera clip in pipRight "
+            + "(tandem apply '{\"applyLayout\": {\"clipIDs\": [\"<camera clip>\"], \"preset\": \"pipRight\"}}') and the app starts it. "
+            + "Don't frame his face in a box while it runs."
     }
 
     private func serve(_ args: Arguments) async throws -> Int32 {
