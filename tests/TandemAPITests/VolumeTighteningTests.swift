@@ -58,6 +58,13 @@ final class VolumeTighteningTests: XCTestCase {
         let long = [planned(0, 2), planned(5, 7), planned(7.5, 10)]
         XCTAssertEqual(VolumeTightening.keepingClips(long, minimum: 2).putBack.count, 0)
         XCTAssertEqual(VolumeTightening.keepingClips(cuts, minimum: 0).kept.count, 4)
+
+        // The video's first and last clips don't count, after a lead-in cut
+        // from 0 or before a run-out cut to the end.
+        let edges = [planned(0, 0.6), planned(1.6, 1.8), planned(5, 7), planned(9.5, 9.7), planned(10.5, 11)]
+        XCTAssertEqual(VolumeTightening.keepingClips(edges, minimum: 2, timelineEnd: Self.t(11)).putBack.count, 0)
+        // Without the timeline's end, the last short clip does count.
+        XCTAssertEqual(VolumeTightening.keepingClips(edges, minimum: 2).putBack.count, 1)
     }
 
     /// The fixture's voice track plays file 0-30 at 0-30 and file 32-62 at

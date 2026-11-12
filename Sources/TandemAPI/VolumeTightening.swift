@@ -192,7 +192,7 @@ public enum VolumeTightening {
             guard let cut = cut(in: silence, buffer: settings.buffer, timelineEnd: project.duration, rate: rate) else { continue }
             plan.cuts.append(PlannedCut(pause: pause, cut: cut, keep: Time(seconds: settings.buffer * 2)))
         }
-        let (kept, putBack) = keepingClips(plan.cuts, minimum: settings.minimumClip)
+        let (kept, putBack) = keepingClips(plan.cuts, minimum: settings.minimumClip, timelineEnd: project.duration)
         plan.cuts = kept
         plan.putBack = putBack
         return plan
@@ -204,7 +204,7 @@ public enum VolumeTightening {
     /// one back joins the clip to its neighbour, so it goes round again
     /// until nothing changes. The timeline's first and last pieces don't
     /// count: they're the take's lead-in and run-out.
-    static func keepingClips(_ cuts: [PlannedCut], minimum: Double) -> (kept: [PlannedCut], putBack: [PlannedCut]) {
+    static func keepingClips(_ cuts: [PlannedCut], minimum: Double, timelineEnd: Time? = nil) -> (kept: [PlannedCut], putBack: [PlannedCut]) {
         guard minimum > 0 else { return (cuts, []) }
         var kept = cuts.sorted { $0.cut.start < $1.cut.start }
         var putBack: [PlannedCut] = []
@@ -214,6 +214,11 @@ public enum VolumeTightening {
             for index in kept.indices.dropFirst() {
                 let clip = (kept[index].cut.start - kept[index - 1].cut.end).seconds
                 guard clip < minimum - 1e-9 else { continue }
+                // After a cut of the lead-in, or before one of the run-out,
+                // it's the video's first or last clip: no clip beside it to
+                // join.
+                if kept[index - 1].cut.start == .zero { continue }
+                if let timelineEnd, kept[index].cut.end >= timelineEnd { continue }
                 let shorter = kept[index - 1].cut.duration <= kept[index].cut.duration ? index - 1 : index
                 let other = shorter == index ? index - 1 : index
                 // The shorter pause if it's short enough, or else the other.

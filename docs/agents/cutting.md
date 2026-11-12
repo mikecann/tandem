@@ -26,7 +26,7 @@ lands the same length, and anything loud enough stays, a stray "um" or a
 click included: cut those with `tandem cut`. Stretches where no take track
 plays, and files whose sound can't be read, are never cut. `--min-clip`
 (2 s, 0 for none) puts back the pause beside any clip a cut would leave
-shorter than that, if the pause is a second or less, so the picture doesn't
+shorter than that, if putting it back adds a second or less, so the picture doesn't
 jump about; Filmora had no such setting, it's Mike's rule. It doesn't
 listen for clipped words the way the transcript rules do (0.4 s of quiet
 either side doesn't need it), so run `check --cuts` after.

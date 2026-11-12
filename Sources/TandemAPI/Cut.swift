@@ -316,7 +316,7 @@ extension TandemService {
                 // A filler on its own is a filled pause, kept as tight as
                 // tighten would leave it; anything else asked for gets
                 // Filmora's join where it has one.
-                if !planned.filled, let keep = planned.filmoraKeep { planned.keep = keep }
+                if !planned.filled, !planned.onlyFillers, let keep = planned.filmoraKeep { planned.keep = keep }
                 plans.append(planned)
             }
             stretches.append(CutStretch(
@@ -620,6 +620,9 @@ extension TandemService {
         /// The keep Filmora's join gives this stretch, when it isn't only
         /// fillers (see `filmoraJoin`).
         var filmoraKeep: Double?
+        /// Every word it cuts is a filler, however it was asked for
+        /// (`tandem cut "um"` as much as `--fillers`).
+        var onlyFillers = false
         var removedText: String
         var before: String
         var after: String
@@ -706,6 +709,7 @@ extension TandemService {
         )
 
         let removed = same ? cutFirst : cutFirst + cutLast
+        planned.onlyFillers = !removed.isEmpty && removed.allSatisfy { TranscriptTools.filler($0.text) != nil }
         planned.removedText = removed.map(\.text).joined(separator: " ")
         planned.before = keptBefore.suffix(4).map(\.text).joined(separator: " ")
         planned.after = keptAfter.prefix(4).map(\.text).joined(separator: " ")
