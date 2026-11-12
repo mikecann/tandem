@@ -330,6 +330,9 @@ struct CLI {
                 threshold: try args.number("threshold"), min: try seconds(args, "min"),
                 from: try time(args, "from")?.seconds, to: try time(args, "to")?.seconds
             )
+            if let kindsFile, kindsFile.settings == nil {
+                throw UsageError(message: "\(args.options["kinds"] ?? "") doesn't say what settings found its pauses (an older file): make a new one with a dry run.")
+            }
             if let kindsFile, let made = kindsFile.settings, made != found {
                 throw UsageError(message: "\(args.options["kinds"] ?? "") was made with other settings (threshold, min, from, to): give the same ones, or make a new kinds file. Other settings find other pauses.")
             }

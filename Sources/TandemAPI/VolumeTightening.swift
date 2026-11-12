@@ -360,7 +360,12 @@ public enum VolumeTightening {
                     guard let item = SoundTightening.plays(clip, in: project) else { continue }
                     let at = min(max(edge, clip.start.seconds), clip.end.seconds)
                     let media = clip.sourceStart.seconds + (at - clip.start.seconds) * clip.speed
-                    guard let placer = readings[item.id]?.first(where: { $0.energy.start <= media && media <= $0.energy.end }) else { return nil }
+                    // The reading the edge sits deepest in, so the sound either
+                    // side of it, and as far as the edge may move, is in it.
+                    guard let placer = readings[item.id]?
+                        .filter({ $0.energy.start <= media && media <= $0.energy.end })
+                        .max(by: { min(media - $0.energy.start, $0.energy.end - media) < min(media - $1.energy.start, $1.energy.end - media) })
+                    else { return nil }
                     pieces.append(SoundLayer.Piece(timeline: clip.start.seconds..<clip.end.seconds, mediaStart: clip.sourceStart.seconds, speed: clip.speed, placer: placer))
                 }
                 if !pieces.isEmpty { layers.append(SoundLayer(name: track.name, pieces: pieces)) }
