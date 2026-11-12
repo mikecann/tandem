@@ -243,14 +243,19 @@ extension TightenResult: ReadableResult {
         var lines: [String] = []
         let mode = applied == nil ? "dry run" : "applied"
         let bySentence = sentence != nil || comma != nil || mid != nil
+        let settings = buffer.map { "silences under \(Int((threshold ?? -35).rounded())) dB of \(TimeText.duration(minimum)) or more, keeping \(TimeText.duration($0)) at each end" }
         if cuts.isEmpty && widened.isEmpty {
-            if bySentence {
+            if let settings {
+                lines.append("Nothing to cut: no \(settings) would lose a frame.")
+            } else if bySentence {
                 lines.append("Nothing to tighten: keeping \(keepsText), no pause would lose a frame.")
             } else {
                 lines.append("Nothing to tighten: no pauses of \(TimeText.duration(minimum)) or more that would lose a frame.")
             }
         } else {
-            if bySentence {
+            if let settings {
+                lines.append("Cut \(cuts.count) silence\(cuts.count == 1 ? "" : "s") as Filmora did, \(settings) (\(mode), revision \(revision)):")
+            } else if bySentence {
                 let midMinimum = midMinimum.map { ", comma and mid-sentence ones of \(TimeText.duration($0)) or more" } ?? ""
                 lines.append("Keep \(keepsText) (sentence pauses of \(TimeText.duration(minimum)) or more\(midMinimum); \(mode), revision \(revision)):")
             } else {

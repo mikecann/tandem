@@ -464,6 +464,16 @@ public struct TightenRequest: ServiceCall {
     public var midMin: Double?
     /// Mike's rules (`TranscriptTools.mikeRules`); the other fields override them.
     public var mike: Bool?
+    /// Cut by volume, as Mike's old Filmora silence detection did
+    /// (`VolumeTightening`): every silence of at least `min` (0.5 s) under
+    /// `threshold` (-35 dB) keeps `buffer` (0.4 s) at each end. Not with
+    /// the transcript's keeps (`keep`, `sentence`, `comma`, `mid`, `midMin`,
+    /// `mike`) or `widen`.
+    public var filmora: Bool?
+    /// With `filmora`: peak level in dBFS under which the take is silent.
+    public var threshold: Double?
+    /// With `filmora`: what each silence keeps at each end.
+    public var buffer: Double?
     /// Pauses containing any of these timeline times are left alone.
     public var protect: [Time]?
     /// Widen joins between speech clips that leave less than the keep, from
@@ -480,7 +490,8 @@ public struct TightenRequest: ServiceCall {
 
     public init(
         min: Double? = nil, keep: Double? = nil, sentence: Double? = nil, comma: Double? = nil, mid: Double? = nil,
-        midMin: Double? = nil, mike: Bool? = nil, protect: [Time]? = nil, widen: Bool? = nil,
+        midMin: Double? = nil, mike: Bool? = nil, filmora: Bool? = nil, threshold: Double? = nil, buffer: Double? = nil,
+        protect: [Time]? = nil, widen: Bool? = nil,
         apply: Bool? = nil, from: Time? = nil, to: Time? = nil,
         label: String? = nil, author: String? = nil, expectedRevision: Int? = nil
     ) {
@@ -491,6 +502,9 @@ public struct TightenRequest: ServiceCall {
         self.mid = mid
         self.midMin = midMin
         self.mike = mike
+        self.filmora = filmora
+        self.threshold = threshold
+        self.buffer = buffer
         self.protect = protect
         self.widen = widen
         self.apply = apply
@@ -510,6 +524,9 @@ public struct TightenRequest: ServiceCall {
         mid = try c.decodeSeconds(.mid)
         midMin = try c.decodeSeconds(.midMin)
         mike = try c.decodeIfPresent(Bool.self, forKey: .mike)
+        filmora = try c.decodeIfPresent(Bool.self, forKey: .filmora)
+        threshold = try c.decodeIfPresent(Double.self, forKey: .threshold)
+        buffer = try c.decodeSeconds(.buffer)
         protect = try c.decodeTimes(.protect)
         widen = try c.decodeIfPresent(Bool.self, forKey: .widen)
         apply = try c.decodeIfPresent(Bool.self, forKey: .apply)
@@ -606,6 +623,10 @@ public struct TightenResult: Codable, Sendable {
     public var comma: Time?
     public var mid: Time?
     public var midMinimum: Time?
+    /// Set when cutting by volume (`filmora`): what each silence keeps at
+    /// each end, and the level under which the take is silent.
+    public var buffer: Time? = nil
+    public var threshold: Double? = nil
     public var cuts: [PlannedCut]
     /// Joins widened back out (`widen`).
     public var widened: [PlannedWiden]
@@ -641,6 +662,8 @@ extension TightenResult {
         comma = try c.decodeIfPresent(Time.self, forKey: .comma)
         mid = try c.decodeIfPresent(Time.self, forKey: .mid)
         midMinimum = try c.decodeIfPresent(Time.self, forKey: .midMinimum)
+        buffer = try c.decodeIfPresent(Time.self, forKey: .buffer)
+        threshold = try c.decodeIfPresent(Double.self, forKey: .threshold)
         cuts = try c.decode([PlannedCut].self, forKey: .cuts)
         widened = try c.decode([PlannedWiden].self, forKey: .widened)
         protected = try c.decode([Pause].self, forKey: .protected)

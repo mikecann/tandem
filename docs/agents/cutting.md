@@ -7,13 +7,34 @@ Recipes for tightening pauses, taking out fillers, cutting a phrase, a false sta
 ```bash
 tandem pauses --min 0.5                      # what's there
 tandem cut --fillers --apply                 # first, the ums and uhs between pauses
-tandem tighten --mike                        # the plan, nothing changes
-tandem tighten --mike --protect 2:14.5,5:03 --widen --apply
+tandem tighten --filmora                     # the plan, nothing changes
+tandem tighten --filmora --protect 2:14.5,5:03 --apply
+tandem check --cuts                          # every join clean
 tandem clip 0:00 1:00 -o /tmp/review.mp4     # watch the result
-tandem undo                                  # if it's too tight
+tandem undo                                  # if it's off
 ```
 
-`--mike` is Mike's rules ("How Mike likes a take cut" in the skill): 0.4 s
+`--filmora` is how Mike likes a take cut: by volume, the way his old
+Filmora silence detection did, which he picked by ear over the transcript
+rules below. Every stretch where all the take's tracks are under
+`--threshold` (-35 dB peak) for at least `--min` (0.5 s) keeps `--buffer`
+(0.4 s) at each end, on whole frames, so a long pause comes out at 0.8 s
+and a shorter one isn't touched. The timeline's own start and end are cut
+right to the edge; a silence running into `--from` or `--to` keeps its
+buffer there. Quiet noise and breaths count as silence, so every long pause
+lands the same length, and anything loud enough stays, a stray "um" or a
+click included: cut those with `tandem cut`. Stretches where no take track
+plays, and files whose sound can't be read, are never cut. It doesn't
+listen for clipped words the way the transcript rules do (0.4 s of quiet
+either side doesn't need it), so run `check --cuts` after.
+
+The transcript rules, for when Mike asks for tighter than that:
+
+```bash
+tandem tighten --mike --protect 2:14.5,5:03 --widen --apply
+```
+
+`--mike` is Mike's older rules ("How Mike likes a take cut" in the skill): 0.4 s
 after a sentence, 0.12 s after a comma and 0.08 s for a thinking pause
 mid-sentence, and only pauses of 0.5 s or more change, so breaths and
 natural pauses stay as he said them. What a pause follows comes from the

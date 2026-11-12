@@ -180,21 +180,26 @@ transitions, media or markers.
 
 ## How Mike likes a take cut
 
-- **Tighten with `tandem tighten --mike`,** not a script of your own. It
-  does the rules below by what each pause follows (0.4 s after a sentence,
-  0.12 s after a comma, 0.08 s for a thinking pause mid-sentence, only
-  pauses of 0.5 s or more; a join never keeps under 0.03 s after a word or
-  0.08 s before one, so mid-sentence comes out at 0.11 s). Keep his
-  deliberate beats with
-  `--protect <time,...>`, and add `--widen` to open joins a cut left too
-  tight back out from the take's own silence (listen to those). Dry run
-  first, then `--apply`. It places each cut in the sound of every track
-  that plays there, never through sound the transcript doesn't know about
-  (someone off mic, an app, a breath, an "um"), cutting the quiet either
-  side of it, and lists the pauses it left alone for that, with where the
-  sound is: listen to them, and cut a stray "um" with `tandem cut --range`
-  if it should go. Bark writes most "um"s as words, so they split pauses
-  and stay until they're cut: run `tandem cut --fillers` before tightening.
+- **Cut the pauses with `tandem tighten --filmora`,** not a script of your
+  own and not `--mike`. It cuts by volume the way his old Filmora silence
+  detection did: anything under -35 dB on every take track for 0.5 s or
+  more keeps 0.4 s at each end, so a long pause comes out at 0.8 s and a
+  shorter one is left as he said it. On 12 Nov 2026 he listened to one take
+  cut five ways (today's `--mike`, `--mike` loosened, every pause to 0.6 s,
+  every pause over 0.8 s to 0.75 s by the transcript, and Filmora's own
+  method) and picked Filmora's: "lately we've been having issues with the
+  automated silence detection... the way that I had it in Filmora before
+  ... was perfect". The transcript rules left gaps anywhere from 0.15 s to
+  1.6 s (sentence pauses closed to 0.4 s, mid-sentence ones to 0.11 s, any
+  pause with a breath or noise in it left whole); by volume every long
+  pause lands at the same length. What it keeps is anything loud enough,
+  so a stray "um", "so" or click stays with 0.4 s either side: cut those
+  with `tandem cut`. Keep his deliberate beats with `--protect
+  <time,...>`. Dry run first, then `--apply`, then `check --cuts`.
+  `--mike` (by the transcript, 0.4 s after a sentence, 0.12 s after a
+  comma, 0.08 s mid-sentence) is still there for when he asks for tighter
+  than Filmora (see "Mid-sentence pauses"). Bark writes most "um"s as
+  words: run `tandem cut --fillers` before tightening.
 - **Never place an edge from transcript times,** with or without a margin.
   Mike heard Ian "cut off" 10 times over 4 review rounds on the whiteboard
   interview: "it's quite a common problem that we seem to get wrong,
@@ -269,11 +274,15 @@ transitions, media or markers.
   each in-point, and no in-point may open on a 15 to 20 ms blip of the cut
   word's tail. The "time." cut passed it: it sat in the gap before the
   word, and the word went missing whole.
-- **Pauses between sentences: 0.4 s.** It's the feel of his old Filmora
-  silence detection (0.4 s softening buffer, 0.5 s minimum, 25% volume
-  threshold). 0.2 s sounds rushed, as if the sentences are jammed together.
-  A cut that removes a retake or a stumble should leave about 0.4 s of real
-  silence across the join too, not trim right up to the words.
+- **Pauses between sentences: up to 0.8 s,** the feel of his old Filmora
+  silence detection (0.4 s softening buffer on each side of a cut, 0.5 s
+  minimum, 25% volume threshold, about -35 dB). His Filmora-cut AI Tips
+  video has no pause over about 0.85 s and most long ones at 0.65 to
+  0.85 s. Agents read the buffer as the whole gap for a month and cut to
+  0.4 s; 0.2 s sounds rushed, as if the sentences are jammed together. A
+  cut that removes a retake or a stumble should leave real silence across
+  the join too, not trim right up to the words (`tandem cut` still leaves
+  0.4 s there).
 - **Longer gaps where they earn it:** the end of a paragraph, letting a
   point land, or while something animates on screen (a build finishing, a
   result appearing, a diagram moving). Never cut a pause while a demo
@@ -296,7 +305,10 @@ transitions, media or markers.
   out a bit sooner" (Muse Wonder, 2026-10-13). Run on with the real
   footage: a freeze of his last frame "looks weird" (What I Need video,
   2026-10-09).
-- **Mid-sentence pauses:** close his thinking pauses, 0.5 s or longer,
+- **Mid-sentence pauses:** `--filmora` only shortens a pause over 0.8 s,
+  and that's what he picked on 12 Nov 2026 (on a screen demo take, too).
+  The notes below are from before, when he asked for tighter; do them only
+  when he asks again. Close his thinking pauses, 0.5 s or longer,
   right up (to about 0.08 s, `--mid 0.08 --mid-min 0.5`, part of `--mike`),
   so a sentence sounds like one thought. Leave
   shorter ones (a breath, a natural pause) as he said them: closing every

@@ -30,12 +30,17 @@ public struct SpeechEnergy: Sendable {
     public var high: [Float]
     /// Above `voiceBand`. The full band where it wasn't measured.
     public var voice: [Float]
+    /// The loudest sample in each frame, in dB: what Filmora's silence
+    /// detection (and ffmpeg's `silencedetect`) hold against the threshold,
+    /// sample by sample. The full band's RMS where it wasn't measured.
+    public var peak: [Float]
 
-    public init(start: Double, full: [Float], high: [Float], voice: [Float]? = nil) {
+    public init(start: Double, full: [Float], high: [Float], voice: [Float]? = nil, peak: [Float]? = nil) {
         self.start = start
         self.full = full
         self.high = high
         self.voice = voice ?? full
+        self.peak = peak ?? full
     }
 
     /// Frames of mono `samples` starting at media time `start`.
@@ -56,6 +61,13 @@ public struct SpeechEnergy: Sendable {
             }
         }
         full = levels(samples)
+        peak = samples.withUnsafeBufferPointer { buffer in
+            (0..<count).map { frame in
+                var loudest: Float = 0
+                vDSP_maxmgv(buffer.baseAddress! + frame * perFrame, 1, &loudest, vDSP_Length(perFrame))
+                return loudest > 1e-6 ? 20 * log10(loudest) : -120
+            }
+        }
         high = highPassed.map(levels) ?? [Float](repeating: -120, count: count)
         voice = voicePassed.map(levels) ?? full
     }
