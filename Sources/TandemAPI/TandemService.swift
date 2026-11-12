@@ -590,7 +590,11 @@ public final class TandemService: @unchecked Sendable {
 
         let (project, revision) = coordinator.snapshot()
         try checkExpected(request.expectedRevision, at: revision)
-        let map = TranscriptTools.speechMap(project, analysis: analysis)
+        // A word the transcript has where the sound has only the room would
+        // decide a pause's kind, so it's left out (`withoutPhantoms`).
+        let map = await SoundTightening.withoutPhantoms(
+            TranscriptTools.speechMap(project, analysis: analysis), from: request.from, to: request.to, project: project, folder: folder
+        ).map
         let planned = await VolumeTightening.plan(
             settings: settings, protect: request.protect ?? [], midAt: request.midAt ?? [], sentenceAt: request.sentenceAt ?? [],
             from: request.from, to: request.to,

@@ -137,6 +137,13 @@ final class VolumeTighteningTests: XCTestCase {
         XCTAssertEqual(TranscriptTools.spokenKind(after: "Right?"), .sentence)
         XCTAssertEqual(TranscriptTools.spokenKind(after: "then,"), .comma)
         XCTAssertEqual(TranscriptTools.spokenKind(after: "scratch"), .mid)
+        XCTAssertEqual(TranscriptTools.spokenKind(after: "'using.'"), .mid)
+        XCTAssertEqual(TranscriptTools.spokenKind(after: "using\u{2019}."), .mid)
+        // Real endings stay sentences.
+        XCTAssertEqual(TranscriptTools.spokenKind(after: "this."), .sentence)
+        XCTAssertEqual(TranscriptTools.spokenKind(after: "can."), .sentence)
+        XCTAssertEqual(TranscriptTools.spokenKind(after: "in."), .sentence)
+        XCTAssertEqual(TranscriptTools.spokenKind(after: "the?"), .sentence)
     }
 
     func testMidSentenceSilencesAreClosedTightAndSentenceOnesKeepFilmorasBuffer() async throws {
@@ -168,6 +175,17 @@ final class VolumeTighteningTests: XCTestCase {
         let marked = try await h.service.tighten(TightenRequest(filmora: true, minClip: 0, midAt: [Self.t(10)], sentenceAt: [Self.t(3.5)]), context: h.context)
         XCTAssertEqual(marked.cuts.first { $0.pause.start.seconds > 2.9 && $0.pause.start.seconds < 3.1 }?.kind, .sentence)
         XCTAssertEqual(marked.cuts.first { $0.pause.start.seconds > 8.9 && $0.pause.start.seconds < 9.1 }?.kind, .mid)
+    }
+
+    func testAShortKeepMovesOutPastAWordsHiss() {
+        // 5 ms frames from 0: hiss (a soft "s") for the first 0.2 s of a
+        // 1 s silence, quiet after.
+        let hiss = Array(repeating: Float(-40), count: 40) + Array(repeating: Float(-90), count: 160)
+        let (after, before) = VolumeTightening.clearOfHiss(0...1, buffer: 0.08, limit: 0.4, hiss: hiss, start: 0, frame: 0.005)
+        XCTAssertEqual(after, 0.23, accuracy: 0.006, "past the hiss, and 30 ms more")
+        XCTAssertEqual(before, 0.08, accuracy: 1e-9)
+        let long = Array(repeating: Float(-40), count: 200)
+        XCTAssertEqual(VolumeTightening.clearOfHiss(0...1, buffer: 0.08, limit: 0.4, hiss: long, start: 0, frame: 0.005).after, 0.4, accuracy: 1e-9)
     }
 
     func testAThinkingPauseIsNeverPutBackForTheMinimumClip() {
