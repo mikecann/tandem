@@ -253,15 +253,14 @@ private struct NothingSelected: View {
 }
 
 /// What's near the playhead while nothing's selected: the markers, to-dos
-/// and comments either side of it (click one to go there), and what the
-/// agents changed right here, so reviewing reads like a running list.
+/// and comments either side of it (click one to go there).
 private struct NearThePlayheadSection: View {
     let model: EditorModel
 
     var body: some View {
         let near = model.nearPlayhead
         InspectorSection(title: "Near the playhead", icon: "scope") {
-            if near.items.isEmpty && near.edits.isEmpty {
+            if near.items.isEmpty {
                 Text("Comments, to-dos and markers show here as the playhead passes them. Shift-C adds a comment.")
                     .font(.ui(11.5))
                     .foregroundStyle(Theme.textMuted.color)
@@ -269,27 +268,6 @@ private struct NearThePlayheadSection: View {
             }
             ForEach(near.items) { item in
                 NearRow(item: item) { model.goTo(item.marker) }
-            }
-            if !near.edits.isEmpty {
-                Text("Agent edits here")
-                    .font(.ui(11, .semibold))
-                    .foregroundStyle(Theme.agent.color)
-                    .padding(.top, 4)
-                ForEach(near.edits, id: \.revision) { edit in
-                    HStack(alignment: .firstTextBaseline, spacing: 6) {
-                        Text(ActivityLog.displayName(edit.author))
-                            .font(.ui(11.5, .semibold))
-                            .foregroundStyle(Theme.agent.color)
-                        Text(edit.label)
-                            .font(.ui(11.5))
-                            .foregroundStyle(Theme.text.color)
-                            .fixedSize(horizontal: false, vertical: true)
-                        Spacer(minLength: 0)
-                        Text(TimelineReview.when(edit.date))
-                            .font(.ui(10.5))
-                            .foregroundStyle(Theme.textFaint.color)
-                    }
-                }
             }
         }
     }
