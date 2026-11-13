@@ -164,7 +164,10 @@ stops 0.03 s short of the next sound) and never into what the next clip
 plays, so a join with sound right after the cut rolls less, and one with
 none rolls nothing and is listed to trim by hand. The timeline's length and
 every other clip stay put. Joins under a wipe, a section card or a
-transition are left alone: their cut has to stay under the wipe.
+transition are left alone: their cut has to stay under the wipe. Before it
+hands back the plan, `check --cuts` is run on the edit as it would be after
+the rolls, and a roll whose join it flags (when it didn't before) is left
+out.
 ## Take out fillers
 
 ```bash

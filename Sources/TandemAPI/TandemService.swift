@@ -669,7 +669,8 @@ public final class TandemService: @unchecked Sendable {
         let range = TimeRange(start: request.from ?? .zero, end: request.to ?? project.duration)
         let map = TranscriptTools.speechMap(project, analysis: analysis)
         let found = await LeadRoll.waits(
-            project: project, folder: folder, ranges: [range], lead: lead, map: map, words: CutCheck.words(in: project, analysis: analysis)
+            project: project, folder: folder, ranges: [range], lead: lead, map: map, words: CutCheck.words(in: project, analysis: analysis),
+            verify: true
         )
         let rolled = found.waits.filter { $0.roll != nil }
         // Each roll moves only its own join, so the order doesn't matter.

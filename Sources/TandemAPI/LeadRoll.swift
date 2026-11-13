@@ -20,6 +20,16 @@ enum LeadRoll {
     /// how far a word is looked for.
     static var margin: Double { CutAudit.around + 0.1 }
 
+    /// The words `check --cuts` judges an edge at `time` with: 3 s either
+    /// side of it, and all of the stretch cut at the join with 3 s past it
+    /// (`CutCheck.run`). With other words the transcript's rules come out
+    /// differently.
+    static func said(_ words: [CutAudit.Word], at time: Double, removed: ClosedRange<Double>) -> [CutAudit.Word] {
+        let window = CutCheck.window
+        let reach = min(time - window, removed.lowerBound)...max(time + window, removed.upperBound + window)
+        return words.filter { $0.end >= reach.lowerBound && $0.start <= reach.upperBound }
+    }
+
     /// The waits at the take's joins in `ranges`, and the rolls (with their
     /// commands) that take each down to `lead`. A join whose sound can't be
     /// read, or with no word within `LeadIn.reach`, isn't in it.
@@ -28,7 +38,7 @@ enum LeadRoll {
     ///   `check --cuts` judges it.
     static func waits(
         project: Project, folder: ProjectFolder, ranges: [TimeRange], lead: Double, map: TranscriptTools.SpeechMap? = nil,
-        words: [String: [CutAudit.Word]] = [:]
+        words: [String: [CutAudit.Word]] = [:], verify: Bool = false
     ) async -> (waits: [QualityCheck.FaceWait], unread: [String]) {
         let speech = Set(TranscriptTools.speechTracks(project).map(\.id))
         let joins = QualityCheck.takeJoins(in: project, ranges: ranges, speechTrackIDs: speech)
@@ -88,7 +98,7 @@ enum LeadRoll {
             // counts. Then how far each side can go.
             var wait = Double.infinity, roll = Double.infinity
             // Each speech track's sound and words, to judge the roll it ends up with.
-            var judged: [(incoming: CutPlacer, outgoing: CutPlacer, start: Double, end: Double, said: [CutAudit.Word])] = []
+            var judged: [(incoming: CutPlacer, outgoing: CutPlacer, start: Double, end: Double, words: [CutAudit.Word])] = []
             for pair in join.heard {
                 if pair.incoming.mediaID.map(silent.contains) ?? false { continue }
                 let start = pair.incoming.sourceStart.seconds, end = pair.outgoing.sourceEnd.seconds
@@ -96,10 +106,9 @@ enum LeadRoll {
                       let outgoing = placer(pair.outgoing.mediaID, at: end),
                       let onset = LeadIn.speechStart(incoming, after: start) else { continue joinLoop }
                 wait = min(wait, onset - start)
-                // The words round the join, as check --cuts takes them.
-                let near = (end - CutAudit.around)...(start + LeadIn.reach + CutAudit.around)
-                let said = (pair.incoming.mediaID.flatMap { words[$0] } ?? []).filter { $0.end >= near.lowerBound && $0.start <= near.upperBound }
-                judged.append((incoming, outgoing, start, end, said))
+                let all = pair.incoming.mediaID.flatMap { words[$0] } ?? []
+                judged.append((incoming, outgoing, start, end, all))
+                let said = Self.said(all, at: start, removed: end...start)
                 guard let edge = LeadIn.start(incoming, onset: onset, lead: lead, earliest: start, outgoingEnd: end, transcript: said) else {
                     roll = 0
                     continue
@@ -129,8 +138,8 @@ enum LeadRoll {
                 let r = Time.frames(frames, at: rate).seconds
                 return judged.allSatisfy { side in
                     let removed = (side.end + r)...(side.start + r)
-                    return side.incoming.judge(at: side.start + r, keeps: .after, removed: removed, cutAway: removed, transcript: side.said).verdict == .clean
-                        && side.outgoing.judge(at: side.end + r, keeps: .before, removed: removed, cutAway: removed, transcript: side.said).verdict == .clean
+                    return side.incoming.judge(at: side.start + r, keeps: .after, removed: removed, transcript: Self.said(side.words, at: side.start + r, removed: removed)).verdict == .clean
+                        && side.outgoing.judge(at: side.end + r, keeps: .before, removed: removed, cutAway: removed, transcript: Self.said(side.words, at: side.end + r, removed: removed)).verdict == .clean
                 }
             }
             while frames > 0, !clean(frames) { frames -= 1 }
@@ -146,6 +155,55 @@ enum LeadRoll {
                 clipIDs: join.heard.flatMap { [$0.outgoing.id, $0.incoming.id] }
             ))
         }
-        return (waits, unread)
+        return (verify ? await verified(waits, project: project, folder: folder, words: words) : waits, unread)
+    }
+
+    /// The rolls checked by `check --cuts` itself: each join is judged on
+    /// the edit as it would be after them, and a roll whose join that flags
+    /// (when it didn't before) is dropped, until none does. Judging each
+    /// edge here with the same calls wasn't enough: check reads its own
+    /// stretches of the file, whose 5 ms frames fall elsewhere, and on the
+    /// Let's Build It take that moved the floor 0.2 dB and flipped a
+    /// borderline edge to clipped.
+    static func verified(
+        _ waits: [QualityCheck.FaceWait], project: Project, folder: ProjectFolder, words: [String: [CutAudit.Word]]
+    ) async -> [QualityCheck.FaceWait] {
+        var waits = waits
+        guard waits.contains(where: { $0.roll != nil }) else { return waits }
+        // The whole edit, as `tandem check --cuts` reads it: checking only
+        // round the joins reads other stretches of the file, and a
+        // borderline edge came out clean there and clipped in the full check.
+        func ranges() -> [TimeRange] { [TimeRange(start: .zero, end: project.duration)] }
+        func flagged(_ outcome: CutCheck.Outcome) -> Set<String> {
+            Set(outcome.problems.compactMap { $0.cut.map { "\($0.clipID)/\($0.edge.rawValue)" } })
+        }
+        let before = flagged(await CutCheck.run(project: project, folder: folder, ranges: ranges(), words: words))
+        for _ in 0..<4 {
+            var rolled = project
+            var context = EditContext()
+            do {
+                for command in waits.flatMap(\.commands) { try Editing.apply(command, to: &rolled, context: &context) }
+            } catch {
+                // A roll the editor won't take: none of them go.
+                return waits.map { var wait = $0; wait.roll = nil; wait.commands = []; return wait }
+            }
+            let fresh = flagged(await CutCheck.run(project: rolled, folder: folder, ranges: ranges(), words: words)).subtracting(before)
+            guard !fresh.isEmpty else { return waits }
+            var dropped = false
+            for index in waits.indices where waits[index].roll != nil {
+                let clips = Set(waits[index].commands.flatMap { command -> [String] in
+                    if case .roll(let left, let right, _) = command { return [left, right] }
+                    return []
+                } + waits[index].clipIDs)
+                if fresh.contains(where: { clips.contains(String($0.split(separator: "/").first ?? "")) }) {
+                    waits[index].roll = nil
+                    waits[index].commands = []
+                    dropped = true
+                }
+            }
+            // Flagged somewhere none of the rolls touch: leave them be.
+            if !dropped { return waits }
+        }
+        return waits
     }
 }

@@ -79,6 +79,17 @@ final class LeadInTests: XCTestCase {
         XCTAssertLessThanOrEqual(LeadIn.quietAfter(placer(tick), from: 11.0, limit: 0.43), 0.1 - CutAudit.pad + 0.006)
     }
 
+    func testTheClipBeforeDoesntGrowIntoACutWordTooSoftToMeasure() {
+        // Quiet all the way by the sound, but the transcript has a word that
+        // was cut 0.15 s after the clip ends.
+        let take = Take(length: 5, words: [(10.5, 11.0), (12.0, 12.5)])
+        let said = [CutAudit.Word(text: "but", start: 11.15, end: 11.4)]
+        XCTAssertEqual(LeadIn.quietAfter(placer(take), from: 11.0, limit: 0.43, transcript: said), 0.15 - CutAudit.pad, accuracy: 0.006)
+        // One already sounding at the clip's end: it doesn't grow at all.
+        let straddling = [CutAudit.Word(text: "but", start: 10.95, end: 11.3)]
+        XCTAssertEqual(LeadIn.quietAfter(placer(take), from: 11.0, limit: 0.43, transcript: straddling), 0)
+    }
+
     func testTighteningPutsTheKeepAfterTheWordBefore() throws {
         // A sentence's 0.4 s: 0.35 after "it." and 0.05 before "So".
         let take = Take(length: 5, words: [(10.5, 11.0), (12.0, 12.5)])

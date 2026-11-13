@@ -130,7 +130,7 @@ public enum LeadIn {
         let step = SpeechEnergy.frameSeconds
         var at = onset - lead
         func removed(_ at: Double) -> ClosedRange<Double>? { outgoingEnd.map { min(at, $0 + (at - earliest))...at } }
-        while at > earliest, placer.judge(at: at, keeps: .after, removed: removed(at), cutAway: removed(at), transcript: transcript).verdict != .clean {
+        while at > earliest, placer.judge(at: at, keeps: .after, removed: removed(at), transcript: transcript).verdict != .clean {
             at -= step
         }
         return at > earliest + 1e-9 ? at : nil
@@ -172,6 +172,13 @@ public enum LeadIn {
                 break
             }
             index += 1
+        }
+        // Nor into a word the transcript has there: a word that was cut can
+        // be too soft for any line (a "but" at -60 dB, 37 under his speech,
+        // on the Let's Build It take) and Bark still hears it come back. A
+        // word Bark has in silence stops it too, which only rolls less.
+        for word in transcript where word.end > time + 1e-3 && word.start < time + length + CutAudit.pad {
+            length = min(length, word.start - time - CutAudit.pad)
         }
         func removed(_ length: Double) -> ClosedRange<Double>? {
             incomingStart.map { (time + length)...max(time + length, $0 + length) }
