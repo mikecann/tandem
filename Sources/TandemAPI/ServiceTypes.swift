@@ -541,6 +541,16 @@ public struct TightenRequest: ServiceCall {
     /// Widen joins between speech clips that leave less than the keep, from
     /// silence in the take either side.
     public var widen: Bool?
+    /// What each cut leaves before the word after it, in seconds
+    /// (`LeadIn`, default 0.05): the rest of the pause goes after the word
+    /// before, so the clip coming in starts a frame or two before Mike
+    /// speaks.
+    public var lead: Double?
+    /// Cut nothing: roll the take's existing joins so each clip starts
+    /// `lead` before its first word and the pause before it goes on the end
+    /// of the clip before (`LeadRoll`), for an edit cut before tighten did
+    /// that itself. Only `lead`, `from` and `to` go with it.
+    public var leadOnly: Bool?
     /// Make the edit. Without it this is a dry run that returns the plan.
     public var apply: Bool?
     public var from: Time?
@@ -553,10 +563,12 @@ public struct TightenRequest: ServiceCall {
     public init(
         min: Double? = nil, keep: Double? = nil, sentence: Double? = nil, comma: Double? = nil, mid: Double? = nil,
         midMin: Double? = nil, mike: Bool? = nil, filmora: Bool? = nil, threshold: Double? = nil, buffer: Double? = nil, minClip: Double? = nil, kinds: [PauseKindMark]? = nil,
-        protect: [Time]? = nil, widen: Bool? = nil,
+        protect: [Time]? = nil, widen: Bool? = nil, lead: Double? = nil, leadOnly: Bool? = nil,
         apply: Bool? = nil, from: Time? = nil, to: Time? = nil,
         label: String? = nil, author: String? = nil, expectedRevision: Int? = nil
     ) {
+        self.lead = lead
+        self.leadOnly = leadOnly
         self.min = min
         self.keep = keep
         self.sentence = sentence
@@ -595,6 +607,8 @@ public struct TightenRequest: ServiceCall {
         kinds = try c.decodeIfPresent([PauseKindMark].self, forKey: .kinds)
         protect = try c.decodeTimes(.protect)
         widen = try c.decodeIfPresent(Bool.self, forKey: .widen)
+        lead = try c.decodeSeconds(.lead)
+        leadOnly = try c.decodeIfPresent(Bool.self, forKey: .leadOnly)
         apply = try c.decodeIfPresent(Bool.self, forKey: .apply)
         from = try c.decodeTime(.from)
         to = try c.decodeTime(.to)
@@ -680,6 +694,20 @@ public struct PlannedWiden: Codable, Equatable, Sendable {
     public var added: Time { tail + head }
 }
 
+/// One join of the take `tighten --lead-only` looked at.
+public struct LeadJoin: Codable, Equatable, Sendable {
+    /// Where the two clips meet, before the roll.
+    public var at: Time
+    /// How long the clip coming in ran before his first word's sound.
+    public var wait: Time
+    /// How far the cut moves later, on whole frames. Nil when it waits no
+    /// longer than the lead, or there's no quiet after the clip before to
+    /// grow into.
+    public var roll: Time?
+    /// The first words said after it.
+    public var words: String
+}
+
 public struct TightenResult: Codable, Sendable {
     /// The revision the plan was made against.
     public var revision: Int
@@ -704,6 +732,11 @@ public struct TightenResult: Codable, Sendable {
     public var putBack: [Pause] = []
     /// With `filmora`: every pause it found, with its guessed and given kind.
     public var pauses: [FilmoraPause]? = nil
+    /// What each join leaves before the word after it (`lead`).
+    public var lead: Time? = nil
+    /// With `leadOnly`: every join of the take looked at, how long its clip
+    /// ran before his first word and how far its cut rolls.
+    public var leads: [LeadJoin]? = nil
     public var cuts: [PlannedCut]
     /// Joins widened back out (`widen`).
     public var widened: [PlannedWiden]
@@ -744,6 +777,8 @@ extension TightenResult {
         minClip = try c.decodeIfPresent(Time.self, forKey: .minClip)
         putBack = try c.decodeIfPresent([Pause].self, forKey: .putBack) ?? []
         pauses = try c.decodeIfPresent([FilmoraPause].self, forKey: .pauses)
+        lead = try c.decodeIfPresent(Time.self, forKey: .lead)
+        leads = try c.decodeIfPresent([LeadJoin].self, forKey: .leads)
         cuts = try c.decode([PlannedCut].self, forKey: .cuts)
         widened = try c.decode([PlannedWiden].self, forKey: .widened)
         protected = try c.decode([Pause].self, forKey: .protected)

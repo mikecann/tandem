@@ -309,7 +309,7 @@ One line each; `tandem help <command>` has the options and what they do.
 | `tandem wait [transcript\|matte\|proxy\|jobs\|export]` | wait for background work |
 | `tandem search "<phrase>"` | where a phrase is said |
 | `tandem pauses` | silences between words, and what the sound has in them |
-| `tandem tighten` | shorten pauses (`--filmora --kinds <file>` for Mike's: found by volume, cut by each pause's kind read from the words; dry run without `--apply`) |
+| `tandem tighten` | shorten pauses (`--filmora --kinds <file>` for Mike's: found by volume, cut by each pause's kind read from the words, the pause on the end of the clip before; `--lead-only` rolls an old edit's joins so no clip opens on his face waiting; dry run without `--apply`) |
 | `tandem cut "<phrase>"` | cut words with both edges in real pauses (`--range`, `--at`, `--fillers` for every um and uh; dry run without `--apply`) |
 | `tandem join` | join through-edits (dry run without `--apply`) |
 | `tandem captions` | word-by-word captions (dry run without `--apply`) |

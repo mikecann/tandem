@@ -53,15 +53,24 @@ public enum VolumeTightening {
         /// The minimum is 0.3 s rather than Filmora's 0.5 s, so a thinking
         /// pause of 0.3 to 0.5 s mid-sentence is closed too (his own trims
         /// on the Threadbear launch took gaps like that to 0.1 s).
+        /// What's left before the word after a pause (`LeadIn`): the rest
+        /// of the keep goes after the word before it, so the clip coming in
+        /// starts a frame or two before he speaks. Nil splits it as Filmora
+        /// did (`keeps(for:)`).
+        public var lead: Double? = LeadIn.lead
         public static let filmora = Settings(threshold: -35, minimum: 0.3, buffer: 0.4, minimumClip: 0)
 
         /// What a pause of `kind` keeps after the word before and before
-        /// the word after, nil when it's kept whole. A new topic splits
-        /// evenly, as Filmora did; the rest keep about a third after the
-        /// word (at least 40 ms, a word's tail) and the rest before the
-        /// next (at least 70 ms, as a voice starts before its burst).
+        /// the word after, nil when it's kept whole. With a `lead`, that's
+        /// before the word after and the rest is after the word before (at
+        /// least 40 ms, a word's tail). Without one, a new topic splits
+        /// evenly, as Filmora did, and the rest keep about a third after the
+        /// word and the rest before the next (at least 70 ms, as a voice
+        /// starts before its burst).
         func keeps(for kind: FilmoraKind) -> (after: Double, before: Double)? {
             guard let total = kind.total else { return nil }
+            // A new topic keeps the buffer at each end, so `--buffer` still changes it.
+            if let lead { return (max(0.04, (kind == .topic ? 2 * buffer : total) - lead), lead) }
             if kind == .topic { return (buffer, buffer) }
             let after = max(0.04, 0.35 * total)
             return (after, max(0.07, total - after))

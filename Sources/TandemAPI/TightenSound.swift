@@ -284,7 +284,7 @@ public enum SoundTightening {
     /// between `from` and `to`.
     public static func plan(
         _ pauses: [Pause], rules: TranscriptTools.PauseRules, snug: Bool,
-        protect: [Time] = [], from: Time? = nil, to: Time? = nil,
+        protect: [Time] = [], from: Time? = nil, to: Time? = nil, lead: Double? = LeadIn.lead,
         map: TranscriptTools.SpeechMap, project: Project, folder: ProjectFolder
     ) async -> Plan {
         let rate = project.settings.frameRate
@@ -333,7 +333,7 @@ public enum SoundTightening {
                 if counts { plan.skipped.append(SkippedPause(pause: pause, reason: reason, kind: kind, keep: keep, startEdge: start, endEdge: end)) }
             }
             let placements: [GapSound.Placement]
-            switch sound.place(keep: keep.seconds, minimum: shortest.seconds, frame: frame.seconds) {
+            switch sound.place(keep: keep.seconds, minimum: shortest.seconds, frame: frame.seconds, lead: lead) {
             case .success(let placed): placements = placed
             case .failure(.fits): continue
             case .failure(.speech): skip(.speech); continue

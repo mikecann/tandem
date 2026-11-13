@@ -329,7 +329,12 @@ public struct GapSound: Equatable, Sendable {
     /// would lose less than a frame (or `shortestBesideSound`) is kept whole
     /// and counts towards the keep too. Each cut needs room for at least a
     /// `frame`.
-    public func place(keep: Double, minimum: Double, frame: Double) -> Result<[Placement], Refusal> {
+    ///
+    /// With a `lead` (`LeadIn`), the word after keeps just that before it,
+    /// and the rest of the keep goes after the word before, then beside the
+    /// sound, and only before the word after when neither can take it: the
+    /// clip coming in starts a frame or two before he speaks.
+    public func place(keep: Double, minimum: Double, frame: Double, lead: Double? = nil) -> Result<[Placement], Refusal> {
         if runsThrough { return .failure(.speech) }
         func length(_ range: ClosedRange<Double>) -> Double { range.upperBound - range.lowerBound }
         guard length(span) >= minimum - 1e-9 else { return .failure(.short) }
@@ -341,7 +346,7 @@ public struct GapSound: Equatable, Sendable {
         let afterWord = pauses.map { abs($0.lowerBound - span.lowerBound) < 1e-9 }
         let beforeWord = pauses.map { abs($0.upperBound - span.upperBound) < 1e-9 }
         let lowest = pauses.indices.map { Self.least(after: afterWord[$0]) }
-        let highest = pauses.indices.map { Self.least(before: beforeWord[$0]) }
+        let highest = pauses.indices.map { beforeWord[$0] ? lead ?? Self.least(before: true) : Self.least(before: false) }
 
         var whole = pauses.indices.map { length(pauses[$0]) - lowest[$0] - highest[$0] < shortest - 1e-9 }
         var low = lowest, high = highest
@@ -352,12 +357,18 @@ public struct GapSound: Equatable, Sendable {
                 total + (whole[index] ? length(pauses[index]) : lowest[index] + highest[index])
             }
             var spare = keep - kept
-            // Beside the words first, then beside the sound.
-            for words in [true, false] where spare > 1e-12 {
+            // Beside the words first, then beside the sound. With a lead,
+            // after the word before, then beside the sound, then (only when
+            // neither can take it) before the word after.
+            typealias Round = (words: Bool, low: Bool, high: Bool)
+            let rounds: [Round] = lead == nil
+                ? [(true, true, true), (false, true, true)]
+                : [(true, true, false), (false, true, true), (true, false, true)]
+            for round in rounds where spare > 1e-12 {
                 var edges: [(index: Int, low: Bool)] = []
                 for index in pauses.indices where !whole[index] {
-                    if afterWord[index] == words { edges.append((index, true)) }
-                    if beforeWord[index] == words { edges.append((index, false)) }
+                    if round.low, afterWord[index] == round.words { edges.append((index, true)) }
+                    if round.high, beforeWord[index] == round.words { edges.append((index, false)) }
                 }
                 guard !edges.isEmpty else { continue }
                 let least = edges.map { $0.low ? lowest[$0.index] : highest[$0.index] }

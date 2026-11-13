@@ -349,6 +349,7 @@ struct CLI {
                 filmora: args.has("filmora") ? true : nil, threshold: try args.number("threshold"), buffer: try seconds(args, "buffer"),
                 minClip: try seconds(args, "min-clip"), kinds: try kindsFile?.marks(),
                 protect: protect.isEmpty ? nil : protect, widen: args.has("widen") ? true : nil,
+                lead: try seconds(args, "lead"), leadOnly: args.has("lead-only") ? true : nil,
                 apply: args.has("apply"), from: try time(args, "from"), to: try time(args, "to"),
                 label: args.options["label"], expectedRevision: try args.integer("expect")
             )
@@ -386,7 +387,7 @@ struct CLI {
             let request = CutRequest(
                 remove: remove, fillers: args.has("fillers") ? true : nil, from: try time(args, "from"), to: try time(args, "to"),
                 protect: protect.isEmpty ? nil : protect,
-                falseStart: args.has("false-start") ? true : nil, apply: args.has("apply"),
+                falseStart: args.has("false-start") ? true : nil, lead: try seconds(args, "lead"), apply: args.has("apply"),
                 label: args.options["label"], expectedRevision: try args.integer("expect")
             )
             return show(try await client().call(request), json: json)

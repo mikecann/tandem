@@ -396,8 +396,15 @@ extension TandemService {
             if let pauseMap {
                 pauses = await Self.checkPauses(map: pauseMap, project: project, folder: projectFolder, ranges: toCheck)
             }
+            // How long each join's clip runs before his first word, heard in
+            // the take's sound (`LeadRoll`): his face waiting to talk.
+            let waits = await LeadRoll.waits(
+                project: project, folder: projectFolder, ranges: toCheck, lead: LeadIn.lead, map: pauseMap,
+                words: CutCheck.words(in: project, analysis: analysis)
+            ).waits
             let found = QualityCheck.problems(
-                in: project, ranges: toCheck, frames: frames, screenFrames: screenFrames, speech: speech, pauses: pauses, frameTimes: frameTimes
+                in: project, ranges: toCheck, frames: frames, screenFrames: screenFrames, speech: speech, pauses: pauses, faceWaits: waits,
+                frameTimes: frameTimes
             )
             var names: [String: String] = [:]
             for id in Set(found.flatMap(\.clipIDs)) {

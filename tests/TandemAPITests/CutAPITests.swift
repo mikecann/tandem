@@ -142,9 +142,10 @@ final class CutAPITests: XCTestCase {
         ).run(on: h.service, context: h.context)
         XCTAssertEqual(result.cuts.map(\.status), [.cut, .cut])
         // The second "fine.", with 3 s of silence before it and after:
-        // the join keeps a sentence's 0.4 s of it, as tighten would.
+        // the join keeps a sentence's 0.4 s of it, as tighten would: 0.35 s
+        // after "keep." and the 0.05 s lead before the word after.
         let fine = try XCTUnwrap(result.cuts[0].cut)
-        XCTAssertTrue((22.0...22.3).contains(fine.start.seconds), "\(fine)")
+        XCTAssertTrue((22.3...22.4).contains(fine.start.seconds), "\(fine)")
         XCTAssertGreaterThan(fine.end.seconds, 25.5)
         XCTAssertEqual(result.cuts[0].text, "fine.")
         guard case .cutRanges(let ranges, nil) = try XCTUnwrap(result.commands.first) else { return XCTFail("\(result.commands)") }
@@ -249,8 +250,9 @@ final class CutAPITests: XCTestCase {
     func testTheKeptPauseIsTimelineSecondsOnAFastClip() async throws {
         // The first piece plays at 2x: "fine." at file time 25 is at 12.5,
         // and the 3 s of silence before it plays in 1.5 s. The join keeps a
-        // sentence's 0.4 s on the timeline, 0.2 s of it after "keep." (file
-        // 22.0, timeline 11.0), which is 0.4 s of the file.
+        // sentence's 0.4 s on the timeline, 0.35 s of it after "keep." (file
+        // 22.0, timeline 11.0), which is 0.7 s of the file, and the 0.05 s
+        // lead before the word after; up to the next frame, 11.367.
         var project = APIFixture.project()
         project.media[0].path = "source/take1-camera.wav"
         project.audioTracks[0].clips[0].speed = 2
@@ -264,9 +266,9 @@ final class CutAPITests: XCTestCase {
         let stretch = try XCTUnwrap(plan.cuts.first)
         XCTAssertEqual(stretch.status, .cut, stretch.reason ?? "")
         let cut = try XCTUnwrap(stretch.cut)
-        XCTAssertEqual(cut.start.seconds, 11.2, accuracy: 0.02, "\(cut)")
-        XCTAssertEqual(try XCTUnwrap(stretch.keptBefore).seconds, 0.2, accuracy: 0.02)
-        XCTAssertEqual(try XCTUnwrap(stretch.mediaStart).seconds, 22.4, accuracy: 0.04)
+        XCTAssertEqual(cut.start.seconds, 11.367, accuracy: 0.02, "\(cut)")
+        XCTAssertEqual(try XCTUnwrap(stretch.keptBefore).seconds, 0.367, accuracy: 0.02)
+        XCTAssertEqual(try XCTUnwrap(stretch.mediaStart).seconds, 22.733, accuracy: 0.04)
     }
 
     func testOverlappingMatchesOfAPhraseNeedAt() async throws {
