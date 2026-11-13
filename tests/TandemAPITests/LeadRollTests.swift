@@ -133,6 +133,9 @@ final class LeadRollTests: XCTestCase {
         try CutAPITests.writeVoice(to: h.folder.file("source/take1-camera.wav"), length: 64, words: Self.speech)
         let plan = try await TightenRequest(leadOnly: true).run(on: h.service, context: h.context)
         XCTAssertEqual(plan.leads?.count, 0, plan.readableText)
+        // Asked about only the voice's side of it, too.
+        let narrow = try await TightenRequest(leadOnly: true, from: t(30.016), to: t(30.018)).run(on: h.service, context: h.context)
+        XCTAssertEqual(narrow.leads?.count, 0, narrow.readableText)
     }
 
     func testAJoinWithALinkedClipAHairApartIsLeftAlone() async throws {

@@ -60,7 +60,9 @@ extension QualityCheck {
         for track in project.allTracks {
             let clips = track.clips
             for (left, right) in zip(clips, clips.dropFirst()) {
-                guard touching(left.end, right.start), ranges.contains(where: { $0.start <= right.start && right.start <= $0.end }) else { continue }
+                // Every track's pair, in the range or not: a partner just
+                // outside it still rolls with the join.
+                guard touching(left.end, right.start) else { continue }
                 // Within a frame, joins on different tracks are one join.
                 let key = (right.start.flicks + tolerance) / rate.flicksPerFrame
                 guard left.end == right.start, let media = left.mediaID, media == right.mediaID,
@@ -69,7 +71,9 @@ extension QualityCheck {
                     others.append((left, right))
                     continue
                 }
-                let heard = speechTrackIDs.contains(track.id) && left.enabled && right.enabled
+                // Heard when either side plays: a roll still moves a disabled
+                // clip's partner, and its sound has to be judged.
+                let heard = speechTrackIDs.contains(track.id) && (left.enabled || right.enabled)
                 var join = byTime[key] ?? TakeJoin(time: right.start, pairs: [], rolled: [])
                 join.pairs.append(TakeJoin.Pair(trackID: track.id, outgoing: left, incoming: right, heard: heard))
                 byTime[key] = join
@@ -79,7 +83,7 @@ extension QualityCheck {
         let transitions = project.allTracks.flatMap(\.transitions)
         var joins: [TakeJoin] = []
         for var join in byTime.values.sorted(by: { $0.time < $1.time }) {
-            guard !join.heard.isEmpty else { continue }
+            guard !join.heard.isEmpty, ranges.contains(where: { $0.start <= join.time && join.time <= $0.end }) else { continue }
             // A piece of the take there the roll would leave behind, or
             // that `Editing.roll` would move with a linked pair unjudged
             // (its partner at the join in another file or at another speed).
