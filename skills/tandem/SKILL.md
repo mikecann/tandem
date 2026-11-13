@@ -461,6 +461,13 @@ usually like to edit." Check each one before `tandem handback`:
   incoming clip starts a frame or two before he speaks, and cut restarts,
   self-corrections and throat clears by hand where `tandem cut` won't (both in "How Mike likes a take cut"). Read the
   transcript once more for a phrase said twice.
+- **Look at his face at full size, a few frames across the take.** On the
+  Let's Build It technical video (13 Nov 2026) a yellow food mark sat at
+  the corner of his mouth for the whole 16-minute take, it went out on the
+  first upload, and Mike caught it afterwards. Crop his mouth and eyes at
+  4K from three or four moments before the first hand-back and say what
+  you see; a mark, a stray hair or something on his shirt is his call
+  (reshoot, leave, or clean it up).
 - **Look at every shot against its line before he does:** is it the real
   thing (his app as it is, not a drawing of it), does the example on screen
   back the claim, does anything sit still for over 2 s, does an animation
@@ -915,6 +922,20 @@ His comments on the first edit, and what a second full review found (13 Nov
     the conversation column (the sidebar and Highlights list his other
     threads), keep the title bar pinned, and put a marker on the phrase he
     says. `lets-build-it-technical/.work/threadbear-shot/make.sh`.
+- **Cleaning a mark off a whole camera take** (the food by his mouth,
+  13 Nov 2026): `lets-build-it-technical/.work/destain/`. `corners.swift`
+  finds his lips' left corner on every frame with Apple's face landmarks
+  (colour alone confused his nose and ears with his lips); `destain.py`
+  finds the mark beside it (pixels more yellow than the skin round them)
+  and gives just those pixels the surrounding skin's colour and level,
+  keeping the stubble; `run-full.sh` runs it on Tinker Desk (16 minutes of
+  4K in about 15). Two traps: camera takes are slightly variable frame
+  rate (143 missing 1/30 s steps in 16 minutes), so decode with
+  `-fps_mode passthrough` and line patches up by timestamp or they drift
+  seconds out of step; and a re-encode loses the audio's lead-in and Record
+  It's camera-delay tag, so `merge.swift` puts the cleaned picture with the
+  original's untouched sound and tags (check with `tracks.swift` and a
+  cross-correlation) before `tandem media replace`.
 - **An ffmpeg clip cut with `-ss` before `-i` and a filter can start at
   0.033 s,** and Tandem shows one black frame first. End the filter chain
   with `setpts=PTS-STARTPTS`.
