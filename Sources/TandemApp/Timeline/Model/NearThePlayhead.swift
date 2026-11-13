@@ -2,9 +2,14 @@ import Foundation
 import TandemCore
 
 /// What's near the playhead, for the sidebar while nothing's selected: the
-/// markers, to-dos and comments just before and after it, and the agent
-/// edits at it. It changes only when the playhead passes one of them, so
-/// the sidebar doesn't redraw on every frame of playback.
+/// markers, to-dos and comments just before and after it. It changes only
+/// when the playhead passes one of them, so the sidebar doesn't redraw on
+/// every frame of playback.
+///
+/// It used to list the agent edits at the playhead too. Those were batch
+/// labels from passes over the whole video, so the same rows showed
+/// everywhere, and reading a sidebar while watching didn't work. The
+/// ruler's hover and the handback walkthrough cards cover that instead.
 struct NearThePlayhead: Equatable {
     struct Item: Equatable, Identifiable {
         var marker: Marker
@@ -16,8 +21,6 @@ struct NearThePlayhead: Equatable {
 
     /// Earliest first.
     var items: [Item] = []
-    /// The agent edits whose changes are at the playhead, oldest first.
-    var edits: [TimelineReview.Edit] = []
 
     static let empty = NearThePlayhead()
     /// How many it lists either side of the playhead.
@@ -26,7 +29,7 @@ struct NearThePlayhead: Equatable {
     /// How long a point stays "here" once the playhead reaches it.
     static let lingers = Time(seconds: 1.5)
 
-    static func at(_ time: Time, in project: Project, review: TimelineReview) -> NearThePlayhead {
+    static func at(_ time: Time, in project: Project) -> NearThePlayhead {
         let all = project.markers.sorted { $0.time < $1.time }
         let split = all.firstIndex { $0.time > time } ?? all.count
         let shown = all[..<split].suffix(before) + all[split...].prefix(after)
@@ -34,7 +37,7 @@ struct NearThePlayhead: Equatable {
             let end = marker.time + max(marker.duration, lingers)
             return Item(marker: marker, strip: MarkerStrip.of(marker), isHere: marker.time <= time && time < end)
         }
-        return NearThePlayhead(items: items, edits: review.edits(at: time))
+        return NearThePlayhead(items: items)
     }
 }
 

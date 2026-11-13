@@ -121,7 +121,7 @@ extension EditorModel {
     /// Works out what's near the playhead again, keeping the old value when
     /// nothing's changed so the sidebar doesn't redraw.
     func refreshNearPlayhead() {
-        let near = NearThePlayhead.at(playback.time, in: project, review: review)
+        let near = NearThePlayhead.at(playback.time, in: project)
         if near != nearPlayhead { setNearPlayhead(near) }
     }
 
