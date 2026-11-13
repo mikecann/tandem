@@ -143,7 +143,7 @@ public enum CutPlanner {
     /// a false start when it's longer than `falseStartFrom`.
     public static func plan(
         _ placer: CutPlacer, removing stretch: ClosedRange<Double>, cut: [ClosedRange<Double>], kept: [ClosedRange<Double>],
-        keep: Double, tightenFrom: Double = 0, falseStart: Bool?, snap: ((Double, CutPlan.Edge, ClosedRange<Double>) -> Double)? = nil
+        keep: Double, tightenFrom: Double = 0, falseStart: Bool?, lead: Double? = nil, snap: ((Double, CutPlan.Edge, ClosedRange<Double>) -> Double)? = nil
     ) -> CutPlan {
         let mid = { (word: ClosedRange<Double>) in (word.lowerBound + word.upperBound) / 2 }
         let before = kept.filter { mid($0) < stretch.lowerBound }
@@ -152,7 +152,7 @@ public enum CutPlanner {
         return plan(
             start: placer, Boundary(time: stretch.lowerBound, before: before, after: heard ? cut : []),
             end: placer, Boundary(time: stretch.upperBound, before: heard ? cut : [], after: after),
-            keep: keep, tightenFrom: tightenFrom, falseStart: falseStart ?? (stretch.upperBound - stretch.lowerBound > falseStartFrom), snap: snap
+            keep: keep, tightenFrom: tightenFrom, falseStart: falseStart ?? (stretch.upperBound - stretch.lowerBound > falseStartFrom), lead: lead, snap: snap
         )
     }
 
@@ -174,7 +174,7 @@ public enum CutPlanner {
     public static func plan(
         start: CutPlacer, _ startBoundary: Boundary, end: CutPlacer, _ endBoundary: Boundary,
         keep: Double, tightenFrom: Double = 0, falseStart: Bool, sameFile: Bool = true, filled: Bool = false,
-        snap: ((Double, CutPlan.Edge, ClosedRange<Double>) -> Double)? = nil
+        lead: Double? = nil, snap: ((Double, CutPlan.Edge, ClosedRange<Double>) -> Double)? = nil
     ) -> CutPlan {
         var plan = CutPlan()
         var missed: [CutPlan.Edge: [ClosedRange<Double>]] = [:]
@@ -231,12 +231,12 @@ public enum CutPlanner {
         if filled, sameFile {
             natural = max(natural, (after.upperBound - before.lowerBound) / startBoundary.speed)
         }
-        let (tail, lead) = split(
+        let (tail, kept) = split(
             natural < tightenFrom ? natural : keep, before: lengths.before, after: lengths.after,
-            speeds: (startBoundary.speed, endBoundary.speed)
+            speeds: (startBoundary.speed, endBoundary.speed), lead: lead
         )
         var from = before.lowerBound + tail
-        var to = after.upperBound - lead
+        var to = after.upperBound - kept
         // Out of faint sound in the pause, into the quiet beside it, keeping
         // more of the pause: the join goes in the room's quiet rather than
         // halfway through a bump of it.
@@ -266,6 +266,27 @@ public enum CutPlanner {
         // pauses by construction, but frames and floors move.
         plan.start = join(start, at: from, keeps: .before)
         plan.end = join(end, at: to, keeps: .after)
+        // A short lead can land on a soft start the pause map missed: the
+        // end moves back a step at a time, keeping more before the word,
+        // until it's clean, as far as the pause goes.
+        if lead != nil, plan.end?.verdict != .clean {
+            var moved = to
+            while plan.end?.verdict != .clean, moved - SpeechEnergy.frameSeconds > after.lowerBound + min(CutAudit.pad, lengths.after / 2) {
+                moved -= SpeechEnergy.frameSeconds
+                let at = snap?(moved, .end, after) ?? moved
+                guard !sameFile || from < at else { break }
+                let judged = join(end, at: at, keeps: .after)
+                if judged.verdict == .clean {
+                    to = at
+                    plan.to = at
+                    plan.keptAfter = after.upperBound - at
+                    plan.end = judged
+                }
+            }
+            // The snap remembers the last time it placed: when none of the
+            // moves came clean, put it back on the one planned.
+            if plan.end?.verdict != .clean { _ = snap?(to, .end, after) }
+        }
         if plan.start?.verdict != .clean {
             plan.problem = .notClean
             plan.problemEdge = .start
@@ -289,11 +310,26 @@ public enum CutPlanner {
     /// `keep` is timeline seconds and the rest media seconds, played at
     /// `speeds` (the clips before and after the join); the minimums are
     /// about the sound, so they stay in media seconds.
-    static func split(_ keep: Double, before: Double, after: Double, speeds: (before: Double, after: Double) = (1, 1)) -> (tail: Double, lead: Double) {
+    ///
+    /// With a `lead` (`LeadIn`, timeline seconds: it's how long his face
+    /// shows before he speaks, so at 2x it's twice as much of the file) the
+    /// word after keeps just
+    /// that before it and the rest of the keep goes after the word before,
+    /// so the clip coming in starts a frame or two before he speaks; only
+    /// what the pause after the word before can't hold goes before the word
+    /// after.
+    static func split(
+        _ keep: Double, before: Double, after: Double, speeds: (before: Double, after: Double) = (1, 1), lead: Double? = nil
+    ) -> (tail: Double, lead: Double) {
         // The edges stay a little way off the cut words too, so a soft
         // start or tail of theirs isn't left at the join.
         let before = before - min(CutAudit.pad, before / 2)
         let after = after - min(CutAudit.pad, after / 2)
+        if let lead {
+            let least = min(lead * speeds.after, after)
+            let tail = max(min(minimumTail, before), min(before, (keep - least / speeds.after) * speeds.before))
+            return (tail, max(least, min(after, (keep - tail / speeds.before) * speeds.after)))
+        }
         var tail = max(min(minimumTail, before), min(before, keep / 2 * speeds.before))
         let lead = max(min(minimumLead, after), min(after, (keep - tail / speeds.before) * speeds.after))
         if tail / speeds.before + lead / speeds.after < keep {

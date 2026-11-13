@@ -33,6 +33,11 @@ public struct CutRequest: ServiceCall {
     /// `falseStart` wins. Without either, stretches over 2 s are false
     /// starts. Fillers on their own never are.
     public var falseStart: Bool?
+    /// What each join leaves before the word after it, in seconds
+    /// (`LeadIn`, default 0.05): the rest of the pause it keeps goes after
+    /// the word before, so the clip coming in starts a frame or two before
+    /// Mike speaks.
+    public var lead: Double?
     /// Make the cut. Without it this is a dry run that returns the plan.
     public var apply: Bool?
     public var label: String?
@@ -42,10 +47,11 @@ public struct CutRequest: ServiceCall {
 
     public init(
         remove: [CutTarget], fillers: Bool? = nil, from: Time? = nil, to: Time? = nil, protect: [Time]? = nil,
-        falseStart: Bool? = nil, apply: Bool? = nil,
+        falseStart: Bool? = nil, lead: Double? = nil, apply: Bool? = nil,
         label: String? = nil, author: String? = nil, expectedRevision: Int? = nil
     ) {
         self.remove = remove
+        self.lead = lead
         self.fillers = fillers
         self.from = from
         self.to = to
@@ -66,6 +72,7 @@ public struct CutRequest: ServiceCall {
         to = try c.decodeTime(.to)
         protect = try c.decodeTimes(.protect)
         falseStart = try c.decodeIfPresent(Bool.self, forKey: .falseStart)
+        lead = try c.decodeIfPresent(Double.self, forKey: .lead)
         apply = try c.decodeIfPresent(Bool.self, forKey: .apply)
         label = try c.decodeIfPresent(String.self, forKey: .label)
         author = try c.decodeIfPresent(String.self, forKey: .author)
@@ -269,6 +276,7 @@ extension TandemService {
         if let from = request.from, let to = request.to, to <= from {
             throw ServiceError(.badRequest, "from (\(from)) has to be before to (\(to)).")
         }
+        let lead = try Self.lead(request.lead)
         let (project, revision) = coordinator.snapshot()
         try checkExpected(request.expectedRevision, at: revision)
         let map = TranscriptTools.speechMap(project, analysis: analysis)
@@ -361,7 +369,7 @@ extension TandemService {
 
         var ranges: [TimeRange] = []
         for index in plans.indices {
-            stretches[index] = settle(plans[index], stretches[index], readings: readings, unread: unread, rate: project.settings.frameRate)
+            stretches[index] = settle(plans[index], stretches[index], readings: readings, unread: unread, rate: project.settings.frameRate, lead: lead)
             if let cut = stretches[index].cut, stretches[index].status == .cut { ranges.append(cut) }
         }
         let removed = TimeRange.union(ranges).reduce(Time.zero) { $0 + $1.duration }
@@ -736,7 +744,7 @@ extension TandemService {
     }
 
     /// Places a planned stretch in its sound, and says how it went.
-    func settle(_ planned: Planned, _ stretch: CutStretch, readings: [String: [CutPlacer]], unread: [String: String], rate: FrameRate) -> CutStretch {
+    func settle(_ planned: Planned, _ stretch: CutStretch, readings: [String: [CutPlacer]], unread: [String: String], rate: FrameRate, lead: Double = LeadIn.lead) -> CutStretch {
         var stretch = stretch
         stretch.text = planned.removedText
         stretch.before = planned.before
@@ -783,7 +791,7 @@ extension TandemService {
         let plan = CutPlanner.plan(
             start: startPlacer, first.boundary, end: endPlacer, last.boundary, keep: planned.keep, tightenFrom: planned.tightenFrom,
             falseStart: planned.falseStart, sameFile: Self.oneRun(first.clip, last.clip),
-            filled: planned.filled, snap: snap
+            filled: planned.filled, lead: lead, snap: snap
         )
         stretch.falseStart = plan.falseStart
         stretch.problem = plan.problem
@@ -826,6 +834,16 @@ extension TandemService {
             stretch.missed = String(format: "%.2f s of sound", missed.reduce(0) { $0 + ($1.0.upperBound - $1.0.lowerBound) / $1.1 })
         }
         return stretch
+    }
+
+    /// A request's lead (`LeadIn`), checked: what a join leaves before the
+    /// word after it.
+    static func lead(_ seconds: Double?) throws -> Double {
+        guard let seconds else { return LeadIn.lead }
+        guard seconds >= 0, seconds <= 1 else {
+            throw ServiceError(.badRequest, "`lead` is how long a clip runs before its first word, 0 to 1 s (default \(LeadIn.lead)).")
+        }
+        return seconds
     }
 
     func reason(_ plan: CutPlan, _ planned: Planned) -> String {

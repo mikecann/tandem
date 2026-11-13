@@ -240,6 +240,7 @@ extension TightenResult {
 
 extension TightenResult: ReadableResult {
     public var readableText: String {
+        if let leads { return leadsText(leads) }
         var lines: [String] = []
         let mode = applied == nil ? "dry run" : "applied"
         let bySentence = sentence != nil || comma != nil || mid != nil
@@ -284,6 +285,9 @@ extension TightenResult: ReadableResult {
                     lines.append("  \(widen.pause.start)-\(widen.pause.end)  \(TimeText.duration(widen.pause.duration)) \(widen.kind.rawValue) -> +\(TimeText.duration(widen.added)) at the join at \(widen.at) (\(TimeText.duration(widen.tail)) after, \(TimeText.duration(widen.head)) before)  ...\(widen.pause.before) | \(widen.pause.after)...")
                 }
             }
+            if let lead, !cuts.isEmpty {
+                lines.append("Each join keeps its pause after the word before and \(TimeText.duration(lead)) before the word after, so the clip coming in starts just before he speaks.")
+            }
             var change = "Removes \(TimeText.duration(removed))"
             if added > .zero { change += ", adds \(TimeText.duration(added))" }
             lines.append("\(change): \(durationBefore) -> \(durationAfter).")
@@ -312,6 +316,36 @@ extension TightenResult: ReadableResult {
 }
 
 extension TightenResult {
+    /// `--lead-only`: the joins rolled, and the ones that wait but can't.
+    func leadsText(_ leads: [LeadJoin]) -> String {
+        var lines: [String] = []
+        let mode = applied == nil ? "dry run" : "applied"
+        let lead = TimeText.duration(self.lead ?? .zero)
+        let rolled = leads.filter { $0.roll != nil }
+        func quote(_ join: LeadJoin) -> String { join.words.isEmpty ? "" : "  \"\(join.words)\"" }
+        if rolled.isEmpty {
+            lines.append("Nothing to roll: of \(leads.count) join\(leads.count == 1 ? "" : "s") in the take, every clip already starts within \(lead) of his first word, or can't move.")
+        } else {
+            let waited = rolled.reduce(0.0) { $0 + $1.wait.seconds }
+            lines.append("Roll \(rolled.count) of \(leads.count) joins so each clip starts \(lead) before he speaks, \(String(format: "%.2f", waited / Double(rolled.count))) s of waiting face on average (\(mode), revision \(revision)):")
+            for join in rolled {
+                lines.append("  \(join.at)  waited \(TimeText.duration(join.wait)) -> cut \(TimeText.duration(join.roll ?? .zero)) later\(quote(join))")
+            }
+        }
+        let stuck = leads.filter { $0.roll == nil && $0.wait.seconds > QualityCheck.faceWaitLongest }
+        if !stuck.isEmpty {
+            lines.append("Left \(stuck.count) join\(stuck.count == 1 ? "" : "s") that wait\(stuck.count == 1 ? "s" : "") over \(TimeText.duration(Time(seconds: QualityCheck.faceWaitLongest))) but can't roll (no quiet after the clip before to grow into, or the clip after is too short). Trim those by hand and listen:")
+            for join in stuck { lines.append("  \(join.at)  waits \(TimeText.duration(join.wait))\(quote(join))") }
+        }
+        for warning in warnings { lines.append("Warning: \(warning)") }
+        if let applied {
+            lines.append("Applied as revision \(applied.revision) (\"\(applied.label)\"). Undo with `tandem undo`. Run tandem check --quick: B-roll edges on the old cuts are a frame or two off them now.")
+        } else if !rolled.isEmpty {
+            lines.append("Nothing changed yet. Run again with --apply (or apply: true) to roll them.")
+        }
+        return lines.joined(separator: "\n")
+    }
+
     /// The pauses left alone for what's in their sound, by why.
     var skippedText: [String] {
         func plural(_ n: Int, _ noun: String) -> String { "\(n) \(noun)\(n == 1 ? "" : "s")" }

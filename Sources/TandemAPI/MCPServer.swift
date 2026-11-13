@@ -582,6 +582,8 @@ enum MCPTools {
                 "midMin": time("Comma and mid-sentence pauses at least this long change, so breaths stay. Default 0.5 s."),
                 "protect": S.array(time("A timeline time."), "Leave the pauses containing these times alone."),
                 "widen": S.boolean("Also widen joins that leave less than the keep, with ripple trims into silence the take has either side (never past a transcribed word)."),
+                "lead": time("What each join leaves before the word after it. Default 0.05 s: the rest of the pause goes on the end of the clip before, so the clip coming in starts a frame or two before Mike speaks, never on his face waiting to talk."),
+                "leadOnly": S.boolean("Cut nothing: roll the take's existing joins so each clip starts lead before his first word, and the clip before runs on through the quiet after its last word. For an edit cut before tighten did this. Only lead, from and to go with it; leads lists every join with its wait and roll."),
                 "min": time("Pauses at least this long (in the sound) get shortened. Default 0.6 s, or 0.5 s for sentence pauses with the keeps by kind."),
                 "keep": time("How much of every pause to keep. Default 0.15 s. Not with sentence, comma, mid or mike."),
                 "apply": S.boolean("Make the cut. Without it nothing changes."),
@@ -607,6 +609,7 @@ enum MCPTools {
                 "from": time("With fillers: only fillers after this time."), "to": time("With fillers: only fillers before this time."),
                 "protect": S.array(time("A timeline time."), "With fillers: leave in a filler with one of these times in it or in the pauses round it."),
                 "falseStart": S.boolean("Cut every stretch asked for as a long false start (not fillers on their own). Without it (or a stretch's own), stretches over 2 s are."),
+                "lead": time("What each join leaves before the word after it. Default 0.05 s: the rest of the pause goes on the end of the clip before the cut."),
                 "apply": S.boolean("Make the cut. Without it nothing changes."),
                 "label": S.string("Undo label."), "author": S.string("Who made the edit."),
                 "expectedRevision": S.integer("Refuse unless the project is at this revision.")

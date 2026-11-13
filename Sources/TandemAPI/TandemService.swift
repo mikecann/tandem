@@ -506,6 +506,8 @@ public final class TandemService: @unchecked Sendable {
     }
 
     public func tighten(_ request: TightenRequest, context: CallContext) async throws -> TightenResult {
+        if request.leadOnly == true { return try await rollLeads(request, context: context) }
+        let lead = try Self.lead(request.lead)
         if request.filmora == true { return try await tightenByVolume(request, context: context) }
         if request.kinds != nil || request.minClip != nil || request.buffer != nil || request.threshold != nil {
             throw ServiceError(.badRequest, "`kinds`, `minClip`, `buffer` and `threshold` go with `filmora`.")
@@ -526,7 +528,7 @@ public final class TandemService: @unchecked Sendable {
         // reach past the transcript's gap.
         let found = SoundTightening.candidates(in: map, rules: rules, from: request.from, to: request.to)
         let planned = await SoundTightening.plan(
-            found, rules: rules, snug: request.bySentence, protect: protect, from: request.from, to: request.to,
+            found, rules: rules, snug: request.bySentence, protect: protect, from: request.from, to: request.to, lead: lead,
             map: map, project: project, folder: folder
         )
         let cuts = planned.cuts
@@ -560,6 +562,7 @@ public final class TandemService: @unchecked Sendable {
             durationBefore: project.duration, durationAfter: project.duration - removed + added,
             commands: commands, applied: nil, warnings: warnings, missing: map.missing
         )
+        result.lead = Time(seconds: lead)
         guard !commands.isEmpty else { return result }
         let apply = ApplyRequest(
             label: request.label ?? tightenLabel(result), author: request.author, commands: commands,
@@ -587,6 +590,7 @@ public final class TandemService: @unchecked Sendable {
         if let buffer = request.buffer { settings.buffer = buffer }
         if let threshold = request.threshold { settings.threshold = threshold }
         if let minClip = request.minClip { settings.minimumClip = minClip }
+        settings.lead = try Self.lead(request.lead)
         guard settings.minimum > 0 else { throw ServiceError(.badRequest, "`min` must be more than 0 seconds.") }
         guard settings.buffer >= 0 else { throw ServiceError(.badRequest, "`buffer` can't be less than 0 seconds.") }
         guard settings.threshold < 0 else { throw ServiceError(.badRequest, "`threshold` is in dBFS, under 0, like -35.") }
@@ -631,6 +635,7 @@ public final class TandemService: @unchecked Sendable {
             commands: commands, applied: nil, warnings: warnings, missing: []
         )
         result.pauses = planned.pauses
+        result.lead = settings.lead.map { Time(seconds: $0) }
         // A pause whose cut no join could make clean is left whole, and said.
         result.skipped = planned.notClean.map { SkippedPause(pause: $0.pause, reason: .notClean, kind: $0.spoken == .mid ? .mid : $0.spoken == .clause ? .comma : .sentence, keep: $0.keep ?? .zero, startEdge: nil, endEdge: nil) }
         guard !commands.isEmpty else { return result }
@@ -640,6 +645,59 @@ public final class TandemService: @unchecked Sendable {
             context: context
         )
         result.durationAfter = applied.duration
+        result.warnings += applied.warnings
+        if request.apply == true { result.applied = applied }
+        return result
+    }
+
+    /// `tighten` with `leadOnly`: no cuts, a roll at each of the take's
+    /// joins so the clip coming in starts `lead` before his first word and
+    /// the pause goes on the end of the clip before (`LeadRoll`).
+    func rollLeads(_ request: TightenRequest, context: CallContext) async throws -> TightenResult {
+        let others: [(String, Bool)] = [
+            ("min", request.min != nil), ("keep", request.keep != nil), ("sentence", request.sentence != nil), ("comma", request.comma != nil),
+            ("mid", request.mid != nil), ("midMin", request.midMin != nil), ("mike", request.mike == true), ("filmora", request.filmora == true),
+            ("threshold", request.threshold != nil), ("buffer", request.buffer != nil), ("minClip", request.minClip != nil),
+            ("kinds", request.kinds != nil), ("protect", request.protect != nil), ("widen", request.widen == true)
+        ]
+        if let clash = others.first(where: { $0.1 }) {
+            throw ServiceError(.badRequest, "`leadOnly` cuts nothing, it only rolls the joins already there, so `\(clash.0)` doesn't go with it. Give `lead`, `from` and `to`.")
+        }
+        let lead = try Self.lead(request.lead)
+        let (project, revision) = coordinator.snapshot()
+        try checkExpected(request.expectedRevision, at: revision)
+        let range = TimeRange(start: request.from ?? .zero, end: request.to ?? project.duration)
+        let map = TranscriptTools.speechMap(project, analysis: analysis)
+        let found = await LeadRoll.waits(
+            project: project, folder: folder, ranges: [range], lead: lead, map: map, words: CutCheck.words(in: project, analysis: analysis)
+        )
+        let rolled = found.waits.filter { $0.roll != nil }
+        // Each roll moves only its own join, so the order doesn't matter.
+        let commands = rolled.flatMap(\.commands)
+        var warnings: [String] = []
+        if !found.unread.isEmpty {
+            warnings.append("Couldn't read the sound of \(found.unread.joined(separator: ", ")), so its joins were left alone.")
+        }
+        let locked = project.allTracks.filter { $0.locked && $0.clips.contains { clip in rolled.contains { $0.clipIDs.contains(clip.id) } } }.map(\.name)
+        if !locked.isEmpty, !commands.isEmpty {
+            let message = "Track \(locked.map { "\"\($0)\"" }.joined(separator: ", ")) is locked, so its joins can't roll. Unlock it first."
+            if request.apply == true { throw ServiceError(.locked, message) }
+            warnings.append(message)
+        }
+        var result = TightenResult(
+            revision: revision, minimum: .zero, keep: .zero, sentence: nil, comma: nil, mid: nil, midMinimum: nil,
+            cuts: [], widened: [], protected: [], skipped: [], removed: .zero, added: .zero,
+            durationBefore: project.duration, durationAfter: project.duration,
+            commands: commands, applied: nil, warnings: warnings, missing: map.missing
+        )
+        result.lead = Time(seconds: lead)
+        result.leads = found.waits.map { LeadJoin(at: $0.time, wait: $0.wait, roll: $0.roll, words: $0.words) }
+        guard !commands.isEmpty else { return result }
+        let label = request.label ?? "Start \(rolled.count) clip\(rolled.count == 1 ? "" : "s") a frame or two before he speaks"
+        let applied = try self.apply(
+            ApplyRequest(label: label, author: request.author, commands: commands, expectedRevision: revision, dryRun: request.apply != true),
+            context: context
+        )
         result.warnings += applied.warnings
         if request.apply == true { result.applied = applied }
         return result

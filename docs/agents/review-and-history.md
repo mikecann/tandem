@@ -175,6 +175,18 @@ their own beside it, and reports, with the clips on screen there:
     then a note says how many more to check again for. Not in
     conversations. It reads the take's sound, so it's in a quick check
     too.
+  - a face waiting to talk (`faceWaits`): a join between two pieces of
+    the take where the camera shows him for more than 0.1 s before his
+    first word's sound ("Face waits 0.23 s before \"So, what I ended up
+    with\""). Mike wants the clip to start a frame or two before he
+    speaks, with the pause on the end of the clip before ([Where a join's
+    pause goes](cutting.md#where-a-joins-pause-goes)). Its fix is the
+    `roll` that does that (on whole frames, the clip before growing only
+    through quiet), or `tandem tighten --lead-only --apply` for all of
+    them; a join with no quiet to grow into says to trim it by hand. Not
+    under a wipe, a section card or a transition, or where full-frame
+    B-roll hides him. It reads the take's sound, so it's in a quick check
+    too. Up to 40 are listed, then how many more.
   - PiP that isn't Mike's usual (`offStylePip`): a camera clip shown
     smaller than the frame that isn't `pipRight` or `pipLeft` with the
     cutout on, at its 50% in the corner: a cropped face box, the cutout
@@ -195,7 +207,7 @@ what agents changed that's waiting for Mike's review, half a second either
 side. It exits 1 when it finds a problem; notes never fail it. `--quick`
 skips rendering, so it only finds gaps, soft pictures, slivers, double
 jumps, swells off their cards, PiP that isn't Mike's usual, how a Short
-opens, talk cut, little B-roll and mid-sentence pauses, and nothing that needs the screen recordings scanned (page changes,
+opens, talk cut, little B-roll, mid-sentence pauses and faces waiting to talk, and nothing that needs the screen recordings scanned (page changes,
 low frame rates).
 
 It renders the timeline in 10 s pieces, several at once, and keeps what it

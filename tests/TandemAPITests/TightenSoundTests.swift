@@ -135,7 +135,7 @@ final class TightenSoundTests: XCTestCase {
         XCTAssertEqual(heard.tracks, ["Voice"])
         XCTAssertLessThanOrEqual(offMic[0].cut.end.seconds, heard.start.seconds - 0.03 + 0.001)
         XCTAssertGreaterThanOrEqual(offMic[1].cut.start.seconds, heard.end.seconds + 0.03 - 0.001)
-        XCTAssertLessThanOrEqual(offMic[1].cut.end.seconds, 4.6 - CutPlanner.minimumLead + 0.001)
+        XCTAssertLessThanOrEqual(offMic[1].cut.end.seconds, 4.6 - LeadIn.lead + 0.001)
 
         // Mike's 0.4 s between sentences, from the end of "plan."'s sound
         // (5.9, not the transcript's 5.75) to the start of "Now"'s (7.5,
@@ -309,7 +309,8 @@ final class TightenSoundTests: XCTestCase {
 
     func testCutsStayInsideFromAndToAndNeverRemoveAProtectedTime() async throws {
         // The transcript's gap is 3.3-4.7, but the sound's is 3.0-5.0: a
-        // cut leaving Mike's 0.4 s in the sound runs 3.2-4.8.
+        // cut leaving Mike's 0.4 s in the sound runs 3.35-4.95: the keep
+        // after "One." and the 0.05 s lead before "Two.".
         let h = try harness(voice: [(2.0, 3.0, 0), (5.0, 6.0, 0)], words: [
             TranscriptWord(text: "One.", start: t(2.0), end: t(3.3)),
             TranscriptWord(text: "Two.", start: t(4.7), end: t(6.0))
@@ -317,7 +318,7 @@ final class TightenSoundTests: XCTestCase {
         defer { h.close() }
         let free = try await h.service.tighten(TightenRequest(mike: true), context: h.context)
         let unbounded = try XCTUnwrap(free.cuts.first)
-        XCTAssertLessThan(unbounded.cut.start.seconds, 3.3, "the sound's gap starts before the transcript's")
+        XCTAssertGreaterThan(unbounded.cut.end.seconds, 4.7, "the sound's gap ends after the transcript's")
 
         // Asked for 3.3 to 4.7, it stays inside them.
         let bounded = try await h.service.tighten(TightenRequest(mike: true, from: t(3.3), to: t(4.7)), context: h.context)
@@ -345,7 +346,7 @@ final class TightenSoundTests: XCTestCase {
         let plan = try await h.service.tighten(TightenRequest(min: 0.5, keep: 0.15), context: h.context)
         let cut = try XCTUnwrap(plan.cuts.first, plan.readableText)
         XCTAssertGreaterThanOrEqual(cut.cut.start.seconds, 3.0 + CutPlanner.minimumTail - 0.001)
-        XCTAssertLessThanOrEqual(cut.cut.end.seconds, 3.7 - CutPlanner.minimumLead + 0.001)
+        XCTAssertLessThanOrEqual(cut.cut.end.seconds, 3.7 - LeadIn.lead + 0.001)
         XCTAssertEqual(cut.startEdge?.verdict, .clean)
 
         // A gap that's under the minimum both ways isn't listed as skipped.
