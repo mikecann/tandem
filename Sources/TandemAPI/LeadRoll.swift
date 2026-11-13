@@ -45,6 +45,9 @@ enum LeadRoll {
         }
         var placers: [String: [CutPlacer]] = [:]
         var unread: [String] = []
+        // Read fine, but no voice in it (a screen recording's own sound,
+        // mostly digital silence): nothing there to clip or wait for.
+        var silent: Set<String> = []
         for (id, ranges) in needed {
             guard let item = project.media(id) else { continue }
             var merged: [ClosedRange<Double>] = []
@@ -63,7 +66,7 @@ enum LeadRoll {
                     readings.append(try await SpeechEnergy.read(url: folder.url(for: item), from: range.lowerBound, to: range.upperBound))
                 }
                 let levels = SpeechLevels(of: readings)
-                guard levels.isVoice else { continue }
+                guard levels.isVoice else { silent.insert(id); continue }
                 placers[id] = readings.map { CutPlacer($0, levels: levels) }
             } catch {
                 unread.append(URL(fileURLWithPath: item.path).lastPathComponent)
@@ -85,6 +88,7 @@ enum LeadRoll {
             // counts. Then how far each side can go.
             var wait = Double.infinity, roll = Double.infinity
             for pair in join.heard {
+                if pair.incoming.mediaID.map(silent.contains) ?? false { continue }
                 let start = pair.incoming.sourceStart.seconds, end = pair.outgoing.sourceEnd.seconds
                 guard let incoming = placer(pair.incoming.mediaID, at: start + LeadIn.reach / 2),
                       let outgoing = placer(pair.outgoing.mediaID, at: end),
@@ -103,6 +107,16 @@ enum LeadRoll {
                 roll = min(roll, want <= 0 ? 0 : LeadIn.quietAfter(outgoing, from: end, limit: want, incomingStart: start, transcript: said))
             }
             guard wait.isFinite else { continue }
+            // Every clip the roll moves (camera, screen, voice) has to take
+            // it: the one coming in keeps `shortestLeft`, the one going out
+            // stays short of what the next plays and inside its file, or
+            // `Editing.roll` would refuse the whole batch.
+            for pair in join.pairs {
+                roll = min(roll, pair.incoming.duration.seconds - shortestLeft, (pair.incoming.sourceStart - pair.outgoing.sourceEnd).seconds)
+                if let length = pair.outgoing.mediaID.flatMap(project.media)?.duration {
+                    roll = min(roll, (length - pair.outgoing.sourceEnd).seconds)
+                }
+            }
             // Whole frames, so the cut stays on one.
             let frames = roll.isFinite ? Int64((roll * fps + 1e-6).rounded(.down)) : 0
             let moved = frames > 0 ? Time.frames(frames, at: rate) : nil

@@ -83,6 +83,48 @@ final class LeadRollTests: XCTestCase {
         XCTAssertTrue(plan.commands.isEmpty)
     }
 
+    func testEveryClipTheRollMovesBoundsIt() async throws {
+        // The linked screen clip after the join is only 0.25 s long, under
+        // the 0.3 s a roll leaves: the join stays where it is rather than
+        // failing the whole batch in `Editing.roll`.
+        var project = APIFixture.project()
+        project.media[0].path = "source/take1-camera.wav"
+        project.videoTracks[1].transitions = []
+        project.videoTracks[0].clips[1].duration = t(0.25)
+        let h = try ServiceHarness(project: project)
+        defer { h.close() }
+        try FileManager.default.createDirectory(at: h.folder.file("source"), withIntermediateDirectories: true)
+        try CutAPITests.writeVoice(to: h.folder.file("source/take1-camera.wav"), length: 64, words: Self.speech)
+        let plan = try await TightenRequest(leadOnly: true).run(on: h.service, context: h.context)
+        XCTAssertNil(plan.leads?.first?.roll, plan.readableText)
+        XCTAssertTrue(plan.commands.isEmpty)
+    }
+
+    func testAJoinWithALinkedClipAHairApartIsLeftAlone() async throws {
+        // The linked screen clip starts 10 ms after the others: a roll
+        // would move the camera and voice and leave it, or fail.
+        var project = APIFixture.project()
+        project.media[0].path = "source/take1-camera.wav"
+        project.videoTracks[1].transitions = []
+        project.videoTracks[0].clips[1].start = t(30.01)
+        let h = try ServiceHarness(project: project)
+        defer { h.close() }
+        try FileManager.default.createDirectory(at: h.folder.file("source"), withIntermediateDirectories: true)
+        try CutAPITests.writeVoice(to: h.folder.file("source/take1-camera.wav"), length: 64, words: Self.speech)
+        let plan = try await TightenRequest(leadOnly: true).run(on: h.service, context: h.context)
+        XCTAssertEqual(plan.leads?.count, 0, plan.readableText)
+    }
+
+    func testATransitionAtTheClipsOtherEndDoesntCount() async throws {
+        let h = try harness()
+        defer { h.close() }
+        try h.service.coordinator.apply(EditBatch(label: "Fade in", commands: [
+            .addTransition(trackID: "trk_camera", transition: Transition(type: .dissolve, duration: t(0.5), fromClipID: nil, toClipID: "clip_cam1"))
+        ]))
+        let plan = try await TightenRequest(leadOnly: true).run(on: h.service, context: h.context)
+        XCTAssertNotNil(plan.leads?.first?.roll, plan.readableText)
+    }
+
     func testLeadOnlyTakesOnlyLeadFromAndTo() async throws {
         let h = try harness()
         defer { h.close() }

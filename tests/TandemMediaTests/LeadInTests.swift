@@ -68,6 +68,14 @@ final class LeadInTests: XCTestCase {
         XCTAssertEqual(placer.judge(at: 11.7 + run, keeps: .before).verdict, .clean)
     }
 
+    func testTheClipBeforeDoesntGrowOverACutClick() {
+        // A 25 ms click 0.1 s after the clip ends, then quiet: not a word to
+        // wait for, but it was cut away and mustn't come back.
+        let take = Take(length: 5, words: [(10.5, 11.0), (12.0, 12.5), (11.1, 11.125)])
+        let run = LeadIn.quietAfter(placer(take), from: 11.0, limit: 0.43)
+        XCTAssertLessThanOrEqual(run, 0.1 - CutAudit.pad + 0.006)
+    }
+
     func testTighteningPutsTheKeepAfterTheWordBefore() throws {
         // A sentence's 0.4 s: 0.35 after "it." and 0.05 before "So".
         let take = Take(length: 5, words: [(10.5, 11.0), (12.0, 12.5)])

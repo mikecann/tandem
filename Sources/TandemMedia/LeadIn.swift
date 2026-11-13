@@ -44,6 +44,9 @@ public enum LeadIn {
     /// is over the line. A short "I" does; a click doesn't.
     static let carry = 0.06
     static let carried = 0.04
+    /// A burst this long over the word line stops a clip growing into
+    /// what was cut: a click or a lip smack is 10 to 30 ms.
+    static let burstShortest = 0.01
     /// How far back from the line a word's onset is followed, dB: a soft
     /// "f", "h" or "th" ramps up under it.
     static let ramp: Float = 10
@@ -152,6 +155,21 @@ public enum LeadIn {
         // judged as check judges it, below.
         if let next = speechStart(placer, after: time, reach: limit + CutAudit.pad) {
             length = min(limit, next - time - CutAudit.pad)
+        }
+        // And short of any burst over that line: `speechStart` passes over a
+        // click that's quiet again after it (it isn't a word to wait for),
+        // but one that was cut away mustn't come back on the clip's end.
+        let energy = placer.energy
+        let line = wordLine(placer.around(time))
+        let burst = Int((burstShortest / step).rounded())
+        var index = max(0, energy.index(of: time))
+        let last = min(energy.full.count, energy.index(of: time + length + CutAudit.pad))
+        while index < last {
+            if (index..<index + burst).allSatisfy({ $0 < energy.full.count && (energy.full[$0] >= line.full || energy.high[$0] >= line.high) }) {
+                length = min(length, energy.start + Double(index) * step - time - CutAudit.pad)
+                break
+            }
+            index += 1
         }
         func removed(_ length: Double) -> ClosedRange<Double>? {
             incomingStart.map { (time + length)...max(time + length, $0 + length) }

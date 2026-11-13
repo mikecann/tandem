@@ -49,18 +49,25 @@ extension QualityCheck {
         let cards = project.videoTracks.filter { !$0.hidden }.flatMap(\.clips).filter { $0.enabled && SectionCard.isCard($0.content) }.map(\.range)
 
         var byTime: [Int64: TakeJoin] = [:]
+        // Clips meeting there that a roll can't move as one piece of the
+        // take: another file, another speed, a freeze, or a hair apart
+        // (`Editing.roll` needs them to meet exactly).
+        var others: [Int64: [(Clip, Clip)]] = [:]
         for track in project.allTracks {
             let heard = speechTrackIDs.contains(track.id)
             if track.kind == .video, track.hidden { continue }
             if track.kind == .audio, track.muted { continue }
             let clips = track.clips.filter(\.enabled)
             for (left, right) in zip(clips, clips.dropFirst()) {
-                guard touching(left.end, right.start), let media = left.mediaID, media == right.mediaID,
-                      left.speed == 1, right.speed == 1, !left.freezeFrame, !right.freezeFrame,
-                      right.sourceStart - left.sourceEnd >= frame,
-                      ranges.contains(where: { $0.start <= right.start && right.start <= $0.end }) else { continue }
+                guard touching(left.end, right.start), ranges.contains(where: { $0.start <= right.start && right.start <= $0.end }) else { continue }
                 // Within a frame, joins on different tracks are one join.
                 let key = (right.start.flicks + tolerance) / rate.flicksPerFrame
+                guard left.end == right.start, let media = left.mediaID, media == right.mediaID,
+                      left.speed == 1, right.speed == 1, !left.freezeFrame, !right.freezeFrame,
+                      right.sourceStart - left.sourceEnd >= frame else {
+                    others[key, default: []].append((left, right))
+                    continue
+                }
                 var join = byTime[key] ?? TakeJoin(time: right.start, pairs: [], rolled: [])
                 join.pairs.append(TakeJoin.Pair(trackID: track.id, outgoing: left, incoming: right, heard: heard))
                 byTime[key] = join
@@ -69,10 +76,22 @@ extension QualityCheck {
 
         let transitions = project.allTracks.flatMap(\.transitions)
         var joins: [TakeJoin] = []
-        for var join in byTime.values.sorted(by: { $0.time < $1.time }) {
+        for (key, var join) in byTime.sorted(by: { $0.value.time < $1.value.time }) {
             guard !join.heard.isEmpty else { continue }
-            let ids = Set(join.pairs.flatMap { [$0.outgoing.id, $0.incoming.id] })
-            if transitions.contains(where: { ($0.fromClipID.map(ids.contains) ?? false) || ($0.toClipID.map(ids.contains) ?? false) }) { continue }
+            // A piece of the take there the roll would leave behind, or
+            // that `Editing.roll` would move with a linked pair unjudged
+            // (its partner at the join in another file or at another speed).
+            let media = Set(join.pairs.compactMap(\.outgoing.mediaID))
+            let links = Set(join.pairs.flatMap { [$0.outgoing.linkGroup, $0.incoming.linkGroup] }.compactMap { $0 })
+            let stranded = (others[key] ?? []).contains { left, right in
+                left.mediaID.map(media.contains) ?? false || right.mediaID.map(media.contains) ?? false
+                    || left.linkGroup.map(links.contains) ?? false || right.linkGroup.map(links.contains) ?? false
+            }
+            if stranded { continue }
+            // A transition on this join: out of a clip going out, or into
+            // one coming in (not one at a clip's other end).
+            let outgoing = Set(join.pairs.map(\.outgoing.id)), incoming = Set(join.pairs.map(\.incoming.id))
+            if transitions.contains(where: { ($0.fromClipID.map(outgoing.contains) ?? false) || ($0.toClipID.map(incoming.contains) ?? false) }) { continue }
             let around = TimeRange(start: join.time - frame, end: join.time + frame)
             if cards.contains(where: { $0.overlaps(around) }) { continue }
             // A wipe is a short clip on a video track over the join (a
