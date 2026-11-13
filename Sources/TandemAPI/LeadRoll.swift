@@ -87,6 +87,8 @@ enum LeadRoll {
             // The word's start on every speech track there; the earliest
             // counts. Then how far each side can go.
             var wait = Double.infinity, roll = Double.infinity
+            // Each speech track's sound and words, to judge the roll it ends up with.
+            var judged: [(incoming: CutPlacer, outgoing: CutPlacer, start: Double, end: Double, said: [CutAudit.Word])] = []
             for pair in join.heard {
                 if pair.incoming.mediaID.map(silent.contains) ?? false { continue }
                 let start = pair.incoming.sourceStart.seconds, end = pair.outgoing.sourceEnd.seconds
@@ -97,6 +99,7 @@ enum LeadRoll {
                 // The words round the join, as check --cuts takes them.
                 let near = (end - CutAudit.around)...(start + LeadIn.reach + CutAudit.around)
                 let said = (pair.incoming.mediaID.flatMap { words[$0] } ?? []).filter { $0.end >= near.lowerBound && $0.start <= near.upperBound }
+                judged.append((incoming, outgoing, start, end, said))
                 guard let edge = LeadIn.start(incoming, onset: onset, lead: lead, earliest: start, outgoingEnd: end, transcript: said) else {
                     roll = 0
                     continue
@@ -117,8 +120,20 @@ enum LeadRoll {
                     roll = min(roll, (length - pair.outgoing.sourceEnd).seconds)
                 }
             }
-            // Whole frames, so the cut stays on one.
-            let frames = roll.isFinite ? Int64((roll * fps + 1e-6).rounded(.down)) : 0
+            // Whole frames, so the cut stays on one. The roll it comes to can
+            // be less than the edge judged above (the clip going out ran
+            // into sound, say), so both sides are judged again where they
+            // land, as check --cuts will, a frame less at a time until clean.
+            var frames = roll.isFinite ? Int64((roll * fps + 1e-6).rounded(.down)) : 0
+            func clean(_ frames: Int64) -> Bool {
+                let r = Time.frames(frames, at: rate).seconds
+                return judged.allSatisfy { side in
+                    let removed = (side.end + r)...(side.start + r)
+                    return side.incoming.judge(at: side.start + r, keeps: .after, removed: removed, cutAway: removed, transcript: side.said).verdict == .clean
+                        && side.outgoing.judge(at: side.end + r, keeps: .before, removed: removed, cutAway: removed, transcript: side.said).verdict == .clean
+                }
+            }
+            while frames > 0, !clean(frames) { frames -= 1 }
             let moved = frames > 0 ? Time.frames(frames, at: rate) : nil
             let commands = moved.map { delta in
                 join.rolled.map { EditCommand.roll(leftClipID: $0.outgoing.id, rightClipID: $0.incoming.id, delta: delta) }
