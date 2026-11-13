@@ -45,8 +45,10 @@ public enum LeadIn {
     static let carry = 0.06
     static let carried = 0.04
     /// A burst this long over the word line stops a clip growing into
-    /// what was cut: a click or a lip smack is 10 to 30 ms.
-    static let burstShortest = 0.01
+    /// what was cut: a click can be a single 5 ms frame. The room never
+    /// reaches the line (it's 25 dB under his speech), so one frame is
+    /// safe to stop at.
+    static let burstShortest = 0.005
     /// How far back from the line a word's onset is followed, dB: a soft
     /// "f", "h" or "th" ramps up under it.
     static let ramp: Float = 10

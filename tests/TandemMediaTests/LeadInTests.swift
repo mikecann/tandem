@@ -74,6 +74,9 @@ final class LeadInTests: XCTestCase {
         let take = Take(length: 5, words: [(10.5, 11.0), (12.0, 12.5), (11.1, 11.125)])
         let run = LeadIn.quietAfter(placer(take), from: 11.0, limit: 0.43)
         XCTAssertLessThanOrEqual(run, 0.1 - CutAudit.pad + 0.006)
+        // A single 5 ms frame of click too.
+        let tick = Take(length: 5, words: [(10.5, 11.0), (12.0, 12.5), (11.1, 11.107)])
+        XCTAssertLessThanOrEqual(LeadIn.quietAfter(placer(tick), from: 11.0, limit: 0.43), 0.1 - CutAudit.pad + 0.006)
     }
 
     func testTighteningPutsTheKeepAfterTheWordBefore() throws {

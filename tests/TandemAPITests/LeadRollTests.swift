@@ -100,6 +100,41 @@ final class LeadRollTests: XCTestCase {
         XCTAssertTrue(plan.commands.isEmpty)
     }
 
+    func testAHiddenLinkedClipBoundsTheRollToo() async throws {
+        // Hidden, the short screen clip still rolls with its linked
+        // partners in `Editing.roll`, so it still bounds the roll.
+        var project = APIFixture.project()
+        project.media[0].path = "source/take1-camera.wav"
+        project.videoTracks[1].transitions = []
+        project.videoTracks[0].clips[1].duration = t(0.25)
+        project.videoTracks[0].hidden = true
+        let h = try ServiceHarness(project: project)
+        defer { h.close() }
+        try FileManager.default.createDirectory(at: h.folder.file("source"), withIntermediateDirectories: true)
+        try CutAPITests.writeVoice(to: h.folder.file("source/take1-camera.wav"), length: 64, words: Self.speech)
+        let plan = try await TightenRequest(leadOnly: true).run(on: h.service, context: h.context)
+        XCTAssertNil(plan.leads?.first?.roll, plan.readableText)
+    }
+
+    func testALinkedClipAHairApartInTheNextFrameIsLeftAlone() async throws {
+        // Voice and screen meet exactly at 30.016; the camera's next clip
+        // starts at 30.020, which rounds into the next frame.
+        var project = APIFixture.project()
+        project.media[0].path = "source/take1-camera.wav"
+        project.videoTracks[1].transitions = []
+        for track in [0, 1] { project.videoTracks[track].clips[0].duration = t(30.016) }
+        project.audioTracks[0].clips[0].duration = t(30.016)
+        project.videoTracks[0].clips[1].start = t(30.016)
+        project.audioTracks[0].clips[1].start = t(30.016)
+        project.videoTracks[1].clips[1].start = t(30.02)
+        let h = try ServiceHarness(project: project)
+        defer { h.close() }
+        try FileManager.default.createDirectory(at: h.folder.file("source"), withIntermediateDirectories: true)
+        try CutAPITests.writeVoice(to: h.folder.file("source/take1-camera.wav"), length: 64, words: Self.speech)
+        let plan = try await TightenRequest(leadOnly: true).run(on: h.service, context: h.context)
+        XCTAssertEqual(plan.leads?.count, 0, plan.readableText)
+    }
+
     func testAJoinWithALinkedClipAHairApartIsLeftAlone() async throws {
         // The linked screen clip starts 10 ms after the others: a roll
         // would move the camera and voice and leave it, or fail.

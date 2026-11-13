@@ -52,12 +52,13 @@ extension QualityCheck {
         // Clips meeting there that a roll can't move as one piece of the
         // take: another file, another speed, a freeze, or a hair apart
         // (`Editing.roll` needs them to meet exactly).
-        var others: [Int64: [(Clip, Clip)]] = [:]
+        var others: [(Clip, Clip)] = []
+        // Hidden and muted tracks and disabled clips too: `Editing.roll`
+        // moves a linked partner wherever it is, so each one has to be a
+        // pair that can take the roll, and bound it. Only an unmuted speech
+        // track's enabled clips are heard.
         for track in project.allTracks {
-            let heard = speechTrackIDs.contains(track.id)
-            if track.kind == .video, track.hidden { continue }
-            if track.kind == .audio, track.muted { continue }
-            let clips = track.clips.filter(\.enabled)
+            let clips = track.clips
             for (left, right) in zip(clips, clips.dropFirst()) {
                 guard touching(left.end, right.start), ranges.contains(where: { $0.start <= right.start && right.start <= $0.end }) else { continue }
                 // Within a frame, joins on different tracks are one join.
@@ -65,9 +66,10 @@ extension QualityCheck {
                 guard left.end == right.start, let media = left.mediaID, media == right.mediaID,
                       left.speed == 1, right.speed == 1, !left.freezeFrame, !right.freezeFrame,
                       right.sourceStart - left.sourceEnd >= frame else {
-                    others[key, default: []].append((left, right))
+                    others.append((left, right))
                     continue
                 }
+                let heard = speechTrackIDs.contains(track.id) && left.enabled && right.enabled
                 var join = byTime[key] ?? TakeJoin(time: right.start, pairs: [], rolled: [])
                 join.pairs.append(TakeJoin.Pair(trackID: track.id, outgoing: left, incoming: right, heard: heard))
                 byTime[key] = join
@@ -76,16 +78,19 @@ extension QualityCheck {
 
         let transitions = project.allTracks.flatMap(\.transitions)
         var joins: [TakeJoin] = []
-        for (key, var join) in byTime.sorted(by: { $0.value.time < $1.value.time }) {
+        for var join in byTime.values.sorted(by: { $0.time < $1.time }) {
             guard !join.heard.isEmpty else { continue }
             // A piece of the take there the roll would leave behind, or
             // that `Editing.roll` would move with a linked pair unjudged
             // (its partner at the join in another file or at another speed).
             let media = Set(join.pairs.compactMap(\.outgoing.mediaID))
             let links = Set(join.pairs.flatMap { [$0.outgoing.linkGroup, $0.incoming.linkGroup] }.compactMap { $0 })
-            let stranded = (others[key] ?? []).contains { left, right in
-                left.mediaID.map(media.contains) ?? false || right.mediaID.map(media.contains) ?? false
-                    || left.linkGroup.map(links.contains) ?? false || right.linkGroup.map(links.contains) ?? false
+            // Within a frame of the join either way, so two that fall in
+            // neighbouring frames still meet.
+            let stranded = others.contains { left, right in
+                (touching(left.end, join.time) || touching(right.start, join.time))
+                    && (left.mediaID.map(media.contains) ?? false || right.mediaID.map(media.contains) ?? false
+                        || left.linkGroup.map(links.contains) ?? false || right.linkGroup.map(links.contains) ?? false)
             }
             if stranded { continue }
             // A transition on this join: out of a clip going out, or into
