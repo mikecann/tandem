@@ -301,6 +301,42 @@ transitions, media or markers.
   "old convex v one. And now with this convex v2,"), so the kind is read
   from the words, never the punctuation. `tandem cut` leaves a sentence's
   0.4 s across a retake's join.
+- **The kept pause sits on the clip going out. The clip coming in starts
+  a frame or two before he speaks.** Mike, Let's Build It technical, 13 Nov
+  2026: "you don't start the next clip soon enough. So you end up with like
+  my gormless face on screen for like a couple of hundred milliseconds...
+  it should start the next clip like one frame or two frames before the
+  speech starts... add that extra time onto the end of the previous clip...
+  always kind of favor cutting the clip you're transitioning into shorter
+  at the start". `tighten` and `cut` now do this themselves: every join
+  keeps its pause after the word before and `--lead` (0.05 s) before the
+  word after, read from the take's sound (a breath is pause). For an edit
+  cut before that (13 Nov 2026) or by hand, `tandem tighten --lead-only`
+  (dry run, then `--apply`) rolls every join of the take the same way:
+  the clip going out grows only through quiet, joins under a wipe or card
+  are left alone, and any roll `check --cuts` would flag is left out.
+  Then `check --quick` (B-roll edges follow the moved cuts) and
+  `check --cuts --listen`. `tandem check` notes any join still showing
+  his face more than 0.1 s before he speaks (`faceWaits`).
+- **A fumble with no pause round it still gets cut, by hand.** `tandem cut`
+  leaves in a restart that runs straight into the next word, and reporting
+  "can't be cut cleanly" got three of them back as comments ("I kind of
+  like fumble my words a little bit here. Can you just tidy up"). A restart
+  repeats a sound, so cut from that sound's first onset to its second:
+  "into the [code, which actu- uh the] coder model" goes from the /k/
+  closure before "code" to the one before "coder"; "talking [to him being
+  able to play it.] To him or her" from the /t/ closure after "talking" to
+  just before the second "To". Find the closures in the take's sound at
+  10 ms (a stop's closure is 50 to 80 ms of near silence before its
+  burst), `rippleDeleteRange` between them, then read what the listen
+  check hears across the join. When he corrects himself, the corrected
+  version is the one that stays. A repeated phrase is a retake: cut the
+  first ("and a lot of that time it a lot | a lot of the time that
+  happened"). `lets-build-it-technical/.work/edit/aud.py` has the helpers.
+- **Throat clears and coughs go.** They sit alone between two silences, so
+  `tighten` keeps them as sound (its plan lists them as pauses it left
+  alone). Find the lone bump (lower and duller than a word) and cut it with
+  the silence round it down to the pause's kind.
 - **Longer gaps where they earn it:** the end of a paragraph, letting a
   point land, or while something animates on screen (a build finishing, a
   result appearing, a diagram moving). Never cut a pause while a demo
@@ -418,6 +454,17 @@ usually like to edit." Check each one before `tandem handback`:
 - **Every pause given its kind** in the kinds file, read from the words
   (see "Pauses by kind"). `tandem check` notes the mid-sentence pauses
   still left long, with a fix for each.
+
+- **No face waiting to talk, no fumbles left in.** After the pause pass,
+  `tandem tighten --lead-only --apply` if the edit was cut before
+  13 Nov 2026 (`tandem check`'s `faceWaits` notes say so), so the
+  incoming clip starts a frame or two before he speaks, and cut restarts,
+  self-corrections and throat clears by hand where `tandem cut` won't (both in "How Mike likes a take cut"). Read the
+  transcript once more for a phrase said twice.
+- **Look at every shot against its line before he does:** is it the real
+  thing (his app as it is, not a drawing of it), does the example on screen
+  back the claim, does anything sit still for over 2 s, does an animation
+  get 3 s to be read after it lands, does B-roll end on a camera cut?
 
 From his review comments on the Daytona and Build Your Own Convex videos
 (October 2026). The reasons matter more than the numbers.
@@ -771,6 +818,106 @@ YouTube.
   brushed drums and warm bass at 95 to 100 BPM, with no bells, glockenspiel
   or marimba under the game's sounds, at -45 LUFS. He passed them first
   time: "musics good".
+
+### A scripted explainer with his own earlier video inside: Let's Build It, the technical follow-up (November 2026)
+
+His comments on the first edit, and what a second full review found (13 Nov
+2026). The project is `lets-build-it-technical`.
+
+- **B-roll of an app is the app being used, not a still of it.** A 6 s hold
+  on the project shelf got "We should show more than just a static screen
+  here." Cut together what the words say from the screen recording: the
+  shelf, into a game, the kid's words appearing as he speaks. Punch in
+  (1.5x) when the thing to read is small and only background is cropped.
+- **Show the app's own screens when he talks about its UI,** not a game a
+  kid made in it. "Getting the UI to look like this" and "the state that I
+  was happy with" both had a generated game over them.
+- **A crop on one person never cuts through another's face.** A 1.33x crop
+  on Josh took the top of Mike's head off: "it kind of cuts my face off".
+  Use the whole frame. Don't speed up footage of real people to fit, and
+  end the shot before he starts mouthing other words (cut back to his face
+  for the personal line: "and I'm really quite proud of it").
+- **A video of his played inside another plays to its real end.** The
+  builder stopped the announcement before the website invite and lost the
+  bit after the sign-off: "the cute thing where Joshie turns to me and asks
+  me a question... Why did he cut it out?" Take the whole export and end
+  just before its own fade to black.
+- **"Roll the clip" gets a film roll,** not a Convex wipe: a strip of film
+  leader (3, 2, 1, see-through sprocket holes) rolls down over the frame
+  with a projector whirr, the cut under it at its middle. It's
+  `assets/graphics/film-roll.mov` there (2 s, alpha, source in
+  `.work/film-roll/`), placed 1 s before the cut on Graphics.
+- **Read every line for "these", "this" and "here".** "Then you have your
+  tests like these" had his face over it; it needed the step definitions on
+  screen. A highlight belongs on the words that name it: the CI run going
+  green starts on "deterministically enforce it", not on the sentence
+  before.
+- **Set every pause's kind before the first hand-back, B-roll or not.** The
+  first cut left 0.8 s after nearly every sentence and 0.3 to 0.6 s inside
+  them, and the one he reached ("a slight pause before I say roll the
+  clip") he flagged. The kinds pass then took 49 s out of 10 minutes.
+- **A pause pass under placed B-roll: speed-fit, don't blade.** A ripple
+  cut shortens the B-roll over it at its tail, so every highlight after it
+  lands late. Before `tighten --apply`, note the take's own time under each
+  B-roll clip's start and end; afterwards put each clip back between those
+  two moments and set its speed so the same stretch of media plays (3 to
+  17% faster, no jumps, where blading would hitch every scroll).
+  `lets-build-it-technical/.work/edit/retime_broll.py save`, then `apply
+  --go`. Then `check --quick` for double jumps and one-frame slivers.
+- **Keep the pauses under segments and wipes** (`keep`): the card gaps, the
+  wipes' cuts, "Comment below" and "Like and subscribe", whose clicks sit
+  in a pause and were about to be deleted with it.
+- **The second round (16 comments on a full watch), beyond the cutting
+  rules above:**
+  - *His own app is shown as it really is.* A drawn iPad with a robot and a
+    big "Let me build it!" label: "That's not what it actually looks like
+    on the iPad. Can you show ... what it actually looks like inside the
+    app?" Put the real recording inside the graphic's device frame
+    (`OffthreadVideo`), and make the device big enough to read while it's
+    the subject.
+  - *The example on screen has to support the line.* Over "I couldn't tell
+    them apart" the blind picker showed a pair where "the one on the right
+    is clearly better. So this might be a bad example to show." Pick the
+    pair by looking at it.
+  - *After an animation lands, hold it.* Design notes arriving 0.8 s before
+    the cut: "doesn't give you a lot of time to see what happened". Run the
+    shot on 3 to 4 s (to the next sentence's cut) and start the next one
+    later, further in.
+  - *No waiting inside app footage.* A 2.5 s hold on "Your turn to
+    speak...": "cut that down so there's a bit more action going on".
+  - *B-roll runs to the camera's jump cut, not short of it.* Ending the
+    Josh shot a line early put a jump cut on his face: "The jump here is a
+    little bit abrupt. Can you just show the clip up to the end of this
+    clip so then it hides the jump?" This wins over cutting back to his
+    face for a personal line.
+  - *The first B-roll slides in from the top* right after his first word
+    ("Immediately after I say the word this"): a head `slide`, direction
+    down, 0.45 s, on the B-roll clip.
+  - *No bed under a cold open that runs into a clip with its own music:*
+    "it's a bit confusing when it goes into the intro video. Or maybe we
+    should have no music at this point at all."
+  - *A reaction plays out.* "Didn't finish me laughing here, let me finish
+    laughing please": the export faded to black over his laugh, so the raw
+    camera take carries on from where the fade starts (same framing), its
+    sound fading in as the export's fades out.
+  - *Bring the proof forward.* The credits screens came in on "running out
+    of credits"; he wanted them from "a paid for application": start a
+    shot where its subject is first named, and let it cover the passage.
+  - *Work he teases gets shown too:* "Can you justify that by showing a
+    thread in Threadbear working on a state machine component maybe?"
+    (with anything private hidden). Ask before taking his Threadbear
+    window, then `open "threadbear://thread/<id>"`, `computercub scroll
+    <window> up|down` and `computercub shot <window> --max 6000` (retina,
+    5120 wide). Take the two or three pages you need straight away: he
+    carries on using the app and the window moves to another thread. A
+    scroll moves about a page, so shots don't overlap and can't be
+    stitched: drift each page up slowly and slide to the next. Use only
+    the conversation column (the sidebar and Highlights list his other
+    threads), keep the title bar pinned, and put a marker on the phrase he
+    says. `lets-build-it-technical/.work/threadbear-shot/make.sh`.
+- **An ffmpeg clip cut with `-ss` before `-i` and a filter can start at
+  0.033 s,** and Tandem shows one black frame first. End the filter chain
+  with `setpts=PTS-STARTPTS`.
 
 ### Shorts cut from a conference talk: James's Abstract keynote
 
