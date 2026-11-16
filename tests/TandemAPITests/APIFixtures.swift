@@ -136,7 +136,9 @@ enum APIFixture {
 final class FakeAnalysis: AnalysisSource, @unchecked Sendable {
     private let lock = NSLock()
     private var _transcripts: [String: Transcript] = ["med_camera": APIFixture.cameraTranscript]
-    private var _measured: [String: Loudness] = [:]
+    // The take is measured, as a real one is long before it's edited:
+    // levelled clips from an unmeasured file are warned about and fail check.
+    private var _measured: [String: Loudness] = ["med_camera": Loudness(integratedLUFS: -20, truePeakDBTP: -3, loudnessRange: 6)]
     private var _jobList: [JobStatus] = []
     private var _requests: [(kind: AnalysisKind, mediaID: String, priority: JobPriority)] = []
     private var _neededRequests = 0

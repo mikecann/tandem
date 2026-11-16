@@ -243,6 +243,22 @@ final class CutAPITests: XCTestCase {
         XCTAssertTrue(check.ok, "\(check.problems)")
     }
 
+    func testALongSilenceBeforeTheFirstWordIsCut() async throws {
+        // 30 s of room before he speaks: the sound read round both edges of
+        // 0-9.7 has no voice in it, which said "there's no voice in the
+        // sound" before. The speech level comes from further out.
+        let h = try harness(
+            voice: [voice("clip_a", start: 0, duration: 40, from: 0)],
+            length: 64, speech: [(30.0, 32.0), (33.0, 35.0)],
+            words: [("Right,", 30.0, 30.5), ("hello.", 30.6, 32.0), ("Next", 33.0, 35.0)]
+        )
+        defer { h.close() }
+        let plan = try await CutRequest(remove: [CutTarget(start: t(0), end: t(9.7))]).run(on: h.service, context: h.context)
+        XCTAssertEqual(plan.cuts.first?.status, .cut, plan.readableText)
+        XCTAssertEqual(plan.cuts.first?.cut?.start, .zero)
+        XCTAssertEqual(plan.cuts.first?.quiet, true)
+    }
+
     func testAnEdgeIsNeverPlacedInAPauseItsClipDoesntPlay() async throws {
         // The first clip plays the file to 5, in running speech, and the
         // file's next pause (6 to 6.5) is after that, where the second clip

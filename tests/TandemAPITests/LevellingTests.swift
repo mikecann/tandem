@@ -14,6 +14,9 @@ final class LevellingTests: XCTestCase {
 
     private func harness() throws -> ServiceHarness {
         let h = try ServiceHarness()
+        // check leaves a missing file to validate, so the bed is there.
+        try FileManager.default.createDirectory(at: h.folder.file("music"), withIntermediateDirectories: true)
+        try Data().write(to: h.folder.file("music/bed.m4a"))
         // The take is measured, as it always is by the time it's edited.
         h.analysis.measured["med_camera"] = Loudness(integratedLUFS: -18, truePeakDBTP: -3, loudnessRange: 6)
         return h
@@ -50,6 +53,12 @@ final class LevellingTests: XCTestCase {
         XCTAssertEqual(problem.clipIDs, ["clip_mus1"])
         XCTAssertTrue(problem.message.contains("Levelled to -45 LUFS, but music/bed.m4a isn't measured yet"), problem.message)
         XCTAssertFalse(check.ok)
+
+        // A muted Music track isn't heard, so it's no problem.
+        _ = try h.apply(.updateTrack(trackID: "trk_music", patch: .object(["muted": .bool(true)])))
+        let muted = try await CheckRequest(quick: true).run(on: h.service, context: h.context)
+        XCTAssertFalse(muted.problems.contains { $0.kind == .unlevelled }, "\(muted.problems)")
+        _ = try h.apply(.updateTrack(trackID: "trk_music", patch: .object(["muted": .bool(false)])))
 
         h.analysis.measured["med_music"] = Loudness(integratedLUFS: -12.5, truePeakDBTP: -1, loudnessRange: 6)
         let measured = try await CheckRequest(quick: true).run(on: h.service, context: h.context)

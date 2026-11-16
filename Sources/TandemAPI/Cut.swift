@@ -274,6 +274,9 @@ extension TandemService {
     /// `CutPlacer` takes over 3 s, room to reach a pause, and the slack
     /// transcript times get.
     static var cutWindow: Double { CutAudit.around + CutAudit.reach + CutPlanner.slack }
+    /// How far past the windows read the speech level is looked for when
+    /// they're all quiet.
+    static let levelReach = 60.0
 
     public func cut(_ request: CutRequest, context: CallContext) async throws -> CutResult {
         guard !request.remove.isEmpty || request.fillers == true else {
@@ -362,7 +365,25 @@ extension TandemService {
                 for window in windows {
                     energies.append(try await SpeechEnergy.read(url: folder.url(for: item), from: window.lowerBound, to: window.upperBound))
                 }
-                let levels = SpeechLevels(of: energies)
+                var levels = SpeechLevels(of: energies)
+                // Quiet all round the edges (a long silence before the
+                // first word, a muttered aside): the speech level comes from
+                // further out, so a stretch of quiet can still be cut.
+                if !levels.isVoice {
+                    var wide = energies
+                    for window in windows {
+                        let reach = Self.levelReach
+                        if window.lowerBound > 0 {
+                            wide.append(try await SpeechEnergy.read(url: folder.url(for: item), from: max(0, window.lowerBound - reach), to: window.lowerBound))
+                        }
+                        // Not past the file's end, whose silence would water the level down.
+                        let end = min(window.upperBound + reach, item.duration?.seconds ?? .infinity)
+                        if end > window.upperBound {
+                            wide.append(try await SpeechEnergy.read(url: folder.url(for: item), from: window.upperBound, to: end))
+                        }
+                    }
+                    levels = SpeechLevels(of: wide)
+                }
                 guard levels.isVoice else {
                     unread[mediaID] = "there's no voice in the sound of \(URL(fileURLWithPath: item.path).lastPathComponent)"
                     continue

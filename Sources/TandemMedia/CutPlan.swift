@@ -466,6 +466,8 @@ public enum CutPlanner {
         // after. Without a transcript, the side holding more of it.
         var sides: [Bool?] = []
         var orphans: Set<Int> = []
+        // Placed in the quiet round words with no sound of their own.
+        var quietHere = false
         if boundary.heard {
             // Each word's home: the island holding most of it.
             func home(_ word: ClosedRange<Double>) -> Int? {
@@ -478,6 +480,7 @@ public enum CutPlanner {
             let removed = edge == .start ? afterHomes : beforeHomes
             if removed.isEmpty, !allowQuiet { return .failure(.init(.noSpeech)) }
             if removed.isEmpty {
+                quietHere = true
                 // No word cut has sound of its own here: muttered under the
                 // take (an editor's note on the Convex 1.50 video, 45 dB
                 // down), or a stretch with no words at all, like the quiet
@@ -485,7 +488,6 @@ public enum CutPlanner {
                 // the pause, so the edge goes in the pause round the edge's
                 // time, the words that stay keeping their sides and other
                 // sound going by where it is, as without a transcript.
-                inQuiet = true
                 sides = islands.indices.map { index in
                     if beforeHomes.contains(index) { return false }
                     if afterHomes.contains(index) { return true }
@@ -539,7 +541,7 @@ public enum CutPlanner {
         case let (nil, high?): candidates = [high]
         // No sound at all near the edge: it's all one pause.
         case (nil, nil) where islands.isEmpty && (allowQuiet || !boundary.heard):
-            inQuiet = inQuiet || boundary.heard
+            quietHere = allowQuiet
             candidates = [0]
         case (nil, nil): return .failure(.init(.noSpeech))
         }
@@ -552,12 +554,27 @@ public enum CutPlanner {
               distance(best.pause, boundary.time...boundary.time) <= slack + 1e-9 else {
             return .failure(.init(.runsOn))
         }
+        var chosen = best.pause
+        if quietHere {
+            inQuiet = true
+            // Words that stay can be as quiet as the ones cut, with no sound
+            // of their own either, so the quiet runs through them: the pause
+            // stops at them, or the cut would take them too.
+            if edge == .start, let last = boundary.before.map(\.upperBound).filter({ $0 > chosen.lowerBound }).max() {
+                chosen = last...max(last, chosen.upperBound)
+            }
+            if edge == .end, let first = boundary.after.map(\.lowerBound).filter({ $0 < chosen.upperBound }).min() {
+                chosen = min(first, chosen.lowerBound)...first
+            }
+            guard chosen.upperBound - chosen.lowerBound > 1e-6,
+                  distance(chosen, boundary.time...boundary.time) <= slack + 1e-9 else { return .failure(.init(.runsOn)) }
+        }
         // Sound no word claims, in the stretch, that has to stay because a
         // word that stays is on the far side of it.
         let kept = orphans.sorted().filter { edge == .start ? $0 < best.index : $0 >= best.index }.map { span(islands[$0]) }
             .filter { island in boundary.inStretch(island, edge: edge) && (boundary.within.map { island.overlaps($0) } ?? true) }
         if !kept.isEmpty { missed[edge] = kept }
-        return .success(best.pause)
+        return .success(chosen)
     }
 
     /// The pause before island `index` (or after them all), in media time,

@@ -20,13 +20,16 @@ extension TandemService {
     /// A music bed or sound effect reads in a second or two.
     static let measureWait: TimeInterval = 20
 
-    /// The unmuted levelled clips (all of them, or those in `clipIDs`)
-    /// whose file has sound and no loudness measurement.
+    /// The levelled clips (all of them, or those in `clipIDs`) that are
+    /// heard, as `RenderPlan` picks them (enabled clips on unmuted audio
+    /// tracks, the soloed ones when any are), whose file has sound and no
+    /// loudness measurement.
     static func unlevelled(in project: Project, analysis: AnalysisSource, clipIDs: Set<String>? = nil) -> [Unlevelled] {
         var found: [Unlevelled] = []
         var measured: [String: Bool] = [:]
-        for track in project.allTracks {
-            for clip in track.clips where clipIDs?.contains(clip.id) ?? true {
+        let soloing = project.audioTracks.contains { $0.solo && !$0.muted }
+        for track in project.audioTracks where !track.muted && (!soloing || track.solo) {
+            for clip in track.clips where clip.enabled && clipIDs?.contains(clip.id) ?? true {
                 guard let audio = clip.audio, let target = audio.normalizeTo, !audio.muted,
                       let id = clip.mediaID, let item = project.media(id), item.hasAudio else { continue }
                 let known = measured[id] ?? (analysis.loudness(for: item) != nil)
@@ -75,8 +78,12 @@ extension TandemService {
 
     /// `check`'s problem for each levelled clip whose file isn't measured,
     /// where `ranges` reach it.
-    static func unlevelledProblems(in project: Project, analysis: AnalysisSource, ranges: [TimeRange]) -> [CheckProblem] {
-        unlevelled(in: project, analysis: analysis).filter { entry in ranges.contains { $0.overlaps(entry.clip.range) } }.map { entry in
+    /// A file that's missing is left to `validate`, which says so: it plays
+    /// nothing, levelled or not.
+    static func unlevelledProblems(in project: Project, analysis: AnalysisSource, folder: ProjectFolder, ranges: [TimeRange]) -> [CheckProblem] {
+        unlevelled(in: project, analysis: analysis).filter { entry in
+            ranges.contains { $0.overlaps(entry.clip.range) } && FileManager.default.fileExists(atPath: folder.url(for: entry.item).path)
+        }.map { entry in
             CheckProblem(
                 kind: .unlevelled, start: entry.clip.start, end: entry.clip.end,
                 message: "Levelled to \(AudioLevels.number(entry.target)) LUFS, but \(entry.item.path) isn't measured yet, so it plays (and exports) at the file's own level."

@@ -401,4 +401,19 @@ final class CutPlanTests: XCTestCase {
         XCTAssertEqual(end.keptAfter, 0, accuracy: 1e-6)
         XCTAssertEqual(try XCTUnwrap(end.from), 15.5 + 0.4, accuracy: 0.03)
     }
+
+    func testQuietWordsThatStayBoundTheQuietCut() throws {
+        // Three muttered words in a row with loud speech either side, and
+        // only the middle one cut. The quiet runs from "before" to "after",
+        // through the two that stay, so without them the cut took all three.
+        let take = Take(length: 12, words: [(10.0, 11.0), (18.0, 20.0)], softWords: [(12.0, 12.5, 45), (14.0, 14.5, 45), (16.0, 16.5, 45)])
+        let kept: [ClosedRange<Double>] = [10.0...11.0, 12.0...12.5, 16.0...16.5, 18.0...20.0]
+        let result = plan(take, removing: 14.0...14.5, cut: [14.0...14.5], kept: kept, keep: 0.4, quiet: true)
+        XCTAssertTrue(result.cuts, "\(result)")
+        XCTAssertTrue(result.quiet)
+        XCTAssertGreaterThanOrEqual(try XCTUnwrap(result.from), 12.5)
+        XCTAssertLessThanOrEqual(try XCTUnwrap(result.to), 16.0)
+        XCTAssertLessThanOrEqual(try XCTUnwrap(result.from), 14.0)
+        XCTAssertGreaterThanOrEqual(try XCTUnwrap(result.to), 14.5)
+    }
 }
