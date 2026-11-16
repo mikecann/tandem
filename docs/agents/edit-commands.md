@@ -279,6 +279,11 @@ about -18. `null` stops normalising. A gain of -96 dB or lower is silence.
 Turning `normalizeTo` on for a clip that had a gain (a bed placed at -31
 dB) resets the gain to 0 and says so, since that gain was set against the
 file as it was; send `gainDB` in the same patch to keep one.
+Levelling needs the file's loudness measured: until it is, the clip plays
+at the file's own level. An edit that levels a clip from a file nobody has
+measured (a bed just placed with the app closed) measures it before it
+answers, waiting up to 20 s, and warns about any file still unmeasured;
+`tandem check` fails on them (`unlevelled`).
 
 `video.crop` values are fractions (0 to 1) of the source hidden at each
 edge, so `{"left": 0.25}` hides the left quarter of the picture.

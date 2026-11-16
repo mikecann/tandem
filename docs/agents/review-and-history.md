@@ -65,6 +65,11 @@ their own beside it, and reports, with the clips on screen there:
   talking at the same time. It seems a bit odd" (30 Oct 2026). A copy
   under a blur (the fill behind a shot that doesn't cover the frame) is
   left out. Read from the timeline, so it's in a quick check;
+- a levelled clip whose file isn't measured (`unlevelled`): a clip with
+  `audio.normalizeTo` plays and exports at its file's own level until the
+  file's loudness is measured, so a bed meant for -45 LUFS is as loud as
+  the voice. `tandem wait jobs --media <id>` measures it. In a quick check
+  too;
 - as notes that don't fail it:
   - pictures zoomed past three times their own pixels (1080p past 150%
     on a 4K frame), which look soft;

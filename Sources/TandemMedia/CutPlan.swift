@@ -55,6 +55,10 @@ public struct CutPlan: Equatable, Sendable {
     public var missed: [Edge: [ClosedRange<Double>]] = [:]
     public var start: Join?
     public var end: Join?
+    /// An edge went in the quiet round words with no sound of their own
+    /// (said too quietly to stand out from the room, or not there), or in a
+    /// stretch with no sound at all, rather than in the pause beside them.
+    public var quiet = false
     public var problem: Problem?
     public var problemEdge: Edge?
 
@@ -140,10 +144,12 @@ public enum CutPlanner {
 
     /// Removes `stretch` of one file: words in `cut` go, words in `kept`
     /// stay (both empty without a transcript). `falseStart` nil cuts it as
-    /// a false start when it's longer than `falseStartFrom`.
+    /// a false start when it's longer than `falseStartFrom`. `quiet` as for
+    /// the other `plan`.
     public static func plan(
         _ placer: CutPlacer, removing stretch: ClosedRange<Double>, cut: [ClosedRange<Double>], kept: [ClosedRange<Double>],
-        keep: Double, tightenFrom: Double = 0, falseStart: Bool?, lead: Double? = nil, snap: ((Double, CutPlan.Edge, ClosedRange<Double>) -> Double)? = nil
+        keep: Double, tightenFrom: Double = 0, falseStart: Bool?, quiet: Bool = false, lead: Double? = nil,
+        snap: ((Double, CutPlan.Edge, ClosedRange<Double>) -> Double)? = nil
     ) -> CutPlan {
         let mid = { (word: ClosedRange<Double>) in (word.lowerBound + word.upperBound) / 2 }
         let before = kept.filter { mid($0) < stretch.lowerBound }
@@ -152,7 +158,8 @@ public enum CutPlanner {
         return plan(
             start: placer, Boundary(time: stretch.lowerBound, before: before, after: heard ? cut : []),
             end: placer, Boundary(time: stretch.upperBound, before: heard ? cut : [], after: after),
-            keep: keep, tightenFrom: tightenFrom, falseStart: falseStart ?? (stretch.upperBound - stretch.lowerBound > falseStartFrom), lead: lead, snap: snap
+            keep: keep, tightenFrom: tightenFrom, falseStart: falseStart ?? (stretch.upperBound - stretch.lowerBound > falseStartFrom),
+            quiet: quiet, lead: lead, snap: snap
         )
     }
 
@@ -171,16 +178,21 @@ public enum CutPlanner {
     /// would have heard it with no filler. "query, [um] we" with 0.3 s
     /// either side is a 0.9 s pause cut to a comma's 0.12 s, not a 0.3 s
     /// one kept as it was.
+    /// `quiet` cuts a stretch whose words have no sound of their own (or
+    /// that has no words or sound at all) in the quiet round it, rather
+    /// than leaving it in as `noSpeech`: for stretches someone asked for,
+    /// not fillers found in the transcript, where it would only tighten a
+    /// pause.
     public static func plan(
         start: CutPlacer, _ startBoundary: Boundary, end: CutPlacer, _ endBoundary: Boundary,
         keep: Double, tightenFrom: Double = 0, falseStart: Bool, sameFile: Bool = true, filled: Bool = false,
-        lead: Double? = nil, snap: ((Double, CutPlan.Edge, ClosedRange<Double>) -> Double)? = nil
+        quiet: Bool = false, lead: Double? = nil, snap: ((Double, CutPlan.Edge, ClosedRange<Double>) -> Double)? = nil
     ) -> CutPlan {
         var plan = CutPlan()
         var missed: [CutPlan.Edge: [ClosedRange<Double>]] = [:]
         var faint: [CutPlan.Edge: [ClosedRange<Double>]] = [:]
-        var first = side(start, startBoundary, edge: .start, missed: &missed, faint: &faint)
-        var last = side(end, endBoundary, edge: .end, missed: &missed, faint: &faint)
+        var first = side(start, startBoundary, edge: .start, quiet: quiet, missed: &missed, faint: &faint, inQuiet: &plan.quiet)
+        var last = side(end, endBoundary, edge: .end, quiet: quiet, missed: &missed, faint: &faint, inQuiet: &plan.quiet)
         if falseStart {
             // Pause to pause inside the false start, where there's none
             // round it: the words past that pause come back.
@@ -231,8 +243,14 @@ public enum CutPlanner {
         if filled, sameFile {
             natural = max(natural, (after.upperBound - before.lowerBound) / startBoundary.speed)
         }
+        // A pause running to the start of what the clip plays (the take's
+        // start, or a join an earlier cut made) has nothing before it to
+        // keep a tail after: the cut runs from there, edge to edge, and the
+        // keep all goes before the word after. The same at the end.
+        let atStart = startBoundary.before.isEmpty && before.lowerBound <= (startBoundary.within?.lowerBound ?? start.energy.start) + 1e-6
+        let atEnd = endBoundary.after.isEmpty && after.upperBound >= (endBoundary.within?.upperBound ?? end.energy.end) - 1e-6
         let (tail, kept) = split(
-            natural < tightenFrom ? natural : keep, before: lengths.before, after: lengths.after,
+            natural < tightenFrom ? natural : keep, before: atStart ? 0 : lengths.before, after: atEnd ? 0 : lengths.after,
             speeds: (startBoundary.speed, endBoundary.speed), lead: lead
         )
         var from = before.lowerBound + tail
@@ -249,8 +267,8 @@ public enum CutPlanner {
             to = sound.lowerBound - CutAudit.pad
         }
         if let snap {
-            from = snap(from, .start, before)
-            to = snap(to, .end, after)
+            if !atStart { from = snap(from, .start, before) }
+            if !atEnd { to = snap(to, .end, after) }
         }
         guard from < to || !sameFile else {
             plan.problem = .nothingLeft
@@ -264,12 +282,15 @@ public enum CutPlanner {
 
         // Judged as `tandem check --cuts` will judge the join. It's in real
         // pauses by construction, but frames and floors move.
-        plan.start = join(start, at: from, keeps: .before)
-        plan.end = join(end, at: to, keeps: .after)
+        // An edge at the clip's own start or end keeps nothing of the clip
+        // on that side, so the join is only what the other edge keeps: it's
+        // judged as that one is.
+        plan.start = atStart ? nil : join(start, at: from, keeps: .before)
+        plan.end = atEnd ? nil : join(end, at: to, keeps: .after)
         // A short lead can land on a soft start the pause map missed: the
         // end moves back a step at a time, keeping more before the word,
         // until it's clean, as far as the pause goes.
-        if lead != nil, plan.end?.verdict != .clean {
+        if lead != nil, !atEnd, plan.end?.verdict != .clean {
             var moved = to
             while plan.end?.verdict != .clean, moved - SpeechEnergy.frameSeconds > after.lowerBound + min(CutAudit.pad, lengths.after / 2) {
                 moved -= SpeechEnergy.frameSeconds
@@ -287,6 +308,8 @@ public enum CutPlanner {
             // moves came clean, put it back on the one planned.
             if plan.end?.verdict != .clean { _ = snap?(to, .end, after) }
         }
+        if atStart { plan.start = plan.end ?? CutPlan.Join(verdict: .clean, margin: 0) }
+        if atEnd { plan.end = plan.start ?? CutPlan.Join(verdict: .clean, margin: 0) }
         if plan.start?.verdict != .clean {
             plan.problem = .notClean
             plan.problemEdge = .start
@@ -384,9 +407,12 @@ public enum CutPlanner {
     /// stays and the sound that goes, or why there isn't one.
     /// Sound in the stretch asked for that the chosen pause leaves on the
     /// side that stays goes in `missed`.
+    /// With `quiet`, words cut with no sound of their own are taken to be
+    /// in the pause round them, and `inQuiet` is set when that's how the
+    /// edge was placed.
     static func side(
-        _ placer: CutPlacer, _ boundary: Boundary, edge: CutPlan.Edge, missed: inout [CutPlan.Edge: [ClosedRange<Double>]],
-        faint: inout [CutPlan.Edge: [ClosedRange<Double>]]
+        _ placer: CutPlacer, _ boundary: Boundary, edge: CutPlan.Edge, quiet allowQuiet: Bool = false,
+        missed: inout [CutPlan.Edge: [ClosedRange<Double>]], faint: inout [CutPlan.Edge: [ClosedRange<Double>]], inQuiet: inout Bool
     ) -> Result<ClosedRange<Double>, ProblemError> {
         let near = placer.around(boundary.time)
         var islands = islands(placer, near)
@@ -450,7 +476,26 @@ public enum CutPlanner {
             let afterHomes = Set(boundary.after.compactMap(home))
             if !beforeHomes.isDisjoint(with: afterHomes) { return .failure(.init(.fluent)) }
             let removed = edge == .start ? afterHomes : beforeHomes
-            if removed.isEmpty { return .failure(.init(.noSpeech)) }
+            if removed.isEmpty, !allowQuiet { return .failure(.init(.noSpeech)) }
+            if removed.isEmpty {
+                // No word cut has sound of its own here: muttered under the
+                // take (an editor's note on the Convex 1.50 video, 45 dB
+                // down), or a stretch with no words at all, like the quiet
+                // and a clap before the first word. Their quiet is part of
+                // the pause, so the edge goes in the pause round the edge's
+                // time, the words that stay keeping their sides and other
+                // sound going by where it is, as without a transcript.
+                inQuiet = true
+                sides = islands.indices.map { index in
+                    if beforeHomes.contains(index) { return false }
+                    if afterHomes.contains(index) { return true }
+                    orphans.insert(index)
+                    let span = span(islands[index])
+                    if span.upperBound <= boundary.time { return false }
+                    if span.lowerBound >= boundary.time { return true }
+                    return boundary.time - span.lowerBound < span.upperBound - boundary.time
+                }
+            } else {
             sides = islands.indices.map { index in
                 if beforeHomes.contains(index) { return false }
                 if afterHomes.contains(index) { return true }
@@ -473,6 +518,7 @@ public enum CutPlanner {
                     .min { $0.0 < $1.0 }
                 return nearest?.1
             }
+            }
         } else {
             sides = islands.map { island in
                 let span = span(island)
@@ -491,6 +537,10 @@ public enum CutPlanner {
         case let (low?, high?): candidates = Array((low + 1)...high)
         case let (low?, nil): candidates = [low + 1]
         case let (nil, high?): candidates = [high]
+        // No sound at all near the edge: it's all one pause.
+        case (nil, nil) where islands.isEmpty && (allowQuiet || !boundary.heard):
+            inQuiet = inQuiet || boundary.heard
+            candidates = [0]
         case (nil, nil): return .failure(.init(.noSpeech))
         }
         // Only what the clip plays: a pause in the file past the clip's end

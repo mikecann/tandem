@@ -843,7 +843,15 @@ public struct ApplyRequest: ServiceCall {
     }
 
     public func run(on service: TandemService, context: CallContext) async throws -> ApplyResult {
-        try service.apply(self, context: context)
+        var result = try service.apply(self, context: context)
+        guard !result.dryRun, !result.repeated else { return result }
+        // A clip this levelled from a file nobody's measured would play
+        // at the file's own level, so it's measured now (with the app
+        // closed nothing else would), and what can't be is said.
+        let touched = Set(result.added + result.changed)
+        let unmeasured = TandemService.unlevelled(in: service.coordinator.project, analysis: service.analysis, clipIDs: touched)
+        result.warnings += TandemService.unlevelledWarnings(await service.measure(unmeasured))
+        return result
     }
 }
 

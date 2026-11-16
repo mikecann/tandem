@@ -835,10 +835,12 @@ public final class TandemService: @unchecked Sendable {
             throw ServiceError(.invalid, "Invalid edit: \(first.message)")
         }
         let diff = ClipDiff(project, working)
+        // Applied, it measures them (`ApplyRequest.run`); a dry run says.
+        let unmeasured = Self.unlevelled(in: working, analysis: analysis, clipIDs: Set(diff.added + diff.changed))
         return ApplyResult(
             revision: revision, label: batch.label, author: batch.author,
             createdIDs: context.createdIDs,
-            warnings: context.warnings + ProjectValidator.newWarnings(issues, since: project),
+            warnings: context.warnings + ProjectValidator.newWarnings(issues, since: project) + Self.unlevelledWarnings(unmeasured),
             dryRun: true, repeated: false,
             added: diff.added, removed: diff.removed, changed: diff.changed, duration: working.duration
         )

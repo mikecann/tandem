@@ -98,6 +98,11 @@ public struct CheckProblem: Codable, Equatable, Sendable {
         /// start a frame or two before his first word, with the pause on
         /// the end of the clip before.
         case faceWaits
+        /// A clip levelled to a loudness (`audio.normalizeTo`) whose file
+        /// isn't measured yet, so it plays and exports at the file's own
+        /// level (`TandemService.unlevelledProblems`): a bed meant for
+        /// -45 LUFS as loud as the voice.
+        case unlevelled
 
         /// Worth knowing rather than wrong: Mike signed off softer zooms on
         /// cartoon B-roll than on screen recordings, a pause can let a point

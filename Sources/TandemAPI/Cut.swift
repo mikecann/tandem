@@ -185,6 +185,10 @@ public struct CutStretch: Codable, Equatable, Sendable {
     /// it) that the cut keeps, because a word that stays is said on the far
     /// side of it: a word the transcript has well off, or missed.
     public var missed: String?
+    /// Placed in the quiet round words with no sound of their own (said too
+    /// quietly to stand out from the room, or not there), or in a stretch
+    /// with no sound in it, rather than in the pauses beside its words.
+    public var quiet: Bool?
     /// How each side of the join sounds, as `check --cuts` judges it.
     public var startEdge: CutJoinSide?
     public var endEdge: CutJoinSide?
@@ -226,6 +230,11 @@ extension CutResult: ReadableResult {
                 }
                 if stretch.falseStart {
                     line += stretch.broughtBack.map { "; a false start, so \"\($0)\" comes back" } ?? "; cut as a false start"
+                }
+                if stretch.quiet == true {
+                    line += stretch.text.isEmpty
+                        ? "; no words in it, so it's cut in the quiet either side"
+                        : "; its words are too quiet to find in the sound, so it's cut in the quiet either side of them. Listen with tandem clip"
                 }
                 if let missed = stretch.missed {
                     line += "; but \(missed) in the stretch asked for stays, as a word that stays is past it. Listen with tandem clip"
@@ -791,9 +800,10 @@ extension TandemService {
         let plan = CutPlanner.plan(
             start: startPlacer, first.boundary, end: endPlacer, last.boundary, keep: planned.keep, tightenFrom: planned.tightenFrom,
             falseStart: planned.falseStart, sameFile: Self.oneRun(first.clip, last.clip),
-            filled: planned.filled, lead: lead, snap: snap
+            filled: planned.filled, quiet: !planned.onlyFillers, lead: lead, snap: snap
         )
         stretch.falseStart = plan.falseStart
+        stretch.quiet = plan.quiet ? true : nil
         stretch.problem = plan.problem
         stretch.problemEdge = plan.problemEdge
         stretch.startEdge = plan.start.map { CutJoinSide(verdict: $0.verdict, margin: (Double($0.margin) * 10).rounded() / 10) }
@@ -858,7 +868,7 @@ extension TandemService {
             let side = atStart ? "into it from before" : "on past it"
             return "the voice runs \(side) with no pause within \(String(format: "%.1f", CutPlanner.slack)) s of where the transcript has the words. Left in: listen with tandem clip, or cut a wider stretch."
         case .noSpeech:
-            return "there's no speech in the sound where the transcript has these words."
+            return "there's no speech in the sound where the transcript has these words: they're too quiet to place a cut's edges on, or not there."
         case .nothingLeft:
             return "a false start with no pause inside it to cut to."
         case .notClean:

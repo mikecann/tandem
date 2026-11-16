@@ -11,9 +11,9 @@ final class CutPlanTests: XCTestCase {
 
     private func plan(
         _ take: Take, removing stretch: ClosedRange<Double>, cut: [ClosedRange<Double>] = [], kept: [ClosedRange<Double>] = [],
-        keep: Double = 0.12, tightenFrom: Double = 0, falseStart: Bool? = nil
+        keep: Double = 0.12, tightenFrom: Double = 0, falseStart: Bool? = nil, quiet: Bool = false
     ) -> CutPlan {
-        CutPlanner.plan(placer(take), removing: stretch, cut: cut, kept: kept, keep: keep, tightenFrom: tightenFrom, falseStart: falseStart)
+        CutPlanner.plan(placer(take), removing: stretch, cut: cut, kept: kept, keep: keep, tightenFrom: tightenFrom, falseStart: falseStart, quiet: quiet)
     }
 
     func testBothEdgesGoInThePausesEitherSide() throws {
@@ -350,5 +350,55 @@ final class CutPlanTests: XCTestCase {
         // All but 30 ms of each pause by the "um", as a pause under the
         // minimum is kept, rather than the comma's 0.12 s.
         XCTAssertEqual(cut.keptBefore + cut.keptAfter, pauses - 0.06, accuracy: 0.001, "\(cut)")
+    }
+
+    func testAStretchSaidTooQuietlyIsCutInTheQuietRoundIt() throws {
+        // The Convex 1.50 video at 4:30: "...right. [Editor's note: that last
+        // one doesn't make a lot of sense, I'm just gonna re-record that] So
+        // the..." muttered 45 dB under the take, so the room's rumble covers
+        // it and none of its words has sound of its own. It's quiet from the
+        // word before to the word after, so that's the pause the cut goes in.
+        let take = Take(length: 10, words: [(10.5, 11.0), (16.0, 16.5)], softWords: [(11.6, 12.4, 45), (12.6, 15.2, 45)])
+        let cut: [ClosedRange<Double>] = [11.6...12.4, 12.6...15.2]
+        let kept: [ClosedRange<Double>] = [10.5...11.0, 16.0...16.5]
+        let result = plan(take, removing: 11.6...15.2, cut: cut, kept: kept, keep: 0.4, quiet: true)
+        XCTAssertTrue(result.cuts, "\(result)")
+        XCTAssertTrue(result.quiet)
+        XCTAssertEqual(try XCTUnwrap(result.startPause).lowerBound, 11.0, accuracy: 0.03)
+        XCTAssertEqual(try XCTUnwrap(result.endPause).upperBound, 16.0, accuracy: 0.03)
+        XCTAssertEqual(result.keptBefore + result.keptAfter, 0.4, accuracy: 0.001)
+        XCTAssertLessThan(try XCTUnwrap(result.from), 11.6)
+        XCTAssertGreaterThan(try XCTUnwrap(result.to), 15.2)
+        XCTAssertEqual(result.start?.verdict, .clean)
+        XCTAssertEqual(result.end?.verdict, .clean)
+
+        // Fillers the transcript has where nothing's heard stay left in:
+        // cutting them would only tighten the pause, which is tighten's call.
+        let filler = plan(take, removing: 11.6...12.4, cut: [11.6...12.4], kept: kept, keep: 0.4)
+        XCTAssertFalse(filler.cuts)
+        XCTAssertEqual(filler.problem, .noSpeech)
+    }
+
+    func testTheQuietBeforeTheFirstWordIsCutFromTheTakesStart() throws {
+        // The Convex 1.50 take's first 9.7 s: a clap, then quiet until his
+        // first word. No word is cut, and nothing stays before the cut, so
+        // it runs from the start of the take, clap and all, and the whole
+        // keep goes before his first word.
+        let take = Take(length: 8, words: [(10.4, 10.5), (14.0, 14.5), (15.0, 15.5)])
+        let kept: [ClosedRange<Double>] = [14.0...14.5, 15.0...15.5]
+        let result = plan(take, removing: 10.0...13.7, kept: kept, keep: 0.4, quiet: true)
+        XCTAssertTrue(result.cuts, "\(result)")
+        XCTAssertEqual(try XCTUnwrap(result.from), 10.0, accuracy: 1e-6)
+        XCTAssertEqual(result.keptBefore, 0, accuracy: 1e-6)
+        XCTAssertEqual(try XCTUnwrap(result.to), 14.0 - 0.4, accuracy: 0.03)
+        XCTAssertEqual(result.start?.verdict, .clean)
+        XCTAssertEqual(result.end?.verdict, .clean)
+
+        // And the quiet after the last word, to the take's end.
+        let end = plan(take, removing: 15.8...18.0, kept: kept, keep: 0.4, quiet: true)
+        XCTAssertTrue(end.cuts, "\(end)")
+        XCTAssertEqual(try XCTUnwrap(end.to), 18.0, accuracy: 1e-6)
+        XCTAssertEqual(end.keptAfter, 0, accuracy: 1e-6)
+        XCTAssertEqual(try XCTUnwrap(end.from), 15.5 + 0.4, accuracy: 0.03)
     }
 }
