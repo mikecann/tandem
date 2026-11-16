@@ -11,7 +11,7 @@ export type AudioProperties = {
   /** Clip gain in dB, added after normalizeTo's levelling. */
   gainDB?: number;
   muted?: boolean;
-  /** Level the clip to this loudness (LUFS) from its file's measured loudness (within ±30 dB); gainDB goes on top. Speech clips use settings.speechLoudness. */
+  /** Level the clip to this loudness (LUFS) from its file's measured loudness (within ±30 dB); gainDB goes on top. Until the file is measured the clip plays at its own level: apply measures it, or warns. Speech clips use settings.speechLoudness. */
   normalizeTo?: number;
   /** Play SAM Audio's separation of the file (made by `tandem separate`) instead of its sound, and instead of voiceIsolation. Null to stop. */
   separation?: {

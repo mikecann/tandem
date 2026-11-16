@@ -185,6 +185,10 @@ public struct CutStretch: Codable, Equatable, Sendable {
     /// it) that the cut keeps, because a word that stays is said on the far
     /// side of it: a word the transcript has well off, or missed.
     public var missed: String?
+    /// Placed in the quiet round words with no sound of their own (said too
+    /// quietly to stand out from the room, or not there), or in a stretch
+    /// with no sound in it, rather than in the pauses beside its words.
+    public var quiet: Bool?
     /// How each side of the join sounds, as `check --cuts` judges it.
     public var startEdge: CutJoinSide?
     public var endEdge: CutJoinSide?
@@ -227,6 +231,11 @@ extension CutResult: ReadableResult {
                 if stretch.falseStart {
                     line += stretch.broughtBack.map { "; a false start, so \"\($0)\" comes back" } ?? "; cut as a false start"
                 }
+                if stretch.quiet == true {
+                    line += stretch.text.isEmpty
+                        ? "; no words in it, so it's cut in the quiet either side"
+                        : "; its words are too quiet to find in the sound, so it's cut in the quiet either side of them. Listen with tandem clip"
+                }
                 if let missed = stretch.missed {
                     line += "; but \(missed) in the stretch asked for stays, as a word that stays is past it. Listen with tandem clip"
                 }
@@ -265,6 +274,21 @@ extension TandemService {
     /// `CutPlacer` takes over 3 s, room to reach a pause, and the slack
     /// transcript times get.
     static var cutWindow: Double { CutAudit.around + CutAudit.reach + CutPlanner.slack }
+    /// How far past the windows read the speech level is looked for when
+    /// they're all quiet.
+    static let levelReach = 60.0
+
+    /// Levels from the voiced frames of a read that's mostly quiet: a few
+    /// seconds of speech in two minutes of silence is under the loud tenth
+    /// `SpeechLevels(of:)` goes by. Half a second of voice is enough to
+    /// say there's a voice; with none, the file has none here.
+    static func sparseLevels(_ readings: [SpeechEnergy]) -> SpeechLevels {
+        let voiced = readings.flatMap { reading in
+            zip(reading.full, reading.high).filter { $0.0 > SpeechLevels.quietestVoice }.map(\.1)
+        }.sorted()
+        guard Double(voiced.count) * SpeechEnergy.frameSeconds >= 0.5 else { return SpeechLevels(highLoud: -120, isVoice: false) }
+        return SpeechLevels(highLoud: voiced[min(voiced.count - 1, voiced.count * 9 / 10)])
+    }
 
     public func cut(_ request: CutRequest, context: CallContext) async throws -> CutResult {
         guard !request.remove.isEmpty || request.fillers == true else {
@@ -353,7 +377,25 @@ extension TandemService {
                 for window in windows {
                     energies.append(try await SpeechEnergy.read(url: folder.url(for: item), from: window.lowerBound, to: window.upperBound))
                 }
-                let levels = SpeechLevels(of: energies)
+                var levels = SpeechLevels(of: energies)
+                // Quiet all round the edges (a long silence before the
+                // first word, a muttered aside): the speech level comes from
+                // further out, so a stretch of quiet can still be cut.
+                if !levels.isVoice {
+                    var wide = energies
+                    for window in windows {
+                        let reach = Self.levelReach
+                        if window.lowerBound > 0 {
+                            wide.append(try await SpeechEnergy.read(url: folder.url(for: item), from: max(0, window.lowerBound - reach), to: window.lowerBound))
+                        }
+                        // Not past the file's end, whose silence would water the level down.
+                        let end = min(window.upperBound + reach, item.duration?.seconds ?? .infinity)
+                        if end > window.upperBound {
+                            wide.append(try await SpeechEnergy.read(url: folder.url(for: item), from: window.upperBound, to: end))
+                        }
+                    }
+                    levels = Self.sparseLevels(wide)
+                }
                 guard levels.isVoice else {
                     unread[mediaID] = "there's no voice in the sound of \(URL(fileURLWithPath: item.path).lastPathComponent)"
                     continue
@@ -791,9 +833,10 @@ extension TandemService {
         let plan = CutPlanner.plan(
             start: startPlacer, first.boundary, end: endPlacer, last.boundary, keep: planned.keep, tightenFrom: planned.tightenFrom,
             falseStart: planned.falseStart, sameFile: Self.oneRun(first.clip, last.clip),
-            filled: planned.filled, lead: lead, snap: snap
+            filled: planned.filled, quiet: !planned.onlyFillers, lead: lead, snap: snap
         )
         stretch.falseStart = plan.falseStart
+        stretch.quiet = plan.quiet ? true : nil
         stretch.problem = plan.problem
         stretch.problemEdge = plan.problemEdge
         stretch.startEdge = plan.start.map { CutJoinSide(verdict: $0.verdict, margin: (Double($0.margin) * 10).rounded() / 10) }
@@ -858,7 +901,7 @@ extension TandemService {
             let side = atStart ? "into it from before" : "on past it"
             return "the voice runs \(side) with no pause within \(String(format: "%.1f", CutPlanner.slack)) s of where the transcript has the words. Left in: listen with tandem clip, or cut a wider stretch."
         case .noSpeech:
-            return "there's no speech in the sound where the transcript has these words."
+            return "there's no speech in the sound where the transcript has these words: they're too quiet to place a cut's edges on, or not there."
         case .nothingLeft:
             return "a false start with no pause inside it to cut to."
         case .notClean:

@@ -200,6 +200,76 @@ final class CutAPITests: XCTestCase {
         Clip(id: id, name: "take1-camera", content: .media(mediaID: "med_camera"), start: t(start), duration: t(duration), sourceStart: t(source), speed: speed)
     }
 
+    func testARangeOfQuietOrNoSpeechIsCutInTheQuietRoundIt() async throws {
+        // The Convex 1.50 take: a clap, quiet to his first word at 3 s, and
+        // later an editor's note muttered so quietly the file has no sound
+        // where the transcript has it. `cut --range` over either said
+        // "there's no speech in the sound" and cut nothing.
+        let h = try harness(
+            voice: [voice("clip_a", start: 0, duration: 30, from: 0)],
+            length: 64, speech: [(0.3, 0.4), (3.0, 4.0), (5.0, 5.5), (9.5, 10.5)],
+            words: [
+                ("Hello", 3.0, 3.5), ("there.", 3.5, 4.0), ("Right.", 5.0, 5.5),
+                ("Editor's", 6.0, 6.5), ("note,", 6.6, 7.0), ("re-record", 7.2, 8.5), ("So", 9.5, 9.9), ("next.", 10.0, 10.5)
+            ]
+        )
+        defer { h.close() }
+        let plan = try await CutRequest(remove: [CutTarget(start: t(0), end: t(2.7)), CutTarget(start: t(6.0), end: t(8.5))])
+            .run(on: h.service, context: h.context)
+        XCTAssertEqual(plan.cuts.map(\.status), [.cut, .cut], plan.readableText)
+
+        // From the very start of the take, clap and all, to just before
+        // "Hello", keeping only the pause before it.
+        let opening = try XCTUnwrap(plan.cuts[0].cut)
+        XCTAssertEqual(opening.start, .zero)
+        XCTAssertTrue((0.4...3.0).contains(opening.end.seconds), "\(opening)")
+        XCTAssertEqual(plan.cuts[0].quiet, true)
+        XCTAssertEqual(plan.cuts[0].keptBefore, .zero)
+
+        // The note goes pause to pause, from after "Right." to before "So".
+        let note = try XCTUnwrap(plan.cuts[1].cut)
+        XCTAssertTrue((5.5...6.0).contains(note.start.seconds), "\(note)")
+        XCTAssertTrue((8.5...9.5).contains(note.end.seconds), "\(note)")
+        XCTAssertEqual(plan.cuts[1].quiet, true)
+        XCTAssertEqual(plan.cuts[1].startEdge?.verdict, .clean)
+        XCTAssertEqual(plan.cuts[1].endEdge?.verdict, .clean)
+        let text = plan.readableText
+        XCTAssertTrue(text.contains("no words in it, so it's cut in the quiet either side"), text)
+        XCTAssertTrue(text.contains("its words are too quiet to find in the sound"), text)
+
+        _ = try await CutRequest(remove: [CutTarget(start: t(0), end: t(2.7)), CutTarget(start: t(6.0), end: t(8.5))], apply: true)
+            .run(on: h.service, context: h.context)
+        let check = try await CheckRequest(cuts: true).run(on: h.service, context: h.context)
+        XCTAssertTrue(check.ok, "\(check.problems)")
+    }
+
+    func testALongSilenceBeforeTheFirstWordIsCut() async throws {
+        // 30 s of room before he speaks: the sound read round both edges of
+        // 0-9.7 has no voice in it, which said "there's no voice in the
+        // sound" before. The speech level comes from further out.
+        let h = try harness(
+            voice: [voice("clip_a", start: 0, duration: 40, from: 0)],
+            length: 64, speech: [(30.0, 32.0), (33.0, 35.0)],
+            words: [("Right,", 30.0, 30.5), ("hello.", 30.6, 32.0), ("Next", 33.0, 35.0)]
+        )
+        defer { h.close() }
+        let plan = try await CutRequest(remove: [CutTarget(start: t(0), end: t(9.7))]).run(on: h.service, context: h.context)
+        XCTAssertEqual(plan.cuts.first?.status, .cut, plan.readableText)
+        XCTAssertEqual(plan.cuts.first?.cut?.start, .zero)
+        XCTAssertEqual(plan.cuts.first?.quiet, true)
+
+        // Sparse: a few seconds of speech in two minutes of quiet is under
+        // the loud tenth of what's read, but it's still a voice.
+        let sparse = try harness(
+            voice: [voice("clip_a", start: 0, duration: 120, from: 0)],
+            length: 130, speech: [(70.0, 72.0), (73.0, 74.0)],
+            words: [("Right,", 70.0, 70.5), ("hello.", 70.6, 72.0), ("Next", 73.0, 74.0)]
+        )
+        defer { sparse.close() }
+        let quiet = try await CutRequest(remove: [CutTarget(start: t(0), end: t(9.7))]).run(on: sparse.service, context: sparse.context)
+        XCTAssertEqual(quiet.cuts.first?.status, .cut, quiet.readableText)
+    }
+
     func testAnEdgeIsNeverPlacedInAPauseItsClipDoesntPlay() async throws {
         // The first clip plays the file to 5, in running speech, and the
         // file's next pause (6 to 6.5) is after that, where the second clip

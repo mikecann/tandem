@@ -282,6 +282,18 @@ Sound no transcript word claims, inside the stretch or within 0.3 s of it,
 is cut with it. When cutting it would also cut a word that stays, it's
 left and the stretch's `missed` says how much, so listen there.
 
+Words said too quietly to stand out from the room (an editor's note
+muttered under the take), or a stretch with no words in it at all (the
+clap and quiet before the first word), have no sound of their own to
+place edges by. Asked for as a phrase or a range, they're cut in the quiet
+round them: from the pause after the last word that stays before them to
+the pause before the next, and the plan says so (`quiet`) so you listen
+to it. A pause that runs to the start of what the clip plays (the take's
+start, or a join) is cut from there, keeping the whole pause before the
+word after, and one running to the clip's end is cut to it. Fillers found
+with `--fillers` that aren't heard are still left in ("not heard in the
+sound"): cutting them would only tighten a pause, which is tighten's job.
+
 A phrase said more than once needs `--at` with (roughly) the time of the
 one to cut, and that counts overlapping ones ("very very" is said twice in
 "very very very"); with several phrases, the first `--at` goes with the

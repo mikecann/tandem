@@ -405,7 +405,7 @@ extension TandemService {
             let found = QualityCheck.problems(
                 in: project, ranges: toCheck, frames: frames, screenFrames: screenFrames, speech: speech, pauses: pauses, faceWaits: waits,
                 frameTimes: frameTimes
-            )
+            ) + Self.unlevelledProblems(in: project, analysis: analysis, folder: projectFolder, ranges: toCheck)
             var names: [String: String] = [:]
             for id in Set(found.flatMap(\.clipIDs)) {
                 guard let clip = project.clip(id) else { continue }

@@ -309,7 +309,7 @@ extension CommandSchema {
         "fadeIn": S.time(),
         "fadeOut": S.time(),
         "muted": S.boolean(),
-        "normalizeTo": S.number("Level the clip to this loudness (LUFS) from its file's measured loudness (within ±30 dB); gainDB goes on top. Speech clips use settings.speechLoudness."),
+        "normalizeTo": S.number("Level the clip to this loudness (LUFS) from its file's measured loudness (within ±30 dB); gainDB goes on top. Until the file is measured the clip plays at its own level: apply measures it, or warns. Speech clips use settings.speechLoudness."),
         "voiceIsolation": S.number("0 original, 1 fully isolated voice.", minimum: 0, maximum: 1),
         "separation": S.object([
             "prompt": S.string("What SAM Audio separated, as given to `tandem separate`: a short lowercase noun phrase like \"speech\" or \"crowd chatter\"."),

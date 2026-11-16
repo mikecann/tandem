@@ -156,7 +156,7 @@ public struct SpeechLevels: Equatable, Sendable {
     public var isVoice: Bool
 
     static let highSpeechUnderLoud: Float = 10
-    static let quietestVoice: Float = -60
+    public static let quietestVoice: Float = -60
 
     public init(highLoud: Float, isVoice: Bool = true) {
         self.highLoud = highLoud
