@@ -560,11 +560,13 @@ public enum CutPlanner {
             // Words that stay can be as quiet as the ones cut, with no sound
             // of their own either, so the quiet runs through them: the pause
             // stops at them, or the cut would take them too.
-            if edge == .start, let last = boundary.before.map(\.upperBound).filter({ $0 > chosen.lowerBound }).max() {
-                chosen = last...max(last, chosen.upperBound)
+            // Clear of them by `CutAudit.pad`, as edges are of sound, since
+            // their transcript times are all there is to go by.
+            if edge == .start, let last = boundary.before.map(\.upperBound).filter({ $0 + CutAudit.pad > chosen.lowerBound }).max() {
+                chosen = (last + CutAudit.pad)...max(last + CutAudit.pad, chosen.upperBound)
             }
-            if edge == .end, let first = boundary.after.map(\.lowerBound).filter({ $0 < chosen.upperBound }).min() {
-                chosen = min(first, chosen.lowerBound)...first
+            if edge == .end, let first = boundary.after.map(\.lowerBound).filter({ $0 - CutAudit.pad < chosen.upperBound }).min() {
+                chosen = min(first - CutAudit.pad, chosen.lowerBound)...(first - CutAudit.pad)
             }
             guard chosen.upperBound - chosen.lowerBound > 1e-6,
                   distance(chosen, boundary.time...boundary.time) <= slack + 1e-9 else { return .failure(.init(.runsOn)) }

@@ -845,11 +845,13 @@ public struct ApplyRequest: ServiceCall {
     public func run(on service: TandemService, context: CallContext) async throws -> ApplyResult {
         var result = try service.apply(self, context: context)
         guard !result.dryRun, !result.repeated else { return result }
-        // A clip this levelled from a file nobody's measured would play
-        // at the file's own level, so it's measured now (with the app
-        // closed nothing else would), and what can't be is said.
-        let touched = Set(result.added + result.changed)
-        let unmeasured = TandemService.unlevelled(in: service.coordinator.project, analysis: service.analysis, clipIDs: touched)
+        // A levelled clip heard from a file nobody's measured plays at the
+        // file's own level, so it's measured now (with the app closed
+        // nothing else would), and what can't be is said. Every heard one,
+        // not only the clips this changed: unmuting a track makes its clips
+        // heard without changing them. Usually there are none, so it's free.
+        let unmeasured = TandemService.unlevelled(in: service.coordinator.project, analysis: service.analysis)
+            .filter { FileManager.default.fileExists(atPath: service.folder.url(for: $0.item).path) }
         result.warnings += TandemService.unlevelledWarnings(await service.measure(unmeasured))
         return result
     }

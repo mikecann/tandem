@@ -257,6 +257,17 @@ final class CutAPITests: XCTestCase {
         XCTAssertEqual(plan.cuts.first?.status, .cut, plan.readableText)
         XCTAssertEqual(plan.cuts.first?.cut?.start, .zero)
         XCTAssertEqual(plan.cuts.first?.quiet, true)
+
+        // Sparse: a few seconds of speech in two minutes of quiet is under
+        // the loud tenth of what's read, but it's still a voice.
+        let sparse = try harness(
+            voice: [voice("clip_a", start: 0, duration: 120, from: 0)],
+            length: 130, speech: [(70.0, 72.0), (73.0, 74.0)],
+            words: [("Right,", 70.0, 70.5), ("hello.", 70.6, 72.0), ("Next", 73.0, 74.0)]
+        )
+        defer { sparse.close() }
+        let quiet = try await CutRequest(remove: [CutTarget(start: t(0), end: t(9.7))]).run(on: sparse.service, context: sparse.context)
+        XCTAssertEqual(quiet.cuts.first?.status, .cut, quiet.readableText)
     }
 
     func testAnEdgeIsNeverPlacedInAPauseItsClipDoesntPlay() async throws {

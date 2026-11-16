@@ -64,4 +64,18 @@ final class LevellingTests: XCTestCase {
         let measured = try await CheckRequest(quick: true).run(on: h.service, context: h.context)
         XCTAssertFalse(measured.problems.contains { $0.kind == .unlevelled }, "\(measured.problems)")
     }
+
+    func testUnmutingALevelledBedMeasuresIt() async throws {
+        // Levelled while its track was muted, so not heard and not measured;
+        // unmuting changes no clip, but makes it heard.
+        let h = try harness()
+        defer { h.close() }
+        _ = try h.apply(.updateTrack(trackID: "trk_music", patch: .object(["muted": .bool(true)])))
+        let quiet = try await ApplyRequest(commands: [level]).run(on: h.service, context: h.context)
+        XCTAssertFalse(quiet.warnings.contains { $0.contains("isn't measured") }, "\(quiet.warnings)")
+        let unmute = EditCommand.updateTrack(trackID: "trk_music", patch: .object(["muted": .bool(false)]))
+        let heard = try await ApplyRequest(commands: [unmute]).run(on: h.service, context: h.context)
+        XCTAssertTrue(heard.warnings.contains { $0.hasPrefix("music/bed.m4a isn't measured yet") }, "\(heard.warnings)")
+        XCTAssertTrue(h.analysis.requests.contains { $0.kind == .loudness && $0.mediaID == "med_music" })
+    }
 }

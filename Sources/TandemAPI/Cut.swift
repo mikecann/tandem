@@ -278,6 +278,18 @@ extension TandemService {
     /// they're all quiet.
     static let levelReach = 60.0
 
+    /// Levels from the voiced frames of a read that's mostly quiet: a few
+    /// seconds of speech in two minutes of silence is under the loud tenth
+    /// `SpeechLevels(of:)` goes by. Half a second of voice is enough to
+    /// say there's a voice; with none, the file has none here.
+    static func sparseLevels(_ readings: [SpeechEnergy]) -> SpeechLevels {
+        let voiced = readings.flatMap { reading in
+            zip(reading.full, reading.high).filter { $0.0 > SpeechLevels.quietestVoice }.map(\.1)
+        }.sorted()
+        guard Double(voiced.count) * SpeechEnergy.frameSeconds >= 0.5 else { return SpeechLevels(highLoud: -120, isVoice: false) }
+        return SpeechLevels(highLoud: voiced[min(voiced.count - 1, voiced.count * 9 / 10)])
+    }
+
     public func cut(_ request: CutRequest, context: CallContext) async throws -> CutResult {
         guard !request.remove.isEmpty || request.fillers == true else {
             throw ServiceError(.badRequest, "Say what to cut: a phrase, like {\"remove\": [{\"phrase\": \"as I said before\"}]}, a range with start and end, or fillers: true.")
@@ -382,7 +394,7 @@ extension TandemService {
                             wide.append(try await SpeechEnergy.read(url: folder.url(for: item), from: window.upperBound, to: end))
                         }
                     }
-                    levels = SpeechLevels(of: wide)
+                    levels = Self.sparseLevels(wide)
                 }
                 guard levels.isVoice else {
                     unread[mediaID] = "there's no voice in the sound of \(URL(fileURLWithPath: item.path).lastPathComponent)"

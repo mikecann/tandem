@@ -836,7 +836,8 @@ public final class TandemService: @unchecked Sendable {
         }
         let diff = ClipDiff(project, working)
         // Applied, it measures them (`ApplyRequest.run`); a dry run says.
-        let unmeasured = Self.unlevelled(in: working, analysis: analysis, clipIDs: Set(diff.added + diff.changed))
+        let unmeasured = Self.unlevelled(in: working, analysis: analysis)
+            .filter { FileManager.default.fileExists(atPath: folder.url(for: $0.item).path) }
         return ApplyResult(
             revision: revision, label: batch.label, author: batch.author,
             createdIDs: context.createdIDs,
