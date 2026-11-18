@@ -729,6 +729,21 @@ From his review comments on the Daytona and Build Your Own Convex videos
 
 ### A hot-takes cold open
 
+The same montage is also the X clip for an interview. On Wayne's Macaly interview (16 Nov 2026), Mike turned down
+three single 50 s moments as X clips: "it needs a bit more background music and a bit faster cuts to keep it a bit
+more exciting and shorter... more like a montage that we did with the other one, like the James interview". So
+make six or seven 3 to 6 s bites of the spiciest lines, with the highlighter text and the swoosh pushes. When the
+source is a finished edit with one angle per stretch, cut in tighter on the speaker on every punchline (crops of
+the 4K frame) so each hit gets a cut. `macaly-interview/.work/scripts/montage.py` builds one with ffmpeg and the
+James cold open's text component, music bed and sound effects, with no Tandem project needed.
+
+Music for these montages: Liz found the dark electronic trailer bed (the James pick) "a bit too dramatic", and
+Mike still wanted it dramatic, "but not overly". Beds that are too calm (lo-fi downtempo, indie house, boom-bap)
+didn't work, and nor did a strings and hip-hop beat, a keynote synth pulse, lo-fi trap or the James bed 4 dB quieter.
+He picked a documentary tension bed, the Diary of a CEO trailer sound: a ticking pulse, a sparse felt-piano motif,
+sub bass and soft strings building gently, with no trailer hits, braams or drops (`elevenlabs:music_bmygjdjp`,
+16 Nov 2026). Start there for the next montage, with its first soft hit on the first punchline.
+
 The best moments cut together before the first line, to draw people in.
 Plain bites butted together "isn't very exciting": "The whole point of the
 montage open is supposed to have like text on the screen and you know it
@@ -1085,6 +1100,8 @@ and the upload batch.
   Turning `normalizeTo` on now resets that placed gain to 0 and says so, but
   `tandem loudness --tracks Music` over a stretch should still read about
   the level you set.
+- **Library segments carry their own scale keyframes.** In a Short made with `tandem short --copy`, the `Comment below` sting came out filling the phone frame, and patching its `video.transform.scale` changed nothing, because the segment animates `video.transform.scale` with keyframes (1.31 hold, 1.44 bump, 0.04 pop out). Scale the keyframes instead (about 0.5, 0.5, 0.55, 0.02 sits it under the captions at y 0.66) (Convex 1.50, 16 Nov 2026).
+- **Music placed with `assets use` plays at full level until its file is measured.** `normalizeTo: -45` does nothing while `tandem loudness <media>` says "not measured yet", and the bed sits as loud as his voice. Run `tandem wait jobs --media <id>` for each bed before measuring the Music track (Convex 1.50).
 - **Plain white captions with no highlight** (Databased, 2026-11-10: "big
   plain white one-word captions" like its old editor): `tandem captions
   --style plain --max-words 1 --size 150 --apply`, with `--color`, `--font`
