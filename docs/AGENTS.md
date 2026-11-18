@@ -133,7 +133,9 @@ it was, and keeps enough to take the clips back to any revision since.
 `tandem history` lists it, and `tandem diff` and `tandem restore` use it
 (see [agents/review-and-history.md](agents/review-and-history.md#what-changed-and-putting-it-back)).
 It starts when this version of Tandem first opens a project; edits made
-before that, or by an older Tandem, aren't in it.
+before that, or by an older Tandem, aren't in it. It also keeps the words
+of each comment Mike leaves and a row for each `tandem handback`, which
+`tandem rounds` reads.
 
 **IDs** are short strings with a prefix: `clip_`, `trk_`, `med_`, `tr_`,
 `fx_`, `mk_`, `lnk_`. They never change. When a clip is split the left part
@@ -272,9 +274,16 @@ follows.
   crypto, travel, keys, notes marked private, family, lists of names, QR
   codes), each with a `redact` to look at and widen, and every stretch
   of readable text to look through ([recipe](agents/layout-and-colour.md#find-private-text-before-export)).
+- `tandem claims` once the take is cut: every line that names something
+  or makes a claim, with what's on screen over it. Answer each in
+  `<name>.claims.json` and pin `--markdown` for Mike before the B-roll
+  ([recipe](agents/broll-and-titles.md#show-what-he-says-the-proof-list)).
 - `tandem handback` before your final message: the two to five places
   Mike should look at first, which the app walks him through before the
-  rest of your highlighted changes.
+  rest of your highlighted changes. It refuses until the checks above have
+  run on your changes since your last edit, with no problems and every
+  note fixed or answered, and says what to run
+  ([details](agents/review-and-history.md#hand-back-what-to-look-at-first)).
 - `tandem diff --since <revision>` for what Mike changed since your last
   round, and `tandem comments` for the notes he left on the timeline.
 
@@ -325,7 +334,9 @@ One line each; `tandem help <command>` has the options and what they do.
 | `tandem sync [<seconds> \| --check \| <file>...]` | how late each camera's picture is, or set it; measure voice against lips on each file; or line another angle or mic up with the camera by sound |
 | `tandem comments` | Mike's timeline comments (`resolve <id>`) |
 | `tandem waiting` | what waits in every project in the folder (comments, handback, edits to review), read light, for tools watching a folder of Shorts |
+| `tandem claims` | the proof list: each line that names something or makes a claim, what's on screen over it, your answer (`--markdown` for Mike) |
 | `tandem handback` | hand a round back: the two to five places Mike should look at first (alone, what he hasn't watched) |
+| `tandem rounds` | how the review went, round by round: Mike's comments by theme and his own trims (`--log <file>` at sign-off) |
 | `tandem frame <time>` | one frame as a PNG |
 | `tandem frames <time>...` | a labelled contact sheet |
 | `tandem screenshot` | the app window (app open only) |
@@ -359,12 +370,12 @@ maps every command to its HTTP endpoint and MCP tool.
 | [agents/json-output.md](agents/json-output.md) | `--json` shapes for timeline, media, transcript, wait, status, history, diff, clips, restore, apply |
 | [agents/edit-commands.md](agents/edit-commands.md) | batches, an index of every edit command, and what help doesn't say: levels, stickers, keyframe values, gain keyframes, crop units, `insertTime`, transitions and sounds, templates, section cards, joins |
 | [agents/cutting.md](agents/cutting.md) | Tighten pauses; Take out fillers; Cut a phrase; Rough cuts and false starts; Join through-edits; Keep the camera in sync; Add another angle or an external mic |
-| [agents/broll-and-titles.md](agents/broll-and-titles.md) | Put B-roll over a sentence; Add a title (presets, animations, style); Add a section card |
+| [agents/broll-and-titles.md](agents/broll-and-titles.md) | Show what he says: the proof list (`claims`); Put B-roll over a sentence; Add a title (presets, animations, style); Add a section card |
 | [agents/layout-and-colour.md](agents/layout-and-colour.md) | Set the PiP layout; Zoom into the screen recording; Hide part of the picture (`redact`); Find private text before export (`check --privacy`); Grade the camera take |
 | [agents/sound.md](agents/sound.md) | Level the voice; Tame the peaks on a quiet mic; Clean up a roomy mic; Check the sound; Put a swoosh on every push |
 | [agents/shorts.md](agents/shorts.md) | Make a short; Caption a short |
 | [agents/assets.md](agents/assets.md) | the asset library and shared library; Credits for the description; Reuse an intro, an outro or a call to action (segments) |
-| [agents/review-and-history.md](agents/review-and-history.md) | `tandem check` and `--cuts` in full; What changed, and putting it back (diff, history, restore); Do Mike's comments; Hand back: what to look at first; Export a review clip; Work alongside Mike |
+| [agents/review-and-history.md](agents/review-and-history.md) | `tandem check` and `--cuts` in full; What changed, and putting it back (diff, history, restore); Do Mike's comments; Hand back: what to look at first; How the review went (rounds); Export a review clip; Work alongside Mike |
 | [agents/operations-and-troubleshooting.md](agents/operations-and-troubleshooting.md) | every operation's CLI, HTTP and MCP form; Archive a finished video; Relink missing media; Troubleshooting errors |
 
 Each recipe shows the CLI; the MCP tools take the same arguments.

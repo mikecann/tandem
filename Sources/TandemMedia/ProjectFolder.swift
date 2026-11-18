@@ -6,6 +6,7 @@ import TandemCore
 ///
 ///     <video folder>/
 ///       <name>.tandem          the project
+///       <name>.claims.json     the proof list agents fill in (`tandem claims`)
 ///       source/                record-it takes (<base>-camera.mov, <base>-screen.mov)
 ///       broll/ music/ sfx/ graphics/ assets/ ...
 ///       exports/               renders, each with a project snapshot beside it

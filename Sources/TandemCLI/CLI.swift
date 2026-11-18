@@ -108,6 +108,16 @@ struct CLI {
             if paths.isEmpty, let given = args.options["project"] { paths = [given] }
             let projects = try ProjectLocator.all(paths, in: directory)
             return show(await ProjectsWaiting.read(projects, author: author(args)), json: json)
+        case "rounds":
+            // Reads the files and opens nothing, so it never takes a
+            // project the app has open (see ReviewRounds).
+            try args.expectPositionals(atMost: 1, command: name)
+            let url = try ProjectLocator.find(args.positionals.first ?? args.options["project"], in: directory, environment: environment)
+            var result = try ReviewRounds.read(url)
+            if let log = args.options["log"] {
+                result.logged = try ReviewRounds.log(result, to: URL(fileURLWithPath: absolute(log)))
+            }
+            return show(result, json: json)
         case "archive":
             try args.expectPositionals(atMost: 1, command: name)
             if args.has("with-cache"), args.options["to"] == nil {
@@ -250,6 +260,9 @@ struct CLI {
         case "handback":
             try args.expectPositionals(atMost: 1, command: name)
             return show(try await client().call(try handbackRequest(args)), json: json)
+        case "claims":
+            try args.expectPositionals(atMost: 0, command: name)
+            return show(try await client().call(ClaimsRequest(markdown: args.options["markdown"].map(absolute))), json: json)
         case "comments":
             guard args.positionals.first == "resolve" else {
                 try args.expectPositionals(atMost: 0, command: name)
@@ -897,8 +910,31 @@ struct CLI {
 
     /// `tandem handback`: a JSON list of things to look at (quoted, in a
     /// file, or - for standard input), one from --at and --name, or nothing
-    /// to list what Mike hasn't watched yet.
+    /// to list what Mike hasn't watched yet. `--reason "<kind> <time> <why>"`
+    /// (repeated) answers a note the checks left, and `--unchecked "<why>"`
+    /// hands back without them.
     private func handbackRequest(_ args: Arguments) throws -> HandbackRequest {
+        var request = try handbackNotes(args)
+        let reasons = try args.values("reason").map(Self.handbackReason)
+        if !reasons.isEmpty { request.reasons = (request.reasons ?? []) + reasons }
+        if let why = args.options["unchecked"] { request.unchecked = why }
+        if request.notes == nil, request.reasons != nil || request.unchecked != nil {
+            throw UsageError(message: "--reason and --unchecked go with the things you hand back, not the listing.")
+        }
+        return request
+    }
+
+    /// "deadAir 3:56 the build animation plays here": a note's kind, a
+    /// time in it, and why it stays.
+    static func handbackReason(_ text: String) throws -> HandbackReason {
+        let parts = text.split(separator: " ", maxSplits: 2, omittingEmptySubsequences: true).map(String.init)
+        guard parts.count == 3, let at = TimeText.parse(parts[1]) else {
+            throw UsageError(message: "--reason is \"<kind> <time> <why>\", like --reason \"deadAir 3:56 the build animation plays here\": the note's kind and a time in it, as the refusal lists them.")
+        }
+        return HandbackReason(kind: parts[0], at: at, why: parts[2])
+    }
+
+    private func handbackNotes(_ args: Arguments) throws -> HandbackRequest {
         let flags = ["at", "to", "name", "note"].filter { args.options[$0] != nil } + (args.has("question") ? ["question"] : [])
         if let source = args.positionals.first {
             guard flags.isEmpty else { throw UsageError(message: "Give the JSON list or --\(flags[0]), not both.") }
@@ -914,6 +950,8 @@ struct CLI {
             }
             let shape = "Each thing to look at is {\"at\": \"2:45\", \"to\": \"3:10\", \"name\": \"a few words on what's there\", \"note\": \"one short line more, or the question\", \"question\": true}; only at and name are needed."
             if let one = try? ServiceJSON.decoder().decode(HandbackNote.self, from: data) { return HandbackRequest(notes: [one]) }
+            // The whole request, as MCP and HTTP take it.
+            if let whole = try? ServiceJSON.decoder().decode(HandbackRequest.self, from: data), whole.notes != nil { return whole }
             do {
                 return HandbackRequest(notes: try ServiceJSON.decodeRequest([HandbackNote].self, from: data))
             } catch {

@@ -445,6 +445,28 @@ extension HistoryResult: ReadableResult {
         return "  " + EditPlace(start: start, end: end, tracks: tracks ?? []).description
     }
 
+    /// "tandem check --changed (rendered): 2 stretches, no problems, 2
+    /// notes: deadAir 03:56.000, littleBRoll 01:00.000".
+    static func checkLine(_ check: CheckRun) -> String {
+        let how: String
+        switch check.mode {
+        case .full: how = "rendered"
+        case .quick: how = "quick"
+        case .cuts: how = "cut edges"
+        case .listen: how = "heard each join"
+        case .privacy: how = "read the text"
+        }
+        let stretches = check.ranges.count == 1 ? "\(check.ranges[0].start)-\(check.ranges[0].end)" : "\(check.ranges.count) stretches"
+        let problems = check.problems == 0 ? "no problems" : check.problems == 1 ? "1 problem" : "\(check.problems) problems"
+        var line = "tandem \(check.command) (\(how)): \(check.ranges.isEmpty ? "nothing to check" : stretches), \(problems)"
+        if !check.notes.isEmpty {
+            var names = check.notes.prefix(4).map { "\($0.kind) \($0.start)" }
+            if check.notes.count > names.count { names.append("\(check.notes.count - names.count) more") }
+            line += ", \(check.notes.count == 1 ? "1 note" : "\(check.notes.count) notes"): " + names.joined(separator: ", ")
+        }
+        return line
+    }
+
     /// One line per edit, with a run of Tandem finding new media (which
     /// can be dozens) on one line.
     static func editLines(_ edits: [HistoryEdit]) -> [String] {
@@ -459,6 +481,11 @@ extension HistoryResult: ReadableResult {
         var index = 0
         while index < edits.count {
             let edit = edits[index]
+            if edit.kind == .check, let check = edit.check {
+                lines.append("  r\(edit.revision)  \(when(edit.date))  \(Self.checkLine(check))  (\(edit.author))")
+                index += 1
+                continue
+            }
             if edit.kind == .opened {
                 let before = edit.revision > 0 ? " (edits before it weren't recorded, or were made somewhere that kept no history)" : ""
                 lines.append("  r\(edit.revision)  \(when(edit.date))  the history starts here\(before)")
@@ -477,6 +504,13 @@ extension HistoryResult: ReadableResult {
                 continue
             }
             var line = "  r\(edit.revision)  \(when(edit.date))  "
+            if edit.kind == .handback {
+                let count = edit.handedBack ?? 0
+                let unchecked = edit.unchecked.map { ", without the checks: \"\($0)\"" } ?? ""
+                lines.append(line + "Handed back \(count == 1 ? "1 thing" : "\(count) things") to look at\(unchecked)  (\(edit.author))")
+                index += 1
+                continue
+            }
             switch edit.kind {
             case .undo: line += "Undo \(edit.label)"
             case .redo: line += "Redo \(edit.label)"
@@ -484,6 +518,11 @@ extension HistoryResult: ReadableResult {
             }
             line += "  (\(edit.author))" + place(edit.start, edit.end, edit.tracks)
             if let summary = edit.summary { line += "  " + summary }
+            // What Mike asked for, so a round's comments can be read here
+            // after the agent that did them took them away.
+            for comment in edit.comments ?? [] {
+                line += "  at \(comment.time): \"\(ClipChanges.shorten(CommentEdits.oneLine(comment.text), 80))\""
+            }
             lines.append(line)
             index += 1
         }

@@ -48,6 +48,7 @@ public enum ServiceOperation: String, CaseIterable, Codable, Sendable {
     case restore
     case clips
     case handback
+    case claims
 
     /// The request type that carries this operation's parameters.
     public var callType: any ServiceCall.Type {
@@ -88,6 +89,7 @@ public enum ServiceOperation: String, CaseIterable, Codable, Sendable {
         case .restore: return RestoreRequest.self
         case .clips: return ClipsRequest.self
         case .handback: return HandbackRequest.self
+        case .claims: return ClaimsRequest.self
         }
     }
 

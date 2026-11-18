@@ -60,13 +60,13 @@ public struct CheckRequest: ServiceCall {
     }
 
     public func run(on service: TandemService, context: CallContext) async throws -> CheckResult {
-        try await service.withPresetFonts(try service.prepareCheck(self))()
+        try await service.withPresetFonts(try service.prepareCheck(self, author: context.author))()
     }
 }
 
 extension CheckRequest: DeferredServiceCall {
     public func prepare(on service: TandemService, context: CallContext) throws -> @Sendable () async throws -> CheckResult {
-        service.withPresetFonts(try service.prepareCheck(self))
+        service.withPresetFonts(try service.prepareCheck(self, author: context.author))
     }
 }
 
@@ -198,6 +198,16 @@ extension CheckResult: ReadableResult {
         if !notes.isEmpty {
             lines.append("Notes (not problems):")
             lines += notes.map(line)
+            // The hand-back asks for a reason for each note that stays, by
+            // its kind, which the lines above don't name.
+            if privacy != true {
+                let kept = notes.filter { $0.kind != .heardWhole }
+                var named = kept.prefix(6).map { "\($0.kind.rawValue) \($0.start)" }
+                if kept.count > named.count { named.append("\(kept.count - named.count) more") }
+                if !named.isEmpty {
+                    lines.append("Fix each note, or say why it stays when you hand back: --reason \"<kind> <time> <why>\" (\(named.joined(separator: "; "))).")
+                }
+            }
         }
         if let listened {
             // Every join's words, so an agent can read each one as the Ian
@@ -232,8 +242,41 @@ extension TandemService {
     /// Works out what to check from the open project and returns the slow
     /// part (rendering the frames), so a headless caller can close the
     /// project first.
-    public func prepareCheck(_ request: CheckRequest) throws -> @Sendable () async throws -> CheckResult {
-        let project = coordinator.project
+    ///
+    /// Each check is kept in the edit history once it's done (`CheckRun`),
+    /// with what it covered and found, for `handback`'s gate.
+    public func prepareCheck(_ request: CheckRequest, author: String = "agent") throws -> @Sendable () async throws -> CheckResult {
+        let (project, revision) = coordinator.snapshot()
+        let log = session.review.log
+        let (ranges, note) = try checkRanges(request, project: project, log: log)
+        let work = try prepareCheck(request, project: project, ranges: ranges, note: note)
+        let mode: CheckRun.Mode = request.privacy == true ? .privacy : request.listen == true ? .listen : request.cuts == true ? .cuts : request.quick == true ? .quick : .full
+        let scope: CheckRun.Scope = request.changed == true ? .changed : request.from == nil && request.to == nil ? .timeline : .stretch
+        let covers: [Int]
+        switch mode {
+        case .full: covers = CheckRun.covered(by: ranges, log: log, in: project, takeCutsOnly: false)
+        case .cuts, .listen: covers = CheckRun.covered(by: ranges, log: log, in: project, takeCutsOnly: true)
+        case .quick, .privacy: covers = []
+        }
+        let history = session.history
+        return {
+            let result = try await work()
+            // A listen check that had nothing to listen with, or couldn't
+            // hear some joins (the engine failed, or the take's words there
+            // aren't known), only read the levels there, so it counts as the
+            // cuts check it was.
+            let unheard = result.listened?.joins.contains { $0.skipped == "couldn't listen" || $0.skipped == "no transcript" } ?? true
+            let ran = mode == .listen && unheard ? .cuts : mode
+            let run = CheckRun(scope: scope, mode: ran, ranges: ranges, problems: result.problems.count, notes: result.notes.map(CheckRun.Note.init), covers: covers)
+            var record = HistoryRecord(revision: revision, kind: .check, label: run.command, author: author)
+            record.check = run
+            history.note(record)
+            return result
+        }
+    }
+
+    /// What a check looks at, and why it's nothing when it is.
+    func checkRanges(_ request: CheckRequest, project: Project, log: ReviewLog) throws -> (ranges: [TimeRange], note: String?) {
         let timeline = TimeRange(start: .zero, end: project.duration)
         var ranges: [TimeRange] = []
         var note: String?
@@ -241,7 +284,7 @@ extension TandemService {
             if request.from != nil || request.to != nil {
                 throw ServiceError(.badRequest, "Check what changed, or a stretch with from and to, not both.")
             }
-            ranges = session.review.log.changedRegions(in: project).compactMap { region in
+            ranges = log.changedRegions(in: project).compactMap { region in
                 TimeRange(start: region.start - Self.checkMargin, end: region.end + Self.checkMargin).intersection(timeline)
             }
             if ranges.isEmpty { note = "Nothing is waiting for Mike's review, so there was nothing to check." }
@@ -252,7 +295,10 @@ extension TandemService {
             guard end > start else { throw ServiceError(.badRequest, "Nothing to check between \(start) and \(end): the timeline is \(project.duration) long.") }
             ranges = [TimeRange(start: start, end: end)]
         }
-        ranges = QualityCheck.merge(ranges)
+        return (QualityCheck.merge(ranges), note)
+    }
+
+    private func prepareCheck(_ request: CheckRequest, project: Project, ranges: [TimeRange], note: String?) throws -> @Sendable () async throws -> CheckResult {
         if request.privacy == true {
             if request.quick == true || request.cuts == true || request.listen == true {
                 throw ServiceError(.badRequest, "A privacy check is a check of its own: it doesn't go with quick, cuts or listen.")
@@ -362,6 +408,9 @@ extension TandemService {
         let pauseMap = speech.words.isEmpty ? nil : TranscriptTools.speechMap(project, analysis: self.analysis)
         let cache = CheckCache(folder: folder)
         let analysis = self.analysis
+        // The answers in the claims list (`tandem claims`): a claim answered
+        // with why nothing needs showing isn't noted bare.
+        let claimAnswers = Self.claimAnswers(for: session.fileURL, warnings: &warnings)
         let notices = warnings
         let revision = coordinator.revision
         return {
@@ -406,6 +455,7 @@ extension TandemService {
                 in: project, ranges: toCheck, frames: frames, screenFrames: screenFrames, speech: speech, pauses: pauses, faceWaits: waits,
                 frameTimes: frameTimes
             ) + Self.unlevelledProblems(in: project, analysis: analysis, folder: projectFolder, ranges: toCheck)
+                + QualityCheck.bareClaims(in: project, ranges: toCheck, speech: speech, answers: claimAnswers)
             var names: [String: String] = [:]
             for id in Set(found.flatMap(\.clipIDs)) {
                 guard let clip = project.clip(id) else { continue }

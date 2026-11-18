@@ -70,6 +70,14 @@ public enum ProjectFile {
         supportFolder(for: projectURL).appendingPathComponent("\(projectURL.deletingPathExtension().lastPathComponent).history.jsonl")
     }
 
+    /// `<name>.claims.json` beside the project: the proof list `tandem
+    /// claims` writes and agents fill in (what shows each claim Mike makes).
+    /// It's beside the project rather than in `.tandem/` because agents edit
+    /// it, and Tandem never reads a .json in the folder as media.
+    public static func claimsURL(for projectURL: URL) -> URL {
+        projectURL.deletingLastPathComponent().appendingPathComponent("\(projectURL.deletingPathExtension().lastPathComponent).claims.json")
+    }
+
     /// Clears the journal, undo history, edit history and review log an earlier file of
     /// this name left behind, for a file that takes its place (a new
     /// project, a version saved over another, a fresh import). They

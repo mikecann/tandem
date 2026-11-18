@@ -7,7 +7,8 @@ import TandemMedia
 /// The file and the name Tandem shows both change. So do the files beside
 /// it in `.tandem/` that go by the file's name (the agent edits waiting for
 /// review, the undo history, the journal, the backups and the list's icon),
-/// so the project keeps everything it had. Its media, cache and exports
+/// and its claims list (`<name>.claims.json`) beside it, so the project
+/// keeps everything it had. Its media, cache and exports
 /// don't change.
 public enum ProjectRenamer {
     /// Renames the project at `url` to `name` and returns its new file.
@@ -31,7 +32,7 @@ public enum ProjectRenamer {
 
         if target.path != url.path {
             try move(url, to: target)
-            let companions: [(URL) -> URL] = [ProjectFile.journalURL(for:), ProjectFile.undoHistoryURL(for:), ProjectFile.reviewURL(for:), ProjectFile.historyURL(for:), iconURL(for:)]
+            let companions: [(URL) -> URL] = [ProjectFile.journalURL(for:), ProjectFile.undoHistoryURL(for:), ProjectFile.reviewURL(for:), ProjectFile.historyURL(for:), iconURL(for:), ProjectFile.claimsURL(for:)]
             for companion in companions {
                 let from = companion(url)
                 let to = companion(target)
