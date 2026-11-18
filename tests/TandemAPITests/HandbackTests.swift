@@ -1,6 +1,7 @@
 import XCTest
 @testable import TandemAPI
 @testable import TandemCore
+@testable import TandemCLI
 import TandemMedia
 
 /// Handing a round back with the places Mike should look at first:
@@ -95,6 +96,142 @@ final class HandbackTests: XCTestCase {
     }
 }
 
+/// The gate on a hand-back: the checks ran on the round since the agents
+/// last edited it, found nothing wrong, and every note is answered.
+final class HandbackGateServiceTests: XCTestCase {
+    private let look = [HandbackNote(at: t(40), to: t(44), name: "The new shot")]
+
+    private func refusal(_ h: ServiceHarness, reasons: [HandbackReason]? = nil, file: StaticString = #filePath, line: UInt = #line) -> String {
+        do {
+            _ = try h.service.handback(HandbackRequest(notes: look, reasons: reasons), context: h.context)
+            XCTFail("handed back", file: file, line: line)
+            return ""
+        } catch {
+            XCTAssertEqual((error as? ServiceError)?.code, ServiceError.Code.invalid.rawValue, "\(error)", file: file, line: line)
+            return (error as? ServiceError)?.message ?? "\(error)"
+        }
+    }
+
+    /// An agent's B-roll shot over the second piece of the take.
+    private func addShot(_ h: ServiceHarness, at seconds: Double = 40) throws {
+        try h.apply(.insertClip(trackID: "trk_broll", clip: Clip(id: "clip_new\(Int(seconds))", content: .media(mediaID: "med_broll"), start: t(seconds), duration: t(4), sourceStart: t(1))), label: "Servers over the deploy")
+    }
+
+    func testAHandBackWaitsForARenderingCheckSinceTheLastAgentEdit() async throws {
+        let h = try ServiceHarness()
+        defer { h.close() }
+        try addShot(h)
+        let first = refusal(h)
+        XCTAssertTrue(first.hasPrefix("Not handed back. Tandem hasn't checked this round since the last agent edit. Run tandem check --changed, fix every problem it finds, then hand back again."), first)
+        XCTAssertTrue(first.contains("hand back with --unchecked \"<why>\""), first)
+        XCTAssertTrue(h.session.review.log.notes.isEmpty, "nothing was handed back")
+
+        // A quick check renders nothing, so it doesn't count.
+        _ = try await CheckRequest(changed: true, quick: true).run(on: h.service, context: h.context)
+        XCTAssertTrue(refusal(h).contains("Run tandem check --changed"))
+
+        let checked = try await CheckRequest(changed: true).run(on: h.service, context: h.context)
+        XCTAssertTrue(checked.ok, "\(checked.problems)")
+        XCTAssertEqual(checked.notes.map(\.kind), [.deadAir], "the grey frames hold still where nothing's said")
+        // It's in the history, as the gate reads it.
+        let row = try XCTUnwrap(h.session.history.records().last)
+        XCTAssertEqual(row.kind, .check)
+        XCTAssertEqual(row.author, "claude")
+        XCTAssertEqual(row.revision, checked.revision ?? h.service.coordinator.revision)
+        XCTAssertEqual(row.check?.mode, .full)
+        XCTAssertEqual(row.check?.scope, .changed)
+        XCTAssertEqual(row.check?.notes.map(\.kind), ["deadAir"])
+        XCTAssertEqual(row.check?.covers, [h.session.review.log.entries[0].revision])
+
+        // Its note needs an answer.
+        let unanswered = refusal(h)
+        XCTAssertTrue(unanswered.hasPrefix("Not handed back. The checks left a note with no answer."), unanswered)
+        XCTAssertTrue(unanswered.contains("  deadAir  00:39.500-"), unanswered)
+        XCTAssertTrue(unanswered.contains("    --reason \"deadAir 00:39.500 <why>\""), unanswered)
+        let reasons = [HandbackReason(kind: "deadAir", at: t(39.5), why: "the shot's build plays over it")]
+        let handed = try h.service.handback(HandbackRequest(notes: look, reasons: reasons), context: h.context)
+        XCTAssertEqual(handed.recorded, 1)
+        XCTAssertEqual(handed.answered, 1)
+        XCTAssertTrue(handed.readableText.contains("Your reasons answered the 1 note the checks left."), handed.readableText)
+
+        // Mike's own edit after the check doesn't count against it, nor
+        // does Tandem finding new media.
+        try h.service.apply(ApplyRequest(label: "Quieter music", commands: [.updateClip(clipID: "clip_mus1", patch: .object(["audio": .object(["gainDB": .number(-34)])]))]), context: CallContext(author: EditAuthor.person))
+        try h.service.apply(ApplyRequest(label: EditBatch.mediaScanLabel, commands: [.addMedia(item: MediaItem(id: "med_new", path: "broll/new.mp4", kind: .video, role: .broll, duration: t(5)))]), context: CallContext(author: EditAuthor.system))
+        XCTAssertEqual(try h.service.handback(HandbackRequest(notes: look, reasons: reasons), context: h.context).recorded, 1)
+
+        // An agent's edit after it does.
+        try addShot(h, at: 50)
+        let stale = refusal(h, reasons: reasons)
+        XCTAssertTrue(stale.contains("Run tandem check --changed"), stale)
+        XCTAssertTrue(stale.contains("The last one (revision \(row.revision)) ran before an agent's edit at revision \(h.service.coordinator.revision), so it doesn't count."), stale)
+
+        // The history lists the checks.
+        let history = h.service.history(limit: 10).readableText
+        XCTAssertTrue(history.contains("tandem check --changed (rendered): 00:39.500-00:44.500, no problems, 1 note: deadAir 00:39.500  (claude)"), history)
+        XCTAssertTrue(history.contains("tandem check --changed --quick (quick)"), history)
+    }
+
+    func testNothingWaitingWithdrawingAndListingArentGated() throws {
+        let h = try ServiceHarness()
+        defer { h.close() }
+        XCTAssertEqual(try h.service.handback(HandbackRequest(notes: look), context: h.context).recorded, 1, "nothing waits for review")
+        try addShot(h)
+        XCTAssertEqual(try h.service.handback(HandbackRequest(), context: h.context).notes.count, 1)
+        XCTAssertEqual(try h.service.handback(HandbackRequest(notes: []), context: h.context).recorded, 0)
+        // Once Mike marks it reviewed there's nothing to check.
+        h.session.review.markReviewed()
+        XCTAssertEqual(try h.service.handback(HandbackRequest(notes: look), context: h.context).recorded, 1)
+    }
+
+    func testCuttingTheTakeAlsoWantsTheListenCheck() async throws {
+        let h = try ServiceHarness()
+        defer { h.close() }
+        try h.apply(.rippleDeleteRange(range: TimeRange(start: t(10), end: t(11))), label: "Cut the um")
+        _ = try await CheckRequest(changed: true).run(on: h.service, context: h.context)
+        let refused = refusal(h)
+        XCTAssertTrue(refused.contains("This round cut the take (\"Cut the um\" (r"), refused)
+        XCTAssertTrue(refused.contains("so also run tandem check --changed --cuts --listen and judge each cut it flags by ear."), refused)
+        // The levels alone aren't hearing it.
+        _ = try await CheckRequest(changed: true, cuts: true).run(on: h.service, context: h.context)
+        XCTAssertTrue(refusal(h).contains("--cuts --listen"))
+    }
+
+    func testUncheckedHandsBackAndTheHistorySaysWhy() throws {
+        let h = try ServiceHarness()
+        defer { h.close() }
+        try addShot(h)
+        assertServiceError(.badRequest) { _ = try h.service.handback(HandbackRequest(notes: look, unchecked: "  "), context: h.context) }
+        let handed = try h.service.handback(HandbackRequest(notes: look, unchecked: "the renderer can't read the proxies"), context: h.context)
+        XCTAssertEqual(handed.recorded, 1)
+        XCTAssertEqual(handed.unchecked, "the renderer can't read the proxies")
+        XCTAssertTrue(handed.readableText.contains("Handed back without Tandem's checks (\"the renderer can't read the proxies\"), which the history keeps. Say so to Mike in your message"), handed.readableText)
+        let row = try XCTUnwrap(h.session.history.records().last)
+        XCTAssertEqual(row.kind, .handback)
+        XCTAssertEqual(row.unchecked, "the renderer can't read the proxies")
+        XCTAssertTrue(h.service.history(limit: 5).readableText.contains("Handed back without the checks: \"the renderer can't read the proxies\"  (claude)"))
+    }
+
+    /// With the app closed each command opens the project on its own, and
+    /// a check closes it before it renders: the next command still sees it.
+    func testAHeadlessCheckCountsForTheNextCommand() async throws {
+        let folder = TempFolder()
+        let url = try APIFixture.write(to: folder.url)
+        try headless(url) { service in
+            _ = try service.apply(ApplyRequest(label: "Servers over the deploy", commands: [
+                .insertClip(trackID: "trk_broll", clip: Clip(id: "clip_new", content: .media(mediaID: "med_broll"), start: t(40), duration: t(4), sourceStart: t(1)))
+            ]), context: CallContext(author: "claude"))
+        }
+        let run = try headless(url) { service in try service.prepareCheck(CheckRequest(changed: true), author: "claude") }
+        let checked = try await run()
+        let reasons = checked.notes.map { HandbackReason(kind: $0.kind.rawValue, at: $0.start, why: "it holds for the shot") }
+        let handed = try headless(url) { service in
+            try service.handback(HandbackRequest(notes: look, reasons: reasons), context: CallContext(author: "claude"))
+        }
+        XCTAssertEqual(handed.recorded, 1)
+    }
+}
+
 /// `tandem handback`, run as agents run it, with the app closed: the notes
 /// wait in the review log for the app to open the project.
 final class HandbackCLITests: XCTestCase {
@@ -125,6 +262,37 @@ final class HandbackCLITests: XCTestCase {
         defer { app.close() }
         XCTAssertEqual(app.review.log.notes.map(\.name), ["Angles", "The new shot", "Keep this line?"])
         XCTAssertEqual(app.review.log.notes.map(\.author), ["claude", "claude", "codex"])
+    }
+
+    func testTheGateFromTheCommandLine() throws {
+        let folder = TempFolder()
+        _ = try APIFixture.write(to: folder.url)
+        let shot = #"{"insertClip": {"trackID": "trk_broll", "clip": {"id": "clip_new", "content": {"media": {"mediaID": "med_broll"}}, "start": 40, "duration": 4, "sourceStart": 1}}}"#
+        let applied = try cli.tandem("apply", "--label", "Servers over the deploy", "--author", "claude", shot, in: folder.url)
+        XCTAssertEqual(applied.status, 0, applied.stderr)
+        let refused = try cli.tandem("handback", "--at", "40", "--name", "The new shot", "--author", "claude", in: folder.url)
+        XCTAssertNotEqual(refused.status, 0)
+        XCTAssertTrue(refused.stderr.contains("Not handed back. Tandem hasn't checked this round"), refused.stderr)
+        let unchecked = try cli.tandem("handback", "--at", "40", "--name", "The new shot", "--unchecked", "no renderer on this Mac", "--author", "claude", in: folder.url)
+        XCTAssertEqual(unchecked.status, 0, unchecked.stderr)
+        XCTAssertTrue(unchecked.stdout.contains("Say so to Mike in your message"), unchecked.stdout)
+        let history = try cli.tandem("history", in: folder.url)
+        XCTAssertTrue(history.stdout.contains("Handed back without the checks: \"no renderer on this Mac\"  (claude)"), history.stdout)
+        // The whole request as JSON, as MCP takes it.
+        let whole = #"{"notes": [{"at": 40, "name": "The new shot"}], "unchecked": "still no renderer"}"#
+        XCTAssertEqual(try cli.tandem("handback", whole, "--author", "claude", in: folder.url).status, 0)
+
+        let badReason = try cli.tandem("handback", "--at", "40", "--name", "The new shot", "--reason", "deadAir", in: folder.url)
+        XCTAssertEqual(badReason.status, 2)
+        XCTAssertTrue(badReason.stderr.contains("--reason is \"<kind> <time> <why>\""), badReason.stderr)
+        let listing = try cli.tandem("handback", "--unchecked", "why", in: folder.url)
+        XCTAssertEqual(listing.status, 2)
+        XCTAssertTrue(listing.stderr.contains("go with the things you hand back"), listing.stderr)
+    }
+
+    func testAReasonReadsKindTimeAndWhy() throws {
+        let reason = try CLI.handbackReason("deadAir 3:56 the build animation plays here")
+        XCTAssertEqual(reason, HandbackReason(kind: "deadAir", at: t(236), why: "the build animation plays here"))
     }
 
     func testUsageMistakesAreExplained() throws {

@@ -92,7 +92,10 @@ rounds up.
    believe him and run `tandem loudness --from T --to T --gains`: it
    checks the render against the gain lanes and says by how much a change
    lands late.
-4. **Check.** `tandem check --changed` before you hand back. It renders
+4. **Check.** `tandem check --changed` before you hand back (Tandem
+   enforces it: `tandem handback` refuses until a rendering check, and
+   `check --changed --cuts --listen` if you cut the take, ran since your
+   last edit with no problems, and says what to run). It renders
    what you changed and finds black frames, flickers, green screen that
    didn't key, white blocks and double jumps (B-roll a few frames off a
    camera cut). A flicker it can fix (a frame jumping in a screen
@@ -132,6 +135,13 @@ rounds up.
    - PiP that isn't his usual: a camera clip shown small that isn't
      `pipRight`/`pipLeft` with the cutout on. Apply the layout it gives; if
      the matte isn't made yet, wait for it rather than framing his face.
+   - outro stings and wipe: an ask for comments or likes with no `Comment
+     below` / `Like and subscribe` segment, or no wipe into the sign-off.
+     Run the `tandem segments insert` it gives.
+
+   Fix each note or give the reason it stays when you hand back
+   (`--reason "deadAir 3:56 the build animation plays here"`); the
+   hand-back lists any you haven't.
 5. **Hand back.** Open the project in the app for Mike with
    `open "<video folder>/<name>.tandem"` (skip it if `tandem status` says
    the app already has it open), rather than asking him to open it. Then
@@ -149,7 +159,9 @@ rounds up.
    keeping the chat for what needs a decision. Your edits stay highlighted
    on his timeline until he plays through them or marks them reviewed;
    that's his to do. Next round, `tandem handback` alone says which he
-   didn't get to, with any comment he left beside one.
+   didn't get to, with any comment he left beside one. If the checks
+   truly can't run, `--unchecked "<why>"` hands back anyway; say so to
+   Mike.
 
 ## Mike's comments
 
@@ -428,7 +440,9 @@ transitions, media or markers.
 
 Mike's words on the Convex Auth v2 video (12 Nov 2026), after a first cut
 that missed these: "It doesn't seem like you... remember the ways that we
-usually like to edit." Check each one before `tandem handback`:
+usually like to edit." Check each one before `tandem handback` (it
+refuses until `tandem check` has run on your changes, and the check notes
+missing outro stings and wipes, but not the rest of this list):
 
 - **Start the cutout matte when the project is made.** PiP is `pipRight`
   with the cutout, always. A long 4K take mattes for hours, so put one

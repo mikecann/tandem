@@ -266,11 +266,13 @@ public final class MCPServer: @unchecked Sendable {
     reverts your last edit (count: n for several); only undo your own. `search` finds a phrase's timeline time, `cut` takes words out with both edges in real pauses (never cut \
     words at search times yourself), `pauses` lists silences and `tighten` shortens them (both dry runs unless apply: true). Look at your work with `frame` and `clip` (a review MP4), and before handing back run `check` with \
     changed: true and fix what it finds (black frames, flickers, green screen that didn't key, B-roll a few frames off a camera cut); its notes (dead air, page changes with no \
-    transition, soft zooms) are judgement calls. Mike's saved segments (his intro, outro and \
+    transition, soft zooms, outro stings and wipes) are judgement calls: fix each or give a reason for it in `handback`. Mike's saved segments (his intro, outro and \
     calls to action) are in `segments_list` and go in with `segments_insert`. Mike leaves comments on the timeline for the next round \
     ("cut the umm here"): when he asks you to look at them, `comments` lists them; do each, then remove it with removeMarker in the same \
     batch. Before your final message, `handback` the two to five places he should look at first (a stretch each, a few words on what's \
-    there): Tandem walks him through them before the rest of your changes, and `handback` alone next round says which he hasn't watched. A camera's picture lags its mic: `sync` sets how late (never slip clips by hand for it); `sync` with files lines \
+    there): Tandem walks him through them before the rest of your changes, and `handback` alone next round says which he hasn't watched. It refuses \
+    until a rendering `check` (and, if you cut the take, `check` with cuts and listen) has covered your changes since your last edit with no \
+    problems and every note is fixed or answered in `reasons`, and says what to run. A camera's picture lags its mic: `sync` sets how late (never slip clips by hand for it); `sync` with files lines \
     another angle or an external mic up with the camera by sound and places it. Transcripts, mattes and proxies are \
     made in the background: `wait` waits for them (never poll in a loop), and `transcribe` makes a transcript of any file with sound. Only change the project through \
     these tools, and never quit \
@@ -790,7 +792,7 @@ enum MCPTools {
         ),
         Tool(
             name: "handback", title: "Hand back: what to look at",
-            description: "Hands a round back: the two to five places Mike should look at first, a stretch each with a few words on what's there (and one short line of note for the trade-off, what to listen for, or a question). Mike reads them off a small card at a glance: the name is at most 40 characters and the note at most 80, or the call is refused; the detail goes in your final message. The review chip in Tandem walks him through them before the rest of your highlighted changes, playing each stretch; one goes once he's watched it, Mark reviewed clears them all. They take the place of what you handed back before. Without notes, lists what he hasn't watched yet, with any comment he left beside one (his answer to a question). Call it after check, before your final message, then tell him in a line that Tandem will walk him through them.",
+            description: "Hands a round back: the two to five places Mike should look at first, a stretch each with a few words on what's there (and one short line of note for the trade-off, what to listen for, or a question). Mike reads them off a small card at a glance: the name is at most 40 characters and the note at most 80, or the call is refused; the detail goes in your final message. The review chip in Tandem walks him through them before the rest of your highlighted changes, playing each stretch; one goes once he's watched it, Mark reviewed clears them all. They take the place of what you handed back before. Without notes, lists what he hasn't watched yet, with any comment he left beside one (his answer to a question). Call it after check, before your final message, then tell him in a line that Tandem will walk him through them. While your edits wait for review it refuses until, since the last agent edit, a rendering check (not quick) covered every changed stretch with no problems, a check with cuts and listen did the same for any cut in the take, and every note those checks left is fixed or answered in reasons; the refusal lists what to run and each note. unchecked hands back anyway with your reason, kept in the history: say so to Mike.",
             operation: .handback,
             properties: [
                 "notes": S.array(S.object([
@@ -799,7 +801,13 @@ enum MCPTools {
                     "name": S.string("A few words on what's there to see, at most 40 characters."),
                     "note": S.string("One short line more, at most 80 characters: the trade-off, what to listen for, or the question."),
                     "question": S.boolean("True when you want his answer; he leaves a comment there.")
-                ], required: ["at", "name"]), "The things to look at, in any order. An empty list withdraws yours. Leave it out to list what's waiting.")
+                ], required: ["at", "name"]), "The things to look at, in any order. An empty list withdraws yours. Leave it out to list what's waiting."),
+                "reasons": S.array(S.object([
+                    "kind": S.string("The note's kind, as the refusal lists it, like deadAir."),
+                    "at": time("A time within about a second of the note's stretch."),
+                    "why": S.string("Why it stays as it is.")
+                ], required: ["kind", "at", "why"]), "Why each note the checks left stays, for the ones you keep rather than fix."),
+                "unchecked": S.string("Hand back without the checks, for this reason (kept in the history). Tell Mike so in your message.")
             ],
             readOnly: false, idempotent: true
         ),

@@ -206,6 +206,23 @@ their own beside it, and reports, with the clips on screen there:
     agent framed his face instead: "This is not our usual way". Start the
     matte when the project is made (`tandem new` says so) and wait for it.
     Read from the timeline, so it's in a quick check.
+  - outro stings (`outroSting`): Mike asking for comments ("comment
+    below", "let me know in the comments", "leave a comment") with no
+    `Comment below` library segment within 4 s of it, or asking people to
+    like and subscribe in the last two minutes ("like and sub", "hit
+    subscribe", "make sure you subscribe.") with no `Like and subscribe`.
+    His finished videos put both on screen as he says it. The note ends
+    with the `tandem segments insert "<name>" --at <time>` that adds it.
+    A segment counts by its `template:segment:<name>` tag or its file.
+  - no wipe into the outro (`outroWipe`): the sign-off (the last run of
+    asks and goodbyes in the last quarter, "anyways", "that's all I got",
+    "thanks for watching", "cheerio") with no section card, `Convex wipe`
+    or wipe transition in the minute before it, in an edit that has
+    sections (a card, a wipe or a section marker earlier on). It gives the
+    `tandem segments insert "Convex wipe" --at <cut - 0.47>` for the last
+    join in the take before the sign-off sentence. Neither outro note is
+    made in a Short or a conversation; both read the transcript, so
+    they're in a quick check.
 
 Run `tandem check --changed` before handing an edit back: it checks only
 what agents changed that's waiting for Mike's review, half a second either
@@ -214,6 +231,11 @@ skips rendering, so it only finds gaps, soft pictures, slivers, double
 jumps, swells off their cards, PiP that isn't Mike's usual, how a Short
 opens, talk cut, little B-roll, mid-sentence pauses and faces waiting to talk, and nothing that needs the screen recordings scanned (page changes,
 low frame rates).
+
+Every check is kept in the edit history (`tandem history` lists it): the
+revision it read, what it looked at, how, its problem count and its notes.
+`tandem handback` reads them, so a check made with the app closed counts
+once it's open, and the other way round.
 
 It renders the timeline in 10 s pieces, several at once, and keeps what it
 measured in each in `.tandem/cache/check`. A piece is rendered again only
@@ -524,6 +546,7 @@ Undo, newest first:
   ...
 Edits, newest first (kept across restarts; tandem diff --since <revision> shows what each did to the clips):
   r98  10:42:01  Quieter music  (user)  00:00.000-05:00.000 on A2 Music  1 changed
+  r97  10:41:50  tandem check --changed (rendered): 00:39.500-00:44.500, no problems, 1 note: deadAir 00:39.500  (claude)
   r97  10:41:30  Swap the server shot  (user)  00:40.000-00:44.000 on V3 B-roll  1 added, 1 removed
   r56-r95  09:58:02-10:30:12  Found new media x40  (system)
 ```
@@ -611,6 +634,42 @@ menu or an export, and what you hand back takes the place of what you
 handed back before. `--to` defaults to 5 s after `--at`. Then tell him in
 a line that Tandem will walk him through them, and keep the chat for
 what needs a decision.
+
+### What a hand-back waits for
+
+Agents were told to check before handing back, and often didn't; Mike's
+comments only stopped coming back once Tandem checked for a thing itself.
+So while agent edits wait for his review, `handback` with things to look
+at refuses, saying what to run, until all of these hold since the last
+agent edit:
+
+- a rendering `tandem check` (not `--quick` or `--privacy`) covered every
+  change waiting for review (`--changed` does) and found no problems;
+- if the round cut the take (a ripple delete or trim on a `cut` track),
+  `tandem check --changed --cuts --listen` covered those cuts too, with no
+  problems;
+- every note those checks left is fixed (a later check no longer finds it)
+  or answered with a reason.
+
+Mike's own edits after the check, Tandem finding new media and an agent
+only resolving comments don't count against it; any other agent edit does,
+so check again after a fix. Several checks of their own stretches can
+cover a round between them.
+
+```bash
+tandem handback --at 3:50 --name "The build animation" --reason "deadAir 3:56 the build animation plays here"
+tandem handback '{"notes": [{"at": "3:50", "name": "The build animation"}], "reasons": [{"kind": "deadAir", "at": "3:56", "why": "the build animation plays here"}]}'
+tandem handback --at 3:50 --name "The build animation" --unchecked "Bark isn't downloaded on this Mac, so --listen can't run"
+```
+
+A reason names the note's kind and a time within about a second of its
+stretch, as the refusal lists them (`  deadAir  03:56.000-03:56.800  Dead
+air: ...` with the `--reason` to copy under it). A join `--listen` heard
+whole needs none. `--unchecked` hands back anyway and keeps your reason in
+the history; say so to Mike in your message. Nothing waiting for review,
+withdrawing (`'[]'`) and the listing are never refused, and a Short made
+with `tandem short --copy` starts with nothing waiting, so its gate is its
+own round's edits.
 
 ## Export a review clip
 

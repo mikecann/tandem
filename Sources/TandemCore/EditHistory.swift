@@ -490,6 +490,18 @@ public struct HistoryRecord: Codable, Equatable, Sendable {
         /// The project was opened at this revision and the history before
         /// it doesn't lead here (it was edited by something that kept none).
         case opened
+        /// `tandem check` ran at this revision (`check`). It changed nothing.
+        case check
+        /// A round was handed back without the checks, at this revision,
+        /// for the reason in `unchecked`. It changed nothing.
+        case handback
+
+        /// Whether the record is a change to the project, which made its
+        /// revision. A check or a hand-back only happened at one, so the
+        /// walk back through the history passes over them.
+        public var changesProject: Bool {
+            self != .check && self != .handback
+        }
     }
 
     /// The revision the change made.
@@ -507,6 +519,10 @@ public struct HistoryRecord: Codable, Equatable, Sendable {
     public var before: [PlacedClip]?
     /// and the clips that only moved along their track, by how much.
     public var shifted: [String: Time]?
+    /// For a `check`: what it read and found, for the hand-back's gate.
+    public var check: CheckRun?
+    /// For a `handback` made without the checks: the agent's reason.
+    public var unchecked: String?
 
     public init(revision: Int, kind: Kind, label: String, author: String, date: Date = Date()) {
         self.revision = revision
@@ -596,6 +612,7 @@ public enum HistoryChain {
             while index >= 0 {
                 let record = records[index]
                 index -= 1
+                guard record.kind.changesProject else { continue }
                 if record.kind == .opened { break }
                 if record.revision == at {
                     found = record
@@ -617,6 +634,7 @@ public enum HistoryChain {
         while index >= 0 {
             let record = records[index]
             index -= 1
+            guard record.kind.changesProject else { continue }
             if record.kind == .opened { break }
             if record.revision == at { at -= 1 }
         }
@@ -685,8 +703,10 @@ public final class EditHistoryLog: @unchecked Sendable {
         return data.split(separator: 0x0A).compactMap { try? decoder.decode(HistoryRecord.self, from: Data($0)) }
     }
 
-    /// The revision of the last record, read from the end of the file so a
-    /// long history doesn't slow every CLI command down.
+    /// The revision of the last change, read from the end of the file so a
+    /// long history doesn't slow every CLI command down. A check finishing
+    /// after a later edit carries the older revision it read, so checks and
+    /// hand-backs are passed over.
     public func lastRevision() -> Int? {
         guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
         defer { try? handle.close() }
@@ -699,9 +719,14 @@ public final class EditHistoryLog: @unchecked Sendable {
             var lines = data.split(separator: 0x0A)
             // Unless the chunk starts the file, its first line may be partial.
             if offset > 0, !lines.isEmpty { lines.removeFirst() }
-            struct Header: Decodable { var revision: Int }
+            struct Header: Decodable {
+                var revision: Int
+                var kind: String?
+            }
             for line in lines.reversed() {
-                if let header = try? JSONDecoder().decode(Header.self, from: Data(line)) { return header.revision }
+                guard let header = try? JSONDecoder().decode(Header.self, from: Data(line)) else { continue }
+                if let kind = header.kind.flatMap(HistoryRecord.Kind.init(rawValue:)), !kind.changesProject { continue }
+                return header.revision
             }
             if offset == 0 { return nil }
             chunk *= 4
@@ -758,6 +783,17 @@ public final class HistoryRecorder: @unchecked Sendable {
             }
         }
         token = coordinator.observe { [weak self] event in self?.heard(event) }
+    }
+
+    /// Adds a record of something that happened at a revision without
+    /// changing the project (a check, a hand-back), after the changes
+    /// already heard. It's written even once the recorder is closed: a
+    /// headless check closes the project before it renders.
+    public func note(_ record: HistoryRecord) {
+        queue.sync {
+            writeOpening()
+            log?.append(record)
+        }
     }
 
     /// Every record, oldest first, once the changes already heard are in.

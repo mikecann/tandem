@@ -961,8 +961,10 @@ public struct HistoryEntry: Codable, Equatable, Sendable {
 /// which lasts across restarts and from one CLI command to the next.
 public struct HistoryEdit: Codable, Equatable, Sendable {
     public var revision: Int
-    /// `edit`, `undo`, `redo`, `reload`, or `opened` where the history
-    /// starts again (the project was changed by something that kept none).
+    /// `edit`, `undo`, `redo`, `reload`, `opened` where the history
+    /// starts again (the project was changed by something that kept none),
+    /// `check` for a `tandem check` run at the revision, or `handback` for
+    /// a round handed back without the checks.
     public var kind: HistoryRecord.Kind
     public var label: String
     public var author: String
@@ -972,6 +974,10 @@ public struct HistoryEdit: Codable, Equatable, Sendable {
     public var tracks: [String]?
     /// Counts, like "1 changed, 14 moved", and anything else it changed.
     public var summary: String?
+    /// For a check: what it read and found.
+    public var check: CheckRun?
+    /// For a hand-back without the checks: why.
+    public var unchecked: String?
 
     public init(_ record: HistoryRecord) {
         revision = record.revision
@@ -983,6 +989,8 @@ public struct HistoryEdit: Codable, Equatable, Sendable {
         end = record.place?.end
         tracks = record.place?.tracks
         summary = record.summary
+        check = record.check
+        unchecked = record.unchecked
     }
 }
 
