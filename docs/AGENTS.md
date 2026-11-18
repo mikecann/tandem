@@ -274,6 +274,10 @@ follows.
   crypto, travel, keys, notes marked private, family, lists of names, QR
   codes), each with a `redact` to look at and widen, and every stretch
   of readable text to look through ([recipe](agents/layout-and-colour.md#find-private-text-before-export)).
+- `tandem claims` once the take is cut: every line that names something
+  or makes a claim, with what's on screen over it. Answer each in
+  `<name>.claims.json` and pin `--markdown` for Mike before the B-roll
+  ([recipe](agents/broll-and-titles.md#show-what-he-says-the-proof-list)).
 - `tandem handback` before your final message: the two to five places
   Mike should look at first, which the app walks him through before the
   rest of your highlighted changes.
@@ -327,6 +331,7 @@ One line each; `tandem help <command>` has the options and what they do.
 | `tandem sync [<seconds> \| --check \| <file>...]` | how late each camera's picture is, or set it; measure voice against lips on each file; or line another angle or mic up with the camera by sound |
 | `tandem comments` | Mike's timeline comments (`resolve <id>`) |
 | `tandem waiting` | what waits in every project in the folder (comments, handback, edits to review), read light, for tools watching a folder of Shorts |
+| `tandem claims` | the proof list: each line that names something or makes a claim, what's on screen over it, your answer (`--markdown` for Mike) |
 | `tandem handback` | hand a round back: the two to five places Mike should look at first (alone, what he hasn't watched) |
 | `tandem rounds` | how the review went, round by round: Mike's comments by theme and his own trims (`--log <file>` at sign-off) |
 | `tandem frame <time>` | one frame as a PNG |
@@ -362,7 +367,7 @@ maps every command to its HTTP endpoint and MCP tool.
 | [agents/json-output.md](agents/json-output.md) | `--json` shapes for timeline, media, transcript, wait, status, history, diff, clips, restore, apply |
 | [agents/edit-commands.md](agents/edit-commands.md) | batches, an index of every edit command, and what help doesn't say: levels, stickers, keyframe values, gain keyframes, crop units, `insertTime`, transitions and sounds, templates, section cards, joins |
 | [agents/cutting.md](agents/cutting.md) | Tighten pauses; Take out fillers; Cut a phrase; Rough cuts and false starts; Join through-edits; Keep the camera in sync; Add another angle or an external mic |
-| [agents/broll-and-titles.md](agents/broll-and-titles.md) | Put B-roll over a sentence; Add a title (presets, animations, style); Add a section card |
+| [agents/broll-and-titles.md](agents/broll-and-titles.md) | Show what he says: the proof list (`claims`); Put B-roll over a sentence; Add a title (presets, animations, style); Add a section card |
 | [agents/layout-and-colour.md](agents/layout-and-colour.md) | Set the PiP layout; Zoom into the screen recording; Hide part of the picture (`redact`); Find private text before export (`check --privacy`); Grade the camera take |
 | [agents/sound.md](agents/sound.md) | Level the voice; Tame the peaks on a quiet mic; Clean up a roomy mic; Check the sound; Put a swoosh on every push |
 | [agents/shorts.md](agents/shorts.md) | Make a short; Caption a short |

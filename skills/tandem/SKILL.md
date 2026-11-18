@@ -445,8 +445,11 @@ usually like to edit." Check each one before `tandem handback`:
   docs or announcement), "non-beta forever" (the old beta label), "no per
   user billing like Clerk or WorkOS" (their pricing pages), "drop it into
   your next project" (the quick start). "We need to show something here",
-  "justify what I'm saying". Read the final transcript line by line for
-  anything that names a thing or makes a claim with nothing over it.
+  "justify what I'm saying". Once the take is placed and cut, run
+  `tandem claims`: it lists every line that names something or makes a
+  claim. Fill in each in `<name>.claims.json` (a `shot` and `link`, or
+  `skip` with why), then pin `tandem claims --markdown claims.md` for
+  Mike before building the B-roll. `tandem check` notes what's still bare.
 - **Gags he describes on screen keep his face in shot** unless the note
   says full screen: the caveats "whiz down on the side of the screen with
   me still on the screen when I say asterisk", an overlay, not full-frame

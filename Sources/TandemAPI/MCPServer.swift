@@ -754,7 +754,7 @@ enum MCPTools {
                 "from": time("Start. Default 0."),
                 "to": time("End. Default the end of the timeline."),
                 "changed": S.boolean("Only the stretches agents changed that are waiting for Mike's review."),
-                "quick": S.boolean("Only the checks that need no rendering: gaps, slivers, double jumps, pictures zoomed past their own pixels, how a Short opens, talk cut from the take and how much B-roll covers the camera. No dead air or page changes."),
+                "quick": S.boolean("Only the checks that need no rendering: gaps, slivers, double jumps, pictures zoomed past their own pixels, how a Short opens, talk cut from the take, how much B-roll covers the camera and bare claims (lines from claims with nothing over the camera and no skip). No dead air or page changes."),
                 "cuts": S.boolean("Only the cuts on the speech tracks, from the files' own sound (nothing rendered), never the transcript's times: a clippedWord problem where voice at speech level runs on past a cut before a pause (a consonant's burst, the rest of a word, fluent speech), or the clip's 25 ms beside it is under 9 dB below the speech around it; a marginalJoin note at 9 to 15 dB. cut.margin is that dB; cut.fixKind is trimToPause (a trim into a real pause, 0.08 s quiet in both bands, within 0.5 s, never bringing a cut word back), putBack (the cut of 2 s or less put back) or nothingNearby; cut.fix is the trim. cut.lastWordCut, firstWordCut, fragment and beforeFiller name the word when a cut leaves the sentence wrong however clean it sounds. commands holds them all, latest first, to apply with expectedRevision: revision. Run it after cutting the take."),
                 "listen": S.boolean("With cuts (or on its own): render the voice 3 s either side of each join, transcribe it with Bark 3.0 Pro (SpeechAnalyzer without it) and compare it with the take's kept words. A heardCutOff problem where a kept word near the join isn't heard or is heard cut short, or part of a cut word is heard; a heardDifferently note where the mismatch is a short word, filler or near spelling the engine slips on. listened.joins has every join's said and heard text (\" | \" at the join): read them all for anything that doesn't run on. With cuts, a heard join weighs both: a clippedWord whose kept words are all heard whole (and isn't within 6 dB of the speech at the cut), or whose lastWordCut, firstWordCut or beforeFiller word is heard, becomes a heardWhole note; a finding the take's transcript explains is marked slip, with why; a join with both is one clippedWord that says both. About a second a join the first time, cached by the sound rendered after that."),
                 "width": S.integer("How wide frames are rendered for the scan: 64 to 1920, default 384; with privacy 640 to 3840, default 1920 (above 1920 it reads the files, not proxies)."),
@@ -787,6 +787,15 @@ enum MCPTools {
             name: "comments", title: "Mike's comments",
             description: "The comments Mike left on the timeline for you, earliest first: each one's ID, time and what he asked, with what's said a few seconds either side and the clips playing there. Do what each asks, label the edit with what you did, and remove the comment in the same apply batch with {\"removeMarker\": {\"markerID\": \"<id>\"}}. Comments move with ripple edits, so read them again after one.",
             operation: .comments, properties: [:], readOnly: true, idempotent: true
+        ),
+        Tool(
+            name: "claims", title: "Proof list: what shows each claim",
+            description: "Every line Mike says on the timeline that names something or makes a checkable claim (a product, company or person, a number, money, a percentage, a version, the docs, a PR, a pricing page, a post): each with an ID, its times, the line, the words that made it a claim and what's on screen over it now (the clips, or camera only). Writes them to <name>.claims.json beside the project, keeping the answers already in it, matched by the line's words so they survive cuts. Fill each in that file: shot (what will show it: a file or clip you placed, or a description) and link (the real page), or skip (why nothing needs showing), then call this again. Run it after the take is placed and cut, answer every claim, and pin the markdown list for Mike before building the B-roll. check notes each bareClaim: on camera full screen with nothing over most of it, and no skip.",
+            operation: .claims,
+            properties: [
+                "markdown": S.string("Also write the list for Mike here, as a .md file (absolute, or relative to the project folder): each line's time, what he says and what will show it, with its link.")
+            ],
+            readOnly: false, idempotent: true
         ),
         Tool(
             name: "handback", title: "Hand back: what to look at",

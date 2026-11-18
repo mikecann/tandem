@@ -149,6 +149,24 @@ export type LookHere = {
 
 export type HandbackResult = { revision: number; recorded?: number; notes: LookHere[] };
 
+/** A line Mike says that names something or makes a claim, with its answer. */
+export type ClaimEntry = {
+  id: string;
+  start: number;
+  end: number;
+  said: string;
+  because: string[];
+  /** What's shown over him or in his place; empty is camera only. */
+  onScreen: string[];
+  /** How much of it is the camera full screen with nothing over it, 0 to 1. */
+  bare: number;
+  shot?: string;
+  link?: string;
+  skip?: string;
+};
+
+export type ClaimsResult = { revision: number; file: string; claims: ClaimEntry[]; gone: ClaimEntry[]; markdown?: string; warnings: string[] };
+
 export type ApplyResult = {
   revision: number;
   label?: string;

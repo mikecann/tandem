@@ -362,6 +362,9 @@ extension TandemService {
         let pauseMap = speech.words.isEmpty ? nil : TranscriptTools.speechMap(project, analysis: self.analysis)
         let cache = CheckCache(folder: folder)
         let analysis = self.analysis
+        // The answers in the claims list (`tandem claims`): a claim answered
+        // with why nothing needs showing isn't noted bare.
+        let claimAnswers = Self.claimAnswers(for: session.fileURL, warnings: &warnings)
         let notices = warnings
         let revision = coordinator.revision
         return {
@@ -406,6 +409,7 @@ extension TandemService {
                 in: project, ranges: toCheck, frames: frames, screenFrames: screenFrames, speech: speech, pauses: pauses, faceWaits: waits,
                 frameTimes: frameTimes
             ) + Self.unlevelledProblems(in: project, analysis: analysis, folder: projectFolder, ranges: toCheck)
+                + QualityCheck.bareClaims(in: project, ranges: toCheck, speech: speech, answers: claimAnswers)
             var names: [String: String] = [:]
             for id in Set(found.flatMap(\.clipIDs)) {
                 guard let clip = project.clip(id) else { continue }
