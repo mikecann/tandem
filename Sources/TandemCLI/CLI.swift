@@ -329,11 +329,7 @@ struct CLI {
             let kindsPath = args.options["kinds"].map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath) }
             var kindsFile: PauseKindsFile?
             if let kindsPath, FileManager.default.fileExists(atPath: kindsPath.path) {
-                do {
-                    kindsFile = try JSONDecoder().decode(PauseKindsFile.self, from: Data(contentsOf: kindsPath))
-                } catch {
-                    throw UsageError(message: "Couldn't read \(kindsPath.path) as a kinds file: \(error.localizedDescription)")
-                }
+                kindsFile = try PauseKindsFile.read(kindsPath, as: args.options["kinds"] ?? kindsPath.path)
             }
             if kindsPath != nil, !args.has("filmora") {
                 throw UsageError(message: "--kinds goes with --filmora.")

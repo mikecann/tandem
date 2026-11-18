@@ -536,6 +536,9 @@ public struct HistoryRecord: Codable, Equatable, Sendable {
     public var check: CheckRun?
     /// For a `handback` made without the checks: the agent's reason.
     public var unchecked: String?
+    /// For a `handback`: the problems the checks found that the agent
+    /// called false alarms, each as "kind at time: why".
+    public var overruled: [String]?
 
     public init(revision: Int, kind: Kind, label: String, author: String, date: Date = Date()) {
         self.revision = revision
@@ -572,10 +575,11 @@ public struct HistoryRecord: Codable, Equatable, Sendable {
 
     /// An agent handing the round back at `revision`, with `count` things
     /// for Mike to look at.
-    public static func handback(revision: Int, author: String, count: Int, unchecked: String? = nil, date: Date = Date()) -> HistoryRecord {
+    public static func handback(revision: Int, author: String, count: Int, unchecked: String? = nil, overruled: [String]? = nil, date: Date = Date()) -> HistoryRecord {
         var record = HistoryRecord(revision: revision, kind: .handback, label: unchecked == nil ? "Hand back" : "Handed back unchecked", author: author, date: date)
         record.handedBack = count
         record.unchecked = unchecked
+        record.overruled = overruled.flatMap { $0.isEmpty ? nil : $0 }
         return record
     }
 
@@ -856,12 +860,12 @@ public final class HistoryRecorder: @unchecked Sendable {
     /// An agent handed the round back with `count` things to look at: a
     /// row of its own, after the edits already heard, at the revision they
     /// left the project at.
-    public func handedBack(by author: String, count: Int, unchecked: String? = nil, date: Date = Date()) {
+    public func handedBack(by author: String, count: Int, unchecked: String? = nil, overruled: [String]? = nil, date: Date = Date()) {
         let revision = coordinator.revision
         queue.async { [weak self] in
             guard let self, !self.closed, let log = self.log else { return }
             self.writeOpening()
-            log.append(.handback(revision: revision, author: author, count: count, unchecked: unchecked, date: date))
+            log.append(.handback(revision: revision, author: author, count: count, unchecked: unchecked, overruled: overruled, date: date))
         }
     }
 

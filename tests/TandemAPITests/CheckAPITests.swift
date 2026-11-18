@@ -534,6 +534,20 @@ final class CheckAPITests: XCTestCase {
         XCTAssertNotNil(note?.cut, "what the levels said is still there to read")
     }
 
+    func testALevelFlagHeardWholeButNearSpeechLevelSaysWhyItStands() {
+        // Examples Page video 3:58 (18 Nov 2026): "if you like" heard whole,
+        // the clip's first 25 ms at speech level.
+        let summary = ListenSummary(engine: "fake", joins: [
+            HeardJoin(time: t(30), said: "your next project. | you like what", heard: "your next project if | you like what", findings: [],
+                      clipIDs: ["clip_voc1", "clip_voc2"], cached: false)
+        ], heard: 1, cached: 0, secondsPerJoin: nil)
+        let combined = CutCheck.combine(problems: [clipped("clip_voc2", .start, at: 30, margin: 0.4)], notes: [], summary: summary)
+        XCTAssertEqual(combined.problems.map(\.kind), [.clippedWord], "the levels win this close to the speech")
+        let message = combined.problems[0].message
+        XCTAssertTrue(message.contains("Every kept word is heard whole, but the clip at the cut is only 0.4 dB under the speech"), message)
+        XCTAssertTrue(message.contains("--reason \"clippedWord 00:30.000 <what you heard>\""), message)
+    }
+
     func testAJoinFlaggedByLevelsAndHeardCutOffIsOneProblemThatSaysBoth() {
         // Tandem video 20:05: "pub" left in, and the levels flagged the end.
         let pub = CutListen.Finding(kind: .extra, heard: "pub", time: 29.7, slip: false, why: "heard right at the join")

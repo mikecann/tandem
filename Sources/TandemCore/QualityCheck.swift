@@ -612,7 +612,8 @@ public enum QualityCheck {
     }
 
     static func unkeyed(_ frames: [FrameStats], project: Project, frameDuration: Time) -> [CheckProblem] {
-        runs(of: frames.map { $0.flatGreen >= greenShare }).map { run in
+        runs(of: frames.map { $0.flatGreen >= greenShare }).compactMap { run in
+            guard couldBeAKey(frames, run, in: project) else { return nil }
             let share = run.map { frames[$0].flatGreen }.max() ?? 0
             return problem(.unkeyed, frames, run, project: project, frameDuration: frameDuration,
                            message: "Green screen: flat green covers \(percent(share)) of the frame (a key that didn't happen?).")
@@ -630,11 +631,89 @@ public enum QualityCheck {
             let least = run.map { frames[$0].flatWhite }.min() ?? 0
             let before = frames[run.lowerBound - 1].flatWhite
             let after = frames[run.upperBound].flatWhite
-            guard before < least / 3 && after < least / 3 else { return nil }
+            guard before < least / 3 && after < least / 3, couldBeAKey(frames, run, in: project) else { return nil }
             let share = run.map { frames[$0].flatWhite }.max() ?? 0
             return problem(.whiteBlock, frames, run, project: project, frameDuration: frameDuration,
                            message: "White block: a flat white patch over \(percent(share)) of the frame comes and goes in \(run.count) frame\(run.count == 1 ? "" : "s") (a key or matte that failed?).")
         }
+    }
+
+    /// Whether flat green or white over `run` could be a key or matte that
+    /// failed: something on screen there could have a green screen behind
+    /// it or a matte on it. Not when every picture is B-roll or a screen
+    /// recording with no cutout on, which is footage shown as it is: on the
+    /// Examples Page video (18 Nov 2026) that was a web page with an empty
+    /// white ad slot as a white block, and a 3D robot world and a quiz's
+    /// green right answer as a green screen, and the only way past them was
+    /// to hand back unchecked.
+    ///
+    /// Pictures under one that fills the frame, opaque, don't show, so the
+    /// camera under a full-frame web page doesn't count. Every frame of
+    /// the run is looked at, so a camera that shows for part of it counts.
+    static func couldBeAKey(_ frames: [FrameStats], _ run: Range<Int>, in project: Project) -> Bool {
+        var seen = Set<String>()
+        var shown: [Clip] = []
+        for index in run {
+            for clip in shownPictures(at: frames[index].time, in: project) where seen.insert(clip.id).inserted { shown.append(clip) }
+        }
+        return shown.isEmpty || !shown.allSatisfy { clip in
+            guard case .media(let mediaID) = clip.content, let item = project.media(mediaID) else { return false }
+            return (item.role == .broll || item.role == .screen) && !hasCutout(clip)
+        }
+    }
+
+    /// The pictures that show at `time`, top first: down to the first that
+    /// fills the frame, opaque (`fillsFrame`), and not past it.
+    static func shownPictures(at time: Time, in project: Project) -> [Clip] {
+        var shown: [Clip] = []
+        for track in project.videoTracks.reversed() where !track.hidden {
+            guard let clip = track.clip(at: time), clip.enabled else { continue }
+            if case .adjustment = clip.content { continue }
+            // Faded right out, it doesn't show.
+            if clip.resolvedVideo(at: time - clip.start).opacity <= 0.01 { continue }
+            shown.append(clip)
+            let item = clip.mediaID.flatMap { project.media($0) }
+            if case .media = clip.content, let item, !(item.hasVideo || item.kind == .image) || item.hasAlpha { continue }
+            if case .solid(let color) = clip.content, color.a < 0.99 { continue }
+            if case .text = clip.content { continue }
+            if case .graphic = clip.content { continue }
+            // In a transition the shot is part see-through, or pushing.
+            // The other clip in it shows too, from its handle.
+            let clips = Dictionary(track.clips.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+            let transitions = track.transitions.filter { transition in
+                guard transition.fromClipID == clip.id || transition.toClipID == clip.id else { return false }
+                return ReviewLog.span(of: transition, clips: clips).map { $0.start <= time && time <= $0.end } ?? false
+            }
+            for transition in transitions {
+                for id in [transition.fromClipID, transition.toClipID].compactMap({ $0 }) where id != clip.id {
+                    if let other = clips[id], other.enabled { shown.append(other) }
+                }
+            }
+            if transitions.isEmpty, fillsFrame(clip, item: item, at: time, in: project) { break }
+        }
+        return shown
+    }
+
+    /// Whether the clip covers the whole frame at `time`, opaque, as it's
+    /// placed then (whether its pixels have alpha is the caller's to say).
+    static func fillsFrame(_ clip: Clip, item: MediaItem?, at time: Time, in project: Project) -> Bool {
+        let video = clip.resolvedVideo(at: time - clip.start)
+        guard video.opacity >= 0.99, video.cutout?.enabled != true else { return false }
+        // A quarter turn leaves corners uncovered; whole and half turns
+        // cover what the box says.
+        let turn = video.transform.rotation.truncatingRemainder(dividingBy: 180)
+        guard abs(turn) < 0.01 || abs(abs(turn) - 180) < 0.01 else { return false }
+        guard let box = onScreen(clip, item: item, at: time, in: project) else { return false }
+        // A pixel's slack: a shot zoomed to just fill the frame lands a hair
+        // inside it.
+        let slackX = 1 / Double(max(project.settings.width, 1)), slackY = 1 / Double(max(project.settings.height, 1))
+        return box.x0 <= slackX && box.y0 <= slackY && box.x1 >= 1 - slackX && box.y1 >= 1 - slackY
+    }
+
+    /// A cutout on in the main frame or in any other format.
+    static func hasCutout(_ clip: Clip) -> Bool {
+        guard let video = clip.video else { return false }
+        return video.cutout?.enabled == true || video.formatOverrides.values.contains { $0.cutout == true }
     }
 
     // MARK: - Screen recordings

@@ -27,6 +27,7 @@ final class CutEvidenceTests: XCTestCase {
         let heard = join("Yeah, but we need to do that | to keep it deterministic.", "Yeah, but we need to do that | to keep it deterministic.")
         let verdict = CutEvidence.judge(heard, flags: [.init(keeps: .before, margin: 2.8)], cut: [])
         XCTAssertEqual(verdict.dismissed, [:])
+        XCTAssertEqual(verdict.tooClose, [0: 2.8], "heard whole, but too close to the speech for listening to clear it")
     }
 
     func testALastWordCutThatIsHeardIsDismissed() {

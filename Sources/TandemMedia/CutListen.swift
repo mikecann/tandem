@@ -241,7 +241,11 @@ public enum CutListen {
                     guard r <= right.count, middle.count + count <= 3 else { continue }
                     let run = Array(left.suffix(l)) + middle + Array(right.prefix(r))
                     let joined = run.map { canonical(heard[$0].text) }.joined()
-                    guard joined == target || similar(joined, target) else { continue }
+                    // A word with a number in it spelled out ("little3D" as
+                    // "littlethreed") has to be heard all through: "little
+                    // three" is near it by an ending, but it's the D cut off.
+                    let exact = said[s].text.contains(where: \.isNumber)
+                    guard joined == target || !exact && similar(joined, target) else { continue }
                     run.forEach { absorbed.insert($0) }
                     return run.map { heard[$0].text }.joined(separator: " ")
                 }
@@ -423,7 +427,9 @@ public enum CutListen {
                 let how: Difference? = said[i].lowercased().filter(\.isLetter) == heard[j].lowercased().filter(\.isLetter) ? nil : .loose("the same word written differently")
                 return (far, how)
             }
-            if similar(a[i], b[j]) { return (0.5 + far, .near) }
+            // A word with a number in it is heard whole or not: "little3"
+            // for "little3D" is the D cut off, not an ending.
+            if !said[i].contains(where: \.isNumber), similar(a[i], b[j]) { return (0.5 + far, .near) }
             return (1 + far, .different)
         }
         var table = [[Double]](repeating: [Double](repeating: .infinity, count: m + 1), count: n + 1)
@@ -479,11 +485,28 @@ public enum CutListen {
     ]
 
     /// Lower case letters and digits only, numbers as words, and spoken
-    /// forms spelled out ("wanna" is "wantto").
+    /// forms spelled out ("wanna" is "wantto"). A number inside a word is
+    /// spelled out too: on the Examples Page video (18 Nov 2026) the take's
+    /// transcript had "little3D" and Bark heard "little three D", every
+    /// sound of it, so "little3D" is "littlethreed".
     static func canonical(_ text: String) -> String {
         let plain = text.lowercased().filter { $0.isLetter || $0.isNumber }
         if let number = Int(plain), number >= 0 { return numberWords(number) }
-        return spoken[plain] ?? plain
+        if let spelled = spoken[plain] { return spelled }
+        guard plain.contains(where: \.isNumber), plain.contains(where: \.isLetter) else { return plain }
+        var out = "", digits = ""
+        func flush() {
+            if let number = Int(digits) { out += numberWords(number) } else { out += digits }
+            digits = ""
+        }
+        for character in plain {
+            if character.isNumber { digits.append(character) } else {
+                flush()
+                out.append(character)
+            }
+        }
+        flush()
+        return out
     }
 
     /// "15" as "fifteen", "2026" as "twothousandtwentysix": how the

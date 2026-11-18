@@ -73,6 +73,11 @@ public enum CutEvidence {
         /// A finding that isn't slip-prone and isn't explained: listening's
         /// own problem.
         public var heardCutOff = false
+        /// Level flags, by index, whose words are all heard but which stand,
+        /// since the clip at the cut is under `heardOver` dB below the
+        /// speech, with that margin: listening can't settle these, an ear
+        /// can.
+        public var tooClose: [Int: Float] = [:]
     }
 
     /// Weighs the flags at a heard join against what was heard there.
@@ -112,6 +117,8 @@ public enum CutEvidence {
                 if heardIt { verdict.dismissed[index] = "\"\(word)\" is heard, so the cut keeps it" }
             } else if let margin = flag.margin, margin >= heardOver {
                 verdict.dismissed[index] = "levels flagged it, but every kept word is heard whole"
+            } else if let margin = flag.margin {
+                verdict.tooClose[index] = margin
             }
         }
         return verdict

@@ -521,17 +521,7 @@ private struct TakePicture {
     /// Whether the clip covers the whole frame at `time` (inside it or at
     /// its end), opaque, as it's placed then.
     func covers(_ clip: Clip, at time: Time) -> Bool {
-        let video = clip.resolvedVideo(at: time - clip.start)
-        guard video.opacity >= 0.99, video.cutout?.enabled != true else { return false }
-        // A quarter turn leaves corners uncovered; whole and half turns
-        // cover what the box says.
-        let turn = video.transform.rotation.truncatingRemainder(dividingBy: 180)
-        guard abs(turn) < 0.01 || abs(abs(turn) - 180) < 0.01 else { return false }
-        guard let box = QualityCheck.onScreen(clip, item: clip.mediaID.flatMap { media[$0] }, at: time, in: project) else { return false }
-        // A pixel's slack: a shot zoomed to just fill the frame lands a hair
-        // inside it.
-        let slackX = 1 / Double(max(project.settings.width, 1)), slackY = 1 / Double(max(project.settings.height, 1))
-        return box.x0 <= slackX && box.y0 <= slackY && box.x1 >= 1 - slackX && box.y1 >= 1 - slackY
+        QualityCheck.fillsFrame(clip, item: clip.mediaID.flatMap { media[$0] }, at: time, in: project)
     }
 
     /// Whether something other than `except` hides the take at `time`: a

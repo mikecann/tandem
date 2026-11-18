@@ -259,6 +259,64 @@ final class QualityCheckTests: XCTestCase {
         XCTAssertTrue(white([0.1, 0.1] + Array(repeating: 0.13, count: 8) + [0.1]).isEmpty, "it was there before and after")
     }
 
+    func testGreenAndWhiteInFootageShownAsItIsArentAFailedKey() {
+        // The Examples Page video (18 Nov 2026): a web page's empty white ad
+        // slot, and a quiz's green right answer, in B-roll and a screen
+        // recording with no cutout on.
+        func found(_ role: MediaRole, cutout: Bool = false) -> [CheckProblem.Kind] {
+            let item = MediaItem(id: "med_f", path: "broll/page.mp4", kind: .video, role: role, duration: t(60), width: 1920, height: 1080, hasVideo: true)
+            var clip = Clip(id: "clip_f", content: .media(mediaID: "med_f"), start: .zero, duration: t(60))
+            if cutout { clip.video = VideoProperties(cutout: Cutout()) }
+            let shares = [0, 0] + Array(repeating: 0.13, count: 8) + [0, 0]
+            return QualityCheck.frameProblems(frames([UInt8](repeating: 100, count: shares.count)) { index, stats in
+                stats.flatWhite = shares[index]
+                stats.flatGreen = shares[index] > 0 ? 0.03 : 0
+            }, in: project([clip], media: [item])).map(\.kind)
+        }
+        XCTAssertEqual(found(.broll), [], "a web page in B-roll, as it is")
+        XCTAssertEqual(found(.screen), [], "a screen recording, as it is")
+        XCTAssertEqual(found(.broll, cutout: true), [.unkeyed, .whiteBlock], "with a cutout on, a matte could have failed")
+        XCTAssertEqual(found(.camera), [.unkeyed, .whiteBlock], "the camera could have a green screen behind it")
+
+        // As it was at 1:08: the web page full frame over the camera, which
+        // doesn't show. Shrunk to a box, the camera shows round it.
+        func over(scale: Double) -> [CheckProblem.Kind] {
+            let camera = MediaItem(id: "med_c", path: "source/camera.mov", kind: .video, role: .camera, duration: t(60), width: 3840, height: 2160, hasVideo: true)
+            let page = MediaItem(id: "med_p", path: "broll/page.mp4", kind: .video, role: .broll, duration: t(60), width: 3840, height: 2160, hasVideo: true)
+            var p = project([Clip(id: "clip_c", content: .media(mediaID: "med_c"), start: .zero, duration: t(60))], media: [camera, page])
+            var shot = Clip(id: "clip_p", content: .media(mediaID: "med_p"), start: .zero, duration: t(60))
+            var video = VideoProperties()
+            video.transform.scale = scale
+            shot.video = video
+            p.videoTracks.append(Track(id: "trk_broll", kind: .video, name: "B-roll", clips: [shot]))
+            let shares = [0, 0] + Array(repeating: 0.13, count: 8) + [0, 0]
+            return QualityCheck.frameProblems(frames([UInt8](repeating: 100, count: shares.count)) { index, stats in
+                stats.flatWhite = shares[index]
+            }, in: p).map(\.kind)
+        }
+        XCTAssertEqual(over(scale: 1), [], "the camera is under the page")
+        XCTAssertEqual(over(scale: 0.5), [.whiteBlock], "the camera shows round the page")
+    }
+
+    func testWhatShowsIsWhatsSeen() {
+        let camera = MediaItem(id: "med_c", path: "source/camera.mov", kind: .video, role: .camera, duration: t(60), width: 3840, height: 2160, hasVideo: true)
+        let page = MediaItem(id: "med_p", path: "broll/page.mp4", kind: .video, role: .broll, duration: t(60), width: 3840, height: 2160, hasVideo: true)
+        // A camera faded right out over the page doesn't show.
+        var faded = Clip(id: "clip_c", content: .media(mediaID: "med_c"), start: .zero, duration: t(60))
+        faded.video = VideoProperties(opacity: 0)
+        var p = project([Clip(id: "clip_p", content: .media(mediaID: "med_p"), start: .zero, duration: t(60))], media: [camera, page])
+        p.videoTracks.append(Track(id: "trk_top", kind: .video, name: "Top", clips: [faded]))
+        XCTAssertEqual(QualityCheck.shownPictures(at: t(5), in: p).map(\.id), ["clip_p"])
+        // In a dissolve from the page to the camera on one track, both show,
+        // the camera from its handle before the cut.
+        let from = Clip(id: "clip_p", content: .media(mediaID: "med_p"), start: .zero, duration: t(10))
+        let to = Clip(id: "clip_c", content: .media(mediaID: "med_c"), start: t(10), duration: t(10), sourceStart: t(5))
+        var q = project([from, to], media: [camera, page])
+        q.videoTracks[0].transitions = [Transition(type: .dissolve, duration: t(1), fromClipID: "clip_p", toClipID: "clip_c")]
+        XCTAssertEqual(Set(QualityCheck.shownPictures(at: t(9.7), in: q).map(\.id)), ["clip_p", "clip_c"])
+        XCTAssertEqual(QualityCheck.shownPictures(at: t(5), in: q).map(\.id), ["clip_p"])
+    }
+
     // MARK: - Measuring
 
     func testTilesKnowGreenScreenAndWhite() {

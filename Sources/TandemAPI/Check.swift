@@ -267,7 +267,7 @@ extension TandemService {
             // cuts check it was.
             let unheard = result.listened?.joins.contains { $0.skipped == "couldn't listen" || $0.skipped == "no transcript" } ?? true
             let ran = mode == .listen && unheard ? .cuts : mode
-            let run = CheckRun(scope: scope, mode: ran, ranges: ranges, problems: result.problems.count, notes: result.notes.map(CheckRun.Note.init), covers: covers)
+            let run = CheckRun(scope: scope, mode: ran, ranges: ranges, problems: result.problems.count, found: result.problems.map(CheckRun.Note.init), notes: result.notes.map(CheckRun.Note.init), covers: covers)
             var record = HistoryRecord(revision: revision, kind: .check, label: run.command, author: author)
             record.check = run
             history.note(record)

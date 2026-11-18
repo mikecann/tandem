@@ -31,6 +31,25 @@ final class CutListenTests: XCTestCase {
         XCTAssertEqual(join.findings, [], "\(join.findings)")
     }
 
+    func testAWordWithANumberInItHeardAsWordsIsWhole() {
+        // The Examples Page video (18 Nov 2026): the take's transcript wrote
+        // "little3D", Bark heard "little three D", with the join's bar
+        // between "three" and "D", and the check called it cut off.
+        let join = CutListen.compare(said: words("build this whole little3D | world with robots"),
+                                     heard: words("build this whole little three | D world with robots"), at: 10)
+        XCTAssertEqual(join.findings, [], "\(join.findings)")
+        XCTAssertEqual(CutListen.canonical("3D"), "threed")
+        // With the D cut off it's still cut off, not near by an ending.
+        let cut = CutListen.compare(said: words("build this whole little3D | world with robots"),
+                                    heard: words("build this whole little three | world with robots"), at: 10)
+        XCTAssertTrue(cut.clipped, "\(cut.findings)")
+        let one = CutListen.compare(said: words("build this whole little3D | world with robots"),
+                                    heard: words("build this whole little3 | world with robots"), at: 10)
+        XCTAssertTrue(one.clipped, "\(one.findings)")
+        XCTAssertEqual(CutListen.canonical("mp4"), "mpfour")
+        XCTAssertEqual(CutListen.canonical("2026"), "twothousandtwentysix")
+    }
+
     func testAKeptWordHeardCutShortIsClipped() throws {
         let join = CutListen.compare(said: words("we can extract | the data"), heard: words("we can extra | the data"), at: 10)
         let finding = try XCTUnwrap(join.findings.first)
