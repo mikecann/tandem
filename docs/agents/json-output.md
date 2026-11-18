@@ -1,6 +1,6 @@
 # JSON output
 
-The shapes of the `--json` results you'll read most (timeline, media, transcript, wait, status, history, diff, clips, restore, apply, cut), and which fields can be missing.
+The shapes of the `--json` results you'll read most (timeline, media, transcript, wait, status, claims, history, diff, clips, restore, apply, cut), and which fields can be missing.
 
 A `--json` result is an object, and the project's `revision` is in it.
 A field marked `?` can be missing (or `null`), so read it with a default
@@ -110,6 +110,19 @@ and he hasn't watched yet, in timeline order (see `handback` below).
 request it's absent and `notes` is what's still waiting. `comments` are
 Mike's comments in or within 2 s of the stretch: his answer, when it was
 a question.
+
+## claims
+
+```
+{"revision": 43, "file": "/.../Video.claims.json", "markdown"?: "/.../claims.md", "warnings": [],
+ "claims": [{"id", "start", "end", "said", "because": [], "onScreen": [], "bare", "shot"?, "link"?, "skip"?}],
+ "gone": [...]}  // timeline order
+```
+
+`onScreen` names what's shown over him or in his place (empty: camera
+only), and `bare` is how much of the line is the camera full screen with
+nothing over it, 0 to 1. `gone` holds answers whose line is no longer on
+the timeline.
 
 ## history
 

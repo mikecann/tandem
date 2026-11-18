@@ -250,6 +250,9 @@ struct CLI {
         case "handback":
             try args.expectPositionals(atMost: 1, command: name)
             return show(try await client().call(try handbackRequest(args)), json: json)
+        case "claims":
+            try args.expectPositionals(atMost: 0, command: name)
+            return show(try await client().call(ClaimsRequest(markdown: args.options["markdown"].map(absolute))), json: json)
         case "comments":
             guard args.positionals.first == "resolve" else {
                 try args.expectPositionals(atMost: 0, command: name)

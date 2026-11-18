@@ -1,6 +1,57 @@
 # B-roll, titles and section cards
 
-Recipes for putting B-roll over a sentence, adding and restyling titles (presets, animations, style overrides), and Mike's section cards, by marker or by hand.
+Recipes for the proof list (what shows each claim Mike makes), putting B-roll over a sentence, adding and restyling titles (presets, animations, style overrides), and Mike's section cards, by marker or by hand.
+
+## Show what he says: the proof list
+
+Mike's one comment on every video is "show what I'm saying": when he names
+a product, a person, a price or a number, or makes a claim, the real thing
+is on screen as he says it. Reading the transcript for these misses the
+lines he ad-libbed, so Tandem lists them. After the take is placed and cut,
+and before building B-roll:
+
+```bash
+tandem claims
+```
+
+It lists every line that names something or makes a claim, with an ID,
+its times, the words that made it one and what's on screen over it now,
+and writes them to `<name>.claims.json` beside the project:
+
+```
+{"id": "c751f13", "at": "00:08.337", "to": "00:12.897",
+ "said": "The CLI can now be logged into more than one Comics account at the same time.",
+ "because": ["CLI", "Comics", "more than"], "onScreen": "camera only",
+ "shot": "", "link": "", "skip": ""}
+```
+
+Fill in every claim in that file: `shot` is what will show it (a file or
+clip you placed, or a description of what you'll make), `link` the real
+page (the docs, the PR, the pricing page, the post), and `skip` why
+nothing needs showing ("he's pointing at the screen recording", "his face
+for the opening line"). Change nothing else; it's the only Tandem file you
+edit by hand, and never anything in `.tandem/`. Run `tandem claims` again:
+it reads your answers back, matches them to the lines by their words (so
+they survive later cuts, and a cut line's answer waits under `gone`), and
+says how many are left. Then write the list for Mike and pin it for him in
+Threadbear before building the B-roll:
+
+```bash
+tandem claims --markdown claims.md
+```
+
+It's each line's time, what he says, and what will show it with its link.
+`tandem check` notes a `bareClaim` for every line still said with the
+camera full screen and nothing over most of it, unless it has a `skip`.
+
+What counts: a name that isn't a sentence's first word (Bark capitalises
+products, companies and people; a word it mostly writes in lower case
+isn't one), a number, money, a percentage or a version ("one dot five
+zero" too), and phrases that point at something real ("the docs", "this
+PR", "pricing", "he says here", "npx", "it's finally here", "non-beta").
+A name said again within a minute, and the project name's words after
+their first mention, don't count again. On Mike's finished edits it lists
+one sentence in five or six.
 
 ## Put B-roll over a sentence
 

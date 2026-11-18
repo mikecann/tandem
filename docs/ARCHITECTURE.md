@@ -53,6 +53,7 @@ until the project is archived (see Archiving).
 ```
 <video folder>/
   <name>.tandem            the project (pretty JSON, sorted keys)
+  <name>.claims.json       the proof list agents fill in (tandem claims); never media
   source/                  record-it takes: <base>-camera.mov, <base>-screen.mov
   broll/ music/ sfx/ graphics/
   assets/                  library assets in use (assets/<kind>/), and LUTs and fonts

@@ -156,6 +156,14 @@ their own beside it, and reports, with the clips on screen there:
     stretches. Mike's finished solo edits cover 35 to 86%; the Exact demo's
     first hand-back covered 19%, and he asked "How come you aren't adding
     the B-roll as usual?" Not in Shorts or conversations.
+  - bare claims (`bareClaim`): a line from `tandem claims` (it names
+    something or makes a claim) said with the camera full screen and
+    nothing over more than half of it, unless its answer in the claims
+    file is a `skip`. A `shot` planned but not placed yet is still noted,
+    and says so. Not in Shorts, whose picture has its own rules and whose
+    claims are proven in the video they're cut from, or conversations.
+    Mike's finished edits had one or two each, six on the Let's Build It
+    technical video ([B-roll](broll-and-titles.md#show-what-he-says-the-proof-list)).
   - mid-sentence pauses (`midSentencePause`): a pause of 0.5 s or more
     (up to 3 s, past which it's a beat for something on screen) in the
     middle of a sentence or after a comma. Its length is the longer of the
@@ -212,7 +220,7 @@ what agents changed that's waiting for Mike's review, half a second either
 side. It exits 1 when it finds a problem; notes never fail it. `--quick`
 skips rendering, so it only finds gaps, soft pictures, slivers, double
 jumps, swells off their cards, PiP that isn't Mike's usual, how a Short
-opens, talk cut, little B-roll, mid-sentence pauses and faces waiting to talk, and nothing that needs the screen recordings scanned (page changes,
+opens, talk cut, little B-roll, bare claims, mid-sentence pauses and faces waiting to talk, and nothing that needs the screen recordings scanned (page changes,
 low frame rates).
 
 It renders the timeline in 10 s pieces, several at once, and keeps what it

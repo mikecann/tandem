@@ -28,6 +28,7 @@ Every operation with its CLI command, HTTP endpoint and MCP tool, archiving a fi
 | clips | `tandem clips [--track] [--from] [--to] [--media] [--ids]` | `POST /v1/clips {"track", "from", "to", "media", "ids"}` | `clips` |
 | validate | `tandem validate` | `POST /v1/validate` | `validate` |
 | check | `tandem check [--changed] [--quick \| --cuts]` | `POST /v1/check {"from", "to", "changed", "quick", "cuts"}` | `check` |
+| claims | `tandem claims [--markdown <file.md>]` | `POST /v1/claims {"markdown"}` | `claims` |
 | frame | `tandem frame <time> -o out.png` | `POST /v1/frame {"time", "output"}` | `frame` (image) |
 | frames | `tandem frames <time>... [--every] [--from] [--to] -o sheet.png` | `POST /v1/frames {"times", "every", "from", "to", "width", "output"}` | `frames` (image) |
 | screenshot | | `POST /v1/screenshot` | `screenshot` (app only) |

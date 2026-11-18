@@ -103,6 +103,10 @@ public struct CheckProblem: Codable, Equatable, Sendable {
         /// level (`TandemService.unlevelledProblems`): a bed meant for
         /// -45 LUFS as loud as the voice.
         case unlevelled
+        /// A line that names something or makes a claim (`tandem claims`),
+        /// said with the camera full screen and nothing over most of it,
+        /// and no answer saying why nothing needs showing (`bareClaims`).
+        case bareClaim
 
         /// Worth knowing rather than wrong: Mike signed off softer zooms on
         /// cartoon B-roll than on screen recordings, a pause can let a point
@@ -112,6 +116,7 @@ public struct CheckProblem: Codable, Equatable, Sendable {
             self == .soft || self == .deadAir || self == .pageChange || self == .sliver || self == .lowFrameRate || self == .marginalJoin
                 || self == .heardDifferently || self == .heardWhole || self == .swellOffCard || self == .readableText || self == .shortOpening
                 || self == .cutTalk || self == .littleBRoll || self == .midSentencePause || self == .offStylePip || self == .faceWaits
+                || self == .bareClaim
         }
     }
 
