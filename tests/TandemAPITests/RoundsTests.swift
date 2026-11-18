@@ -68,6 +68,8 @@ final class RoundsTests: XCTestCase {
             row(0, "Opened", by: "system", at: 0, kind: .opened),
             row(1, "Cut the take", by: "claude", at: 1, place: (0, 60, take)),
             row(2, "Place the B-roll", by: "claude", at: 2, place: (5, 9, ["V3 B-roll"])),
+            // The check before the handback changed nothing: not an agent edit.
+            row(2, "Check", by: "claude", at: 2.5, kind: .check),
             .handback(revision: 2, author: "claude", count: 3, date: at(3)),
             row(3, "Add comment", by: "user", at: 11, comments: [HistoryComment(id: "mk_a", time: t(12), text: "Awkward pause mid-sentence here")]),
             row(4, "Ripple trim", by: "user", at: 12, place: (10, 10.5, take)),

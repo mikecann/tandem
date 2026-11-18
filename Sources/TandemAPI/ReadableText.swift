@@ -486,11 +486,6 @@ extension HistoryResult: ReadableResult {
                 index += 1
                 continue
             }
-            if edit.kind == .handback {
-                lines.append("  r\(edit.revision)  \(when(edit.date))  Handed back without the checks: \"\(edit.unchecked ?? "")\"  (\(edit.author))")
-                index += 1
-                continue
-            }
             if edit.kind == .opened {
                 let before = edit.revision > 0 ? " (edits before it weren't recorded, or were made somewhere that kept no history)" : ""
                 lines.append("  r\(edit.revision)  \(when(edit.date))  the history starts here\(before)")
@@ -511,7 +506,8 @@ extension HistoryResult: ReadableResult {
             var line = "  r\(edit.revision)  \(when(edit.date))  "
             if edit.kind == .handback {
                 let count = edit.handedBack ?? 0
-                lines.append(line + "Handed back \(count == 1 ? "1 thing" : "\(count) things") to look at  (\(edit.author))")
+                let unchecked = edit.unchecked.map { ", without the checks: \"\($0)\"" } ?? ""
+                lines.append(line + "Handed back \(count == 1 ? "1 thing" : "\(count) things") to look at\(unchecked)  (\(edit.author))")
                 index += 1
                 continue
             }

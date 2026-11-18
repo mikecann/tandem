@@ -135,6 +135,9 @@ rounds up.
    - PiP that isn't his usual: a camera clip shown small that isn't
      `pipRight`/`pipLeft` with the cutout on. Apply the layout it gives; if
      the matte isn't made yet, wait for it rather than framing his face.
+   - bare claim: a line from `tandem claims` said with only his face on
+     screen and no `skip` answer. Show it as he says it, or answer it in
+     the claims file (see "Proof on screen for every claim").
    - outro stings and wipe: an ask for comments or likes with no `Comment
      below` / `Like and subscribe` segment, or no wipe into the sign-off.
      Run the `tandem segments insert` it gives.
@@ -442,7 +445,8 @@ Mike's words on the Convex Auth v2 video (12 Nov 2026), after a first cut
 that missed these: "It doesn't seem like you... remember the ways that we
 usually like to edit." Check each one before `tandem handback` (it
 refuses until `tandem check` has run on your changes, and the check notes
-missing outro stings and wipes, but not the rest of this list):
+bare claims and missing outro stings and wipes, but not the rest of this
+list):
 
 - **Start the cutout matte when the project is made.** PiP is `pipRight`
   with the cutout, always. A long 4K take mattes for hours, so put one

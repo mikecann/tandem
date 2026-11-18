@@ -229,7 +229,7 @@ final class HandbackGateServiceTests: XCTestCase {
         let row = try XCTUnwrap(h.session.history.records().last)
         XCTAssertEqual(row.kind, .handback)
         XCTAssertEqual(row.unchecked, "the renderer can't read the proxies")
-        XCTAssertTrue(h.service.history(limit: 5).readableText.contains("Handed back without the checks: \"the renderer can't read the proxies\"  (claude)"))
+        XCTAssertTrue(h.service.history(limit: 5).readableText.contains("to look at, without the checks: \"the renderer can't read the proxies\"  (claude)"))
     }
 
     /// With the app closed each command opens the project on its own, and
@@ -297,7 +297,7 @@ final class HandbackCLITests: XCTestCase {
         XCTAssertEqual(unchecked.status, 0, unchecked.stderr)
         XCTAssertTrue(unchecked.stdout.contains("Say so to Mike in your message"), unchecked.stdout)
         let history = try cli.tandem("history", in: folder.url)
-        XCTAssertTrue(history.stdout.contains("Handed back without the checks: \"no renderer on this Mac\"  (claude)"), history.stdout)
+        XCTAssertTrue(history.stdout.contains("to look at, without the checks: \"no renderer on this Mac\"  (claude)"), history.stdout)
         // The whole request as JSON, as MCP takes it.
         let whole = #"{"notes": [{"at": 40, "name": "The new shot"}], "unchecked": "still no renderer"}"#
         XCTAssertEqual(try cli.tandem("handback", whole, "--author", "claude", in: folder.url).status, 0)
