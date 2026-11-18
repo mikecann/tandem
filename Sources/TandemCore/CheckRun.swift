@@ -302,9 +302,20 @@ public enum HandbackGate {
             for note in list where !out.contains(where: { $0.kind == note.kind && $0.start == note.start && $0.end == note.end }) { out.append(note) }
             return out
         }
-        let chosen = render.chosen + listen.chosen
-        let problems = distinct(chosen.flatMap { $0.found ?? [] })
-        let notes = distinct(chosen.flatMap(\.notes).filter { !needsNoAnswer.contains($0.kind) })
+        // Newest first in each. Where a newer check read a stretch again,
+        // what an older one found there is gone or found again, so only
+        // the newer one's count: a problem fixed and checked clean doesn't
+        // stand on because the older check is still needed for another
+        // batch.
+        func latest(_ runs: [CheckRun], _ list: (CheckRun) -> [CheckRun.Note]) -> [CheckRun.Note] {
+            runs.enumerated().flatMap { index, run in
+                list(run).filter { note in
+                    !runs[..<index].contains { newer in newer.ranges.contains { $0.start <= note.start && note.end <= $0.end } }
+                }
+            }
+        }
+        let problems = distinct(latest(render.chosen) { $0.found ?? [] } + latest(listen.chosen) { $0.found ?? [] })
+        let notes = distinct((latest(render.chosen, \.notes) + latest(listen.chosen, \.notes)).filter { !needsNoAnswer.contains($0.kind) })
         var used = Set<Int>()
         func answer(_ note: CheckRun.Note) -> Int? {
             // One reason answers one note: a reason for the comments sting

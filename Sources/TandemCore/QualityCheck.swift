@@ -646,14 +646,60 @@ public enum QualityCheck {
     /// white ad slot as a white block, and a 3D robot world and a quiz's
     /// green right answer as a green screen, and the only way past them was
     /// to hand back unchecked.
+    ///
+    /// Pictures under one that fills the frame, opaque, don't show, so the
+    /// camera under a full-frame web page doesn't count. Every frame of
+    /// the run is looked at, so a camera that shows for part of it counts.
     static func couldBeAKey(_ frames: [FrameStats], _ run: Range<Int>, in project: Project) -> Bool {
-        let times = [frames[run.lowerBound].time, frames[run.upperBound - 1].time]
-        var ids: [String] = []
-        for time in times { for id in pictures(at: time, in: project) where !ids.contains(id) { ids.append(id) } }
-        return ids.isEmpty || !ids.allSatisfy { id in
-            guard let clip = project.clip(id), case .media(let mediaID) = clip.content, let item = project.media(mediaID) else { return false }
+        var seen = Set<String>()
+        var shown: [Clip] = []
+        for index in run {
+            for clip in shownPictures(at: frames[index].time, in: project) where seen.insert(clip.id).inserted { shown.append(clip) }
+        }
+        return shown.isEmpty || !shown.allSatisfy { clip in
+            guard case .media(let mediaID) = clip.content, let item = project.media(mediaID) else { return false }
             return (item.role == .broll || item.role == .screen) && !hasCutout(clip)
         }
+    }
+
+    /// The pictures that show at `time`, top first: down to the first that
+    /// fills the frame, opaque (`fillsFrame`), and not past it.
+    static func shownPictures(at time: Time, in project: Project) -> [Clip] {
+        var shown: [Clip] = []
+        for track in project.videoTracks.reversed() where !track.hidden {
+            guard let clip = track.clip(at: time), clip.enabled else { continue }
+            if case .adjustment = clip.content { continue }
+            shown.append(clip)
+            let item = clip.mediaID.flatMap { project.media($0) }
+            if case .media = clip.content, let item, !(item.hasVideo || item.kind == .image) || item.hasAlpha { continue }
+            if case .solid(let color) = clip.content, color.a < 0.99 { continue }
+            if case .text = clip.content { continue }
+            if case .graphic = clip.content { continue }
+            // In a transition the shot is part see-through, or pushing.
+            let inTransition = track.transitions.contains { transition in
+                guard transition.fromClipID == clip.id || transition.toClipID == clip.id else { return false }
+                let clips = Dictionary(track.clips.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+                return ReviewLog.span(of: transition, clips: clips).map { $0.start <= time && time <= $0.end } ?? false
+            }
+            if !inTransition, fillsFrame(clip, item: item, at: time, in: project) { break }
+        }
+        return shown
+    }
+
+    /// Whether the clip covers the whole frame at `time`, opaque, as it's
+    /// placed then (whether its pixels have alpha is the caller's to say).
+    static func fillsFrame(_ clip: Clip, item: MediaItem?, at time: Time, in project: Project) -> Bool {
+        let video = clip.resolvedVideo(at: time - clip.start)
+        guard video.opacity >= 0.99, video.cutout?.enabled != true else { return false }
+        // A quarter turn leaves corners uncovered; whole and half turns
+        // cover what the box says.
+        let turn = video.transform.rotation.truncatingRemainder(dividingBy: 180)
+        guard abs(turn) < 0.01 || abs(abs(turn) - 180) < 0.01 else { return false }
+        guard let box = onScreen(clip, item: item, at: time, in: project) else { return false }
+        // A pixel's slack: a shot zoomed to just fill the frame lands a hair
+        // inside it.
+        let slackX = 1 / Double(max(project.settings.width, 1)), slackY = 1 / Double(max(project.settings.height, 1))
+        return box.x0 <= slackX && box.y0 <= slackY && box.x1 >= 1 - slackX && box.y1 >= 1 - slackY
     }
 
     /// A cutout on in the main frame or in any other format.

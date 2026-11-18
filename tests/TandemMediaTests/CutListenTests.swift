@@ -39,6 +39,10 @@ final class CutListenTests: XCTestCase {
                                      heard: words("build this whole little three | D world with robots"), at: 10)
         XCTAssertEqual(join.findings, [], "\(join.findings)")
         XCTAssertEqual(CutListen.canonical("3D"), "threed")
+        // With the D cut off it's still cut off, not near by an ending.
+        let cut = CutListen.compare(said: words("build this whole little3D | world with robots"),
+                                    heard: words("build this whole little three | world with robots"), at: 10)
+        XCTAssertTrue(cut.clipped, "\(cut.findings)")
         XCTAssertEqual(CutListen.canonical("mp4"), "mpfour")
         XCTAssertEqual(CutListen.canonical("2026"), "twothousandtwentysix")
     }

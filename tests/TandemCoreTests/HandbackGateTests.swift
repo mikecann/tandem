@@ -64,6 +64,17 @@ final class HandbackGateTests: XCTestCase {
         XCTAssertTrue(answered.passes)
         XCTAssertEqual(answered.overruled, ["whiteBlock at 00:21.000: an empty ad slot on the real Fortune page"])
         XCTAssertEqual(answered.answered, 0, "notes answered are counted apart")
+        // A newer check that read the stretch again clean clears it, though
+        // the older one is still what covers another batch.
+        let both = TimeRange(start: t(19.5), end: t(32.5)), shot = TimeRange(start: t(19.5), end: t(25.5))
+        var older = check(6, covers: [5, 6], found: [white])
+        older.check?.ranges = [both]
+        var newer = check(7, covers: [5])
+        newer.check?.ranges = [shot]
+        let (project, log) = round(cut: true)
+        let cleared = HandbackGate.judge(records: [edit(5), edit(6), older, newer], log: log, project: project, answers: [], cutsMatter: false)
+        XCTAssertEqual(cleared.unansweredProblems, [], "the newer check found nothing there")
+        XCTAssertTrue(cleared.passes, "\(cleared)")
         // A check from before problems were kept can't be answered.
         XCTAssertEqual(judge([edit(5), check(5, covers: [5], problems: 1)], answers: [.init(kind: "whiteBlock", at: t(21), why: "ad")]).needs,
                        [.renderProblems(count: 1, revision: 5)])

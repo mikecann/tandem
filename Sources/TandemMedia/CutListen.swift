@@ -241,7 +241,11 @@ public enum CutListen {
                     guard r <= right.count, middle.count + count <= 3 else { continue }
                     let run = Array(left.suffix(l)) + middle + Array(right.prefix(r))
                     let joined = run.map { canonical(heard[$0].text) }.joined()
-                    guard joined == target || similar(joined, target) else { continue }
+                    // A word with a number in it spelled out ("little3D" as
+                    // "littlethreed") has to be heard all through: "little
+                    // three" is near it by an ending, but it's the D cut off.
+                    let exact = said[s].text.contains(where: \.isNumber)
+                    guard joined == target || !exact && similar(joined, target) else { continue }
                     run.forEach { absorbed.insert($0) }
                     return run.map { heard[$0].text }.joined(separator: " ")
                 }

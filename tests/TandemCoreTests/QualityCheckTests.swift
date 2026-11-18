@@ -277,6 +277,25 @@ final class QualityCheckTests: XCTestCase {
         XCTAssertEqual(found(.screen), [], "a screen recording, as it is")
         XCTAssertEqual(found(.broll, cutout: true), [.unkeyed, .whiteBlock], "with a cutout on, a matte could have failed")
         XCTAssertEqual(found(.camera), [.unkeyed, .whiteBlock], "the camera could have a green screen behind it")
+
+        // As it was at 1:08: the web page full frame over the camera, which
+        // doesn't show. Shrunk to a box, the camera shows round it.
+        func over(scale: Double) -> [CheckProblem.Kind] {
+            let camera = MediaItem(id: "med_c", path: "source/camera.mov", kind: .video, role: .camera, duration: t(60), width: 3840, height: 2160, hasVideo: true)
+            let page = MediaItem(id: "med_p", path: "broll/page.mp4", kind: .video, role: .broll, duration: t(60), width: 3840, height: 2160, hasVideo: true)
+            var p = project([Clip(id: "clip_c", content: .media(mediaID: "med_c"), start: .zero, duration: t(60))], media: [camera, page])
+            var shot = Clip(id: "clip_p", content: .media(mediaID: "med_p"), start: .zero, duration: t(60))
+            var video = VideoProperties()
+            video.transform.scale = scale
+            shot.video = video
+            p.videoTracks.append(Track(id: "trk_broll", kind: .video, name: "B-roll", clips: [shot]))
+            let shares = [0, 0] + Array(repeating: 0.13, count: 8) + [0, 0]
+            return QualityCheck.frameProblems(frames([UInt8](repeating: 100, count: shares.count)) { index, stats in
+                stats.flatWhite = shares[index]
+            }, in: p).map(\.kind)
+        }
+        XCTAssertEqual(over(scale: 1), [], "the camera is under the page")
+        XCTAssertEqual(over(scale: 0.5), [.whiteBlock], "the camera shows round the page")
     }
 
     // MARK: - Measuring
