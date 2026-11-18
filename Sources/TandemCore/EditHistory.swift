@@ -212,7 +212,7 @@ public enum ClipChanges {
         }
     }
 
-    static func shorten(_ text: String, _ limit: Int) -> String {
+    public static func shorten(_ text: String, _ limit: Int) -> String {
         text.count > limit ? String(text.prefix(limit - 3)) + "..." : text
     }
 
@@ -490,7 +490,15 @@ public struct HistoryRecord: Codable, Equatable, Sendable {
         /// The project was opened at this revision and the history before
         /// it doesn't lead here (it was edited by something that kept none).
         case opened
+        /// An agent handed the round back to Mike (`tandem handback`) at
+        /// this revision. Not a change: walking the history steps over it.
+        /// An older Tandem can't read the kind and skips the line.
+        case handback
     }
+
+    /// True for a record of something done to the project, which the
+    /// chain can undo or must stop at, rather than a note beside it.
+    public var isChange: Bool { kind != .handback }
 
     /// The revision the change made.
     public var revision: Int
@@ -507,6 +515,13 @@ public struct HistoryRecord: Codable, Equatable, Sendable {
     public var before: [PlacedClip]?
     /// and the clips that only moved along their track, by how much.
     public var shifted: [String: Time]?
+    /// Comments the change added or reworded, with their words as they
+    /// became: what Mike asked for, kept after the agent that did it took
+    /// the comment away, so `tandem rounds` can say what each round was
+    /// about.
+    public var comments: [HistoryComment]?
+    /// For a handback, how many things it gave Mike to look at.
+    public var handedBack: Int?
 
     public init(revision: Int, kind: Kind, label: String, author: String, date: Date = Date()) {
         self.revision = revision
@@ -536,6 +551,16 @@ public struct HistoryRecord: Codable, Equatable, Sendable {
         record.before = previous.isEmpty ? nil : previous
         record.shifted = shifted.isEmpty ? nil : shifted
         record.summary = summary(changes, before: before, after: after)
+        let said = HistoryComment.changed(before: before, after: after)
+        record.comments = said.isEmpty ? nil : said
+        return record
+    }
+
+    /// An agent handing the round back at `revision`, with `count` things
+    /// for Mike to look at.
+    public static func handback(revision: Int, author: String, count: Int, date: Date = Date()) -> HistoryRecord {
+        var record = HistoryRecord(revision: revision, kind: .handback, label: "Hand back", author: author, date: date)
+        record.handedBack = count
         return record
     }
 
@@ -568,6 +593,27 @@ public struct HistoryRecord: Codable, Equatable, Sendable {
     }
 }
 
+/// A comment as a change left it: its ID, where it was and what it said.
+public struct HistoryComment: Codable, Equatable, Sendable {
+    public var id: String
+    public var time: Time
+    public var text: String
+
+    public init(id: String, time: Time, text: String) {
+        self.id = id
+        self.time = time
+        self.text = text
+    }
+
+    /// The comments in `after` that are new or say something else than in
+    /// `before`. Only the words count: one riding a ripple isn't new.
+    static func changed(before: Project, after: Project) -> [HistoryComment] {
+        guard before.markers != after.markers else { return [] }
+        let was = Dictionary(before.comments.map { ($0.id, $0.name) }, uniquingKeysWith: { a, _ in a })
+        return after.comments.filter { was[$0.id] != $0.name }.map { HistoryComment(id: $0.id, time: $0.time, text: $0.name) }
+    }
+}
+
 /// The history before a revision isn't kept.
 public struct HistoryGap: Error, Equatable, Sendable {
     /// The earliest revision the history goes back to.
@@ -596,6 +642,7 @@ public enum HistoryChain {
             while index >= 0 {
                 let record = records[index]
                 index -= 1
+                guard record.isChange else { continue }
                 if record.kind == .opened { break }
                 if record.revision == at {
                     found = record
@@ -617,6 +664,7 @@ public enum HistoryChain {
         while index >= 0 {
             let record = records[index]
             index -= 1
+            guard record.isChange else { continue }
             if record.kind == .opened { break }
             if record.revision == at { at -= 1 }
         }
@@ -770,6 +818,18 @@ public final class HistoryRecorder: @unchecked Sendable {
         guard let record = opening else { return }
         log?.append(record)
         opening = nil
+    }
+
+    /// An agent handed the round back with `count` things to look at: a
+    /// row of its own, after the edits already heard, at the revision they
+    /// left the project at.
+    public func handedBack(by author: String, count: Int, date: Date = Date()) {
+        let revision = coordinator.revision
+        queue.async { [weak self] in
+            guard let self, !self.closed, let log = self.log else { return }
+            self.writeOpening()
+            log.append(.handback(revision: revision, author: author, count: count, date: date))
+        }
     }
 
     /// Finishes what it has heard and stops listening.

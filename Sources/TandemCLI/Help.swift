@@ -104,6 +104,14 @@ enum Help {
                       tandem handback --at 38:24 --name "Keep the twenty dollar plan line?" --note "Pro is $25 now" --question
                       tandem handback
                     """),
+        CommandHelp(name: "rounds", usage: "tandem rounds [<project>] [--log <file.jsonl>] [--json]", summary: "How the video's review went, round by round: when each was handed back, the agent edits in it, Mike's comments (how many, what they said, how soon after) and the trims and other edits he made himself, then the totals and the comments by theme.", options: ["log"],
+                    details: """
+                    A round ends where an agent handed back (tandem handback keeps a row in the edit history for each). Before Tandem kept those rows, a run of agent edits followed by Mike's own activity is a round he watched, marked inferred; agent edits starting within 2 minutes of his, when he carries on within 5, are a fix he asked for while watching, not a new round. A last run of agent edits he hasn't touched is a round he hasn't reviewed in Tandem yet.
+                    His comments' words come from the history from this version on; before that, from the comments in .tandem/backups and the snapshot beside each export, matched to the "Add comment" edit between the last save without the comment and the first with it. It says how many it couldn't find. Each is sorted into a theme by its first keywords: pauses and silence, clipped or cut words and takes, B-roll and proof, music and sound effects, voice and sound levels, wipes and transitions, text and captions, layout and camera, blur and privacy, other.
+                    A trim of the take is Mike's ripple trim, trim, roll, close gap or delete that touches the camera, screen or voice track; a delete and the close gap after it (within 90 s, starting within 3 s of each other) count as one.
+                    --log <file> adds one JSON line for the video to a log of every video (name, path, first and last dates, rounds, comments in each, by theme, his trims) in place of any line it had, so run it again at sign-off: tandem rounds --log ~/dev/convex/convex-videos/review-log.jsonl.
+                    It only reads files, so the project can be open in the app.
+                    """),
         CommandHelp(name: "comments", usage: "tandem comments [resolve <id>... | resolve --all]", summary: "The comments Mike left on the timeline for you, with what's said and playing at each; resolve clears the ones you've done.", options: ["all", "label"],
                     details: """
                     Mike adds comments in Tandem at the playhead (Add comment, Shift-C) while he reviews: notes like "cut the umm here" for the next round. Each shows its ID, time and words, what's said a few seconds either side (| marks the comment) and the clips playing there.

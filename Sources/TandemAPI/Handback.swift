@@ -141,6 +141,9 @@ extension TandemService {
         if let given = request.notes {
             let notes = try given.map { try Self.reviewNote($0, author: context.author, revision: revision, duration: project.duration) }
             session.review.handBack(notes, by: context.author)
+            // The review log keeps only the latest handback; the history
+            // keeps each one, which is where `tandem rounds` finds them.
+            session.history.handedBack(by: context.author, count: notes.count)
             recorded = notes.count
         } else {
             recorded = nil

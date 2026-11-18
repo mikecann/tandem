@@ -1706,3 +1706,10 @@ file.
   exports, with a warning, for a copy to watch; `--unreviewed` makes a
   check export of a final preset (a 4K look at a zoom, say), never one to
   publish or send.
+- **At sign-off, before the final export,** run `tandem rounds --log
+  ~/dev/convex/convex-videos/review-log.jsonl`. It says how the review went
+  round by round (Mike's comments and what they were about, the trims he
+  made himself) and adds the video's line to the channel's log. Compare it
+  with the last few lines of the log, and put what the comments keep
+  asking for into this skill (or the skill it belongs in), so the next
+  video's first hand-back doesn't need them.

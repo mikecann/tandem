@@ -477,6 +477,12 @@ extension HistoryResult: ReadableResult {
                 continue
             }
             var line = "  r\(edit.revision)  \(when(edit.date))  "
+            if edit.kind == .handback {
+                let count = edit.handedBack ?? 0
+                lines.append(line + "Handed back \(count == 1 ? "1 thing" : "\(count) things") to look at  (\(edit.author))")
+                index += 1
+                continue
+            }
             switch edit.kind {
             case .undo: line += "Undo \(edit.label)"
             case .redo: line += "Redo \(edit.label)"
@@ -484,6 +490,11 @@ extension HistoryResult: ReadableResult {
             }
             line += "  (\(edit.author))" + place(edit.start, edit.end, edit.tracks)
             if let summary = edit.summary { line += "  " + summary }
+            // What Mike asked for, so a round's comments can be read here
+            // after the agent that did them took them away.
+            for comment in edit.comments ?? [] {
+                line += "  at \(comment.time): \"\(ClipChanges.shorten(CommentEdits.oneLine(comment.text), 80))\""
+            }
             lines.append(line)
             index += 1
         }

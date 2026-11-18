@@ -1,6 +1,6 @@
 # Review, checks and history
 
-What `tandem check` looks for (including clipped words at cuts), seeing what changed with `diff` and `history`, putting clips back with `restore`, doing Mike's comments, review clips, and working in turns with Mike.
+What `tandem check` looks for (including clipped words at cuts), seeing what changed with `diff` and `history`, putting clips back with `restore`, doing Mike's comments, how a video's review went with `rounds`, review clips, and working in turns with Mike.
 
 ## Check an edit before handing it back
 
@@ -528,6 +528,12 @@ Edits, newest first (kept across restarts; tandem diff --since <revision> shows 
   r56-r95  09:58:02-10:30:12  Found new media x40  (system)
 ```
 
+An edit that adds or rewords a comment carries its words (`at 00:12.000:
+"cut the umm here"`), so they're still there after the agent that did it
+took the comment away, and each `tandem handback` is a line of its own
+(`Handed back 3 things to look at (claude)`). Neither is in histories
+written before this version.
+
 `tandem restore --from <revision, file or export>` (MCP `restore`) puts
 clips back as they were there: where they were, their trims, settings and
 keyframes. Name them with `--clips clip_a,clip_b`, or take every clip that
@@ -611,6 +617,66 @@ menu or an export, and what you hand back takes the place of what you
 handed back before. `--to` defaults to 5 s after `--at`. Then tell him in
 a line that Tandem will walk him through them, and keep the chat for
 what needs a decision.
+
+## How the review went
+
+```
+$ tandem rounds
+Convex Auth v2: 4 review rounds, 12 Nov 11:37 to 12 Nov 16:17.
+
+Round 1: handed back 12 Nov 12:03 at r51 (inferred), 45 agent edits by claude, cli
+  Mike: 8 comments (1 reworded), the first 22 min after; 0 trims of the take, 0 other edits
+  00:22.467  [broll] We need to show something here. Is there like an early announcement page you can show...
+  00:41.633  [pauses] There's weird pause here when it's mid sentence you shouldn't have that big pause...
+  ...
+Round 4: handed back 12 Nov 16:16 at r123 (inferred), 2 agent edits by claude
+  Mike: nothing on the timeline yet (not watched, or answered in the chat)
+
+Total: 28 comments in 3 of 4 rounds, 0 trims of the take by Mike (0 edits), 0 other edits by him, 72 agent edits.
+By theme:
+  B-roll, show it, proof: 13
+  pauses and silence: 7
+  ...
+```
+
+`tandem rounds` says how a video's review went: each round's handback,
+the agent edits that went into it, Mike's comments (how many, their
+words and theme, how soon after the handback he started) and the edits
+he made himself, split into trims of the take and the rest. It's the
+record the after-video retro needs, and it tells whether a change to how
+we work paid off: on the Threadbear launch he made 42 trims of the take
+himself (114 edits) across the rounds, and the comments keep asking for
+B-roll and for mid-sentence pauses to go.
+
+Rounds end at each `tandem handback`. History from before Tandem kept
+those has its rounds inferred from who edited: a run of agent edits and
+then Mike's activity is a round he watched. That can't see a round he
+answered in the chat without touching the timeline (the Exact demo had
+seven handbacks in the chat; the history shows six rounds), which is one
+more reason to hand back every round. A last run of agent edits he hasn't
+touched shows as a round not reviewed yet.
+
+The words of older comments come from the saved files: `.tandem/backups`
+and the snapshot beside each export hold the comments on the timeline when
+they were saved, and each is matched to the "Add comment" edit between the
+last save without it and the first with it. Backups thin out over time,
+so some old comments have no words left anywhere, and it says how many.
+The themes come from a keyword classifier (the theme whose words come
+first wins), so read the comments themselves before drawing a lesson.
+
+At sign-off, before the final export, add the video to the channel's log
+and compare it with the videos before it:
+
+```
+tandem rounds --log ~/dev/convex/convex-videos/review-log.jsonl
+tail -5 ~/dev/convex/convex-videos/review-log.jsonl
+```
+
+Each line is one video (name, path, first and last dates, rounds,
+comments in each round, by theme, Mike's trims), and running it again
+replaces that video's line. Put what the comments keep asking for into
+the tandem skill, so the next video's first handback already has it.
+It only reads files, so the project can be open in the app.
 
 ## Export a review clip
 

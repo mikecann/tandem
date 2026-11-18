@@ -116,13 +116,16 @@ a question.
 ```
 {"revision": 4, "undo": [{"label", "author", "start"?, "end"?, "tracks"?}],  // newest first
  "redo"?: "label", "events": [{"seq", "kind", "date", "revision"?, "label"?, "author"?}],
- "edits"?: [{"revision", "kind", "label", "author", "date", "start"?, "end"?, "tracks"?, "summary"?}]}  // newest first
+ "edits"?: [{"revision", "kind", "label", "author", "date", "start"?, "end"?, "tracks"?, "summary"?,
+             "comments"?: [{"id", "time", "text"}], "handedBack"?: 3}]}  // newest first
 ```
 
 `events` are the changes this server saw; `edits` is the edit history,
-which lasts across restarts. `kind` is `edit`, `undo`, `redo`, `reload`
-or `opened` (where the history starts again). `tracks` are labels like
-`"V2 Camera"`.
+which lasts across restarts. `kind` is `edit`, `undo`, `redo`, `reload`,
+`opened` (where the history starts again) or `handback` (an agent handed
+the round back, with `handedBack` things to look at; not a change).
+`comments` are the comments an edit added or reworded, with their words.
+`tracks` are labels like `"V2 Camera"`.
 
 ## diff
 

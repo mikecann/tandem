@@ -47,7 +47,7 @@ extension Editing {
     /// hand-made ones included.
     static let privacyTrackPrefix = "privacy ("
 
-    static func isPrivacyTrack(_ track: Track) -> Bool {
+    public static func isPrivacyTrack(_ track: Track) -> Bool {
         track.name.lowercased().hasPrefix(privacyTrackPrefix)
     }
 

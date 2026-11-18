@@ -185,3 +185,77 @@ final class EditHistoryTests: XCTestCase {
         recorder.close()
     }
 }
+
+/// What the history keeps for `tandem rounds`: the words of Mike's
+/// comments, and each time an agent handed a round back.
+final class ReviewHistoryTests: XCTestCase {
+    private var folder: URL!
+
+    override func setUpWithError() throws {
+        folder = FileManager.default.temporaryDirectory.appendingPathComponent("tandem-review-history-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+    }
+
+    override func tearDownWithError() throws {
+        try? FileManager.default.removeItem(at: folder)
+    }
+
+    private var logURL: URL { folder.appendingPathComponent("Fixture.history.jsonl") }
+
+    func testACommentsWordsAndTimeAreKeptWhenItsAddedOrEdited() throws {
+        let (f, c) = try Fixture.edited()
+        let recorder = HistoryRecorder(coordinator: c, url: logURL)
+        try c.apply(XCTUnwrap(CommentEdits.add("Cut the umm here", at: t(12), id: "mk_umm")))
+        try c.apply(XCTUnwrap(CommentEdits.edit(XCTUnwrap(c.project.comments.first), to: "Cut the umm and the breath")))
+        try c.run("Gain", .updateClip(clipID: f.clips("Music")[0].id, patch: .object(["audio": .object(["gainDB": .number(-6)])])))
+        var resolve = CommentEdits.remove(["mk_umm"], label: "Resolve comment")
+        resolve.author = "claude"
+        try c.apply(resolve)
+        recorder.close()
+
+        let records = EditHistoryLog(url: logURL).records()
+        XCTAssertEqual(records.map(\.label), ["Opened", "Add comment", "Edit comment", "Gain", "Resolve comment"])
+        XCTAssertEqual(records[1].comments, [HistoryComment(id: "mk_umm", time: t(12), text: "Cut the umm here")])
+        XCTAssertEqual(records[2].comments, [HistoryComment(id: "mk_umm", time: t(12), text: "Cut the umm and the breath")])
+        XCTAssertNil(records[3].comments, "no comment changed")
+        XCTAssertNil(records[4].comments, "taking one away keeps no words")
+    }
+
+    func testAHandbackIsARowOfItsOwnThatTheChainStepsOver() throws {
+        let (f, c) = try Fixture.edited()
+        let recorder = HistoryRecorder(coordinator: c, url: logURL)
+        try c.run("Gain", .updateClip(clipID: f.clips("Music")[0].id, patch: .object(["audio": .object(["gainDB": .number(-6)])])))
+        let before = TimelineClips(c.project)
+        try c.run("Trim", .trim(clipID: f.clips("B-roll")[0].id, edge: .end, to: t(24), ripple: nil, includeLinked: nil))
+        recorder.handedBack(by: "claude", count: 3)
+        try c.run("Gain again", .updateClip(clipID: f.clips("Music")[0].id, patch: .object(["audio": .object(["gainDB": .number(-9)])])))
+        let records = recorder.records()
+        recorder.close()
+
+        let handback = try XCTUnwrap(records.first { $0.kind == .handback })
+        XCTAssertEqual(handback.author, "claude")
+        XCTAssertEqual(handback.revision, 3, "the revision it was handed back at")
+        XCTAssertEqual(handback.handedBack, 3)
+        XCTAssertEqual(records.map(\.kind), [.opened, .edit, .edit, .handback, .edit])
+        let walk = try HistoryChain.walk(records, current: TimelineClips(c.project), currentRevision: c.revision, back: 2)
+        XCTAssertEqual(walk.records.map(\.label), ["Trim", "Gain again"], "the handback isn't an edit to undo")
+        XCTAssertTrue(walk.states[0].matches(before))
+        XCTAssertEqual(HistoryChain.earliest(records, currentRevision: c.revision), 1)
+    }
+
+    /// Old files have neither, and a newer Tandem's rows of a kind this one
+    /// doesn't know are skipped rather than spoiling the rest.
+    func testOldAndNewerHistoryStillReads() throws {
+        try Data("""
+        {"author":"system","date":"2026-11-12T03:37:05Z","kind":"opened","label":"Opened","revision":0}
+        {"author":"user","date":"2026-11-12T04:25:05Z","kind":"edit","label":"Add comment","revision":1,"summary":"markers"}
+        {"author":"claude","date":"2026-11-12T04:26:05Z","kind":"somethingNewer","label":"?","revision":1}
+        {"author":"claude","date":"2026-11-12T04:27:05Z","handedBack":2,"kind":"handback","label":"Hand back","revision":1}
+
+        """.utf8).write(to: logURL)
+        let records = EditHistoryLog(url: logURL).records()
+        XCTAssertEqual(records.map(\.kind), [.opened, .edit, .handback])
+        XCTAssertNil(records[1].comments)
+        XCTAssertEqual(records[2].handedBack, 2)
+    }
+}

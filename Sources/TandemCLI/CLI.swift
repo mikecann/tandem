@@ -108,6 +108,16 @@ struct CLI {
             if paths.isEmpty, let given = args.options["project"] { paths = [given] }
             let projects = try ProjectLocator.all(paths, in: directory)
             return show(await ProjectsWaiting.read(projects, author: author(args)), json: json)
+        case "rounds":
+            // Reads the files and opens nothing, so it never takes a
+            // project the app has open (see ReviewRounds).
+            try args.expectPositionals(atMost: 1, command: name)
+            let url = try ProjectLocator.find(args.positionals.first ?? args.options["project"], in: directory, environment: environment)
+            var result = try ReviewRounds.read(url)
+            if let log = args.options["log"] {
+                result.logged = try ReviewRounds.log(result, to: URL(fileURLWithPath: absolute(log)))
+            }
+            return show(result, json: json)
         case "archive":
             try args.expectPositionals(atMost: 1, command: name)
             if args.has("with-cache"), args.options["to"] == nil {

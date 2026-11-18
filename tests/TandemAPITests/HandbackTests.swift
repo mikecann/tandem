@@ -62,6 +62,26 @@ final class HandbackTests: XCTestCase {
         XCTAssertTrue(nothing.readableText.hasPrefix("Nothing handed back is waiting (revision 2)"), nothing.readableText)
     }
 
+    /// Each handback is a row in the edit history, where `tandem rounds`
+    /// reads where one round ends; listing what's waiting isn't one.
+    func testEachHandbackIsKeptInTheHistory() throws {
+        let h = try ServiceHarness()
+        defer { h.close() }
+        try h.apply(.addMarker(marker: Marker(time: t(3), name: "Chapter")), label: "Marker")
+        _ = try h.service.handback(HandbackRequest(notes: [HandbackNote(at: t(10), name: "The new shot"), HandbackNote(at: t(20), name: "The old shot")]), context: h.context)
+        _ = try h.service.handback(HandbackRequest(), context: h.context)
+        _ = try h.service.handback(HandbackRequest(notes: []), context: h.context)
+        let rows = h.session.history.records().filter { $0.kind == .handback }
+        XCTAssertEqual(rows.map(\.handedBack), [2, 0])
+        XCTAssertEqual(rows.map(\.author), ["claude", "claude"])
+        XCTAssertEqual(rows.map(\.revision), [2, 2])
+
+        try h.apply(.addMarker(marker: Marker(id: "mk_umm", time: t(12), name: "Cut the umm here", kind: .comment)), label: "Add comment")
+        let history = h.service.history(limit: 20).readableText
+        XCTAssertTrue(history.contains("Handed back 2 things to look at  (claude)"), history)
+        XCTAssertTrue(history.contains("Add comment  (claude)  markers  at 00:12.000: \"Cut the umm here\""), history)
+    }
+
     func testBadNotesAreRefusedWithTheReason() throws {
         let h = try ServiceHarness()
         defer { h.close() }
