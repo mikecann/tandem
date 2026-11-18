@@ -427,7 +427,9 @@ public enum CutListen {
                 let how: Difference? = said[i].lowercased().filter(\.isLetter) == heard[j].lowercased().filter(\.isLetter) ? nil : .loose("the same word written differently")
                 return (far, how)
             }
-            if similar(a[i], b[j]) { return (0.5 + far, .near) }
+            // A word with a number in it is heard whole or not: "little3"
+            // for "little3D" is the D cut off, not an ending.
+            if !said[i].contains(where: \.isNumber), similar(a[i], b[j]) { return (0.5 + far, .near) }
             return (1 + far, .different)
         }
         var table = [[Double]](repeating: [Double](repeating: .infinity, count: m + 1), count: n + 1)

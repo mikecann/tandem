@@ -669,6 +669,8 @@ public enum QualityCheck {
         for track in project.videoTracks.reversed() where !track.hidden {
             guard let clip = track.clip(at: time), clip.enabled else { continue }
             if case .adjustment = clip.content { continue }
+            // Faded right out, it doesn't show.
+            if clip.resolvedVideo(at: time - clip.start).opacity <= 0.01 { continue }
             shown.append(clip)
             let item = clip.mediaID.flatMap { project.media($0) }
             if case .media = clip.content, let item, !(item.hasVideo || item.kind == .image) || item.hasAlpha { continue }
@@ -676,12 +678,18 @@ public enum QualityCheck {
             if case .text = clip.content { continue }
             if case .graphic = clip.content { continue }
             // In a transition the shot is part see-through, or pushing.
-            let inTransition = track.transitions.contains { transition in
+            // The other clip in it shows too, from its handle.
+            let clips = Dictionary(track.clips.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+            let transitions = track.transitions.filter { transition in
                 guard transition.fromClipID == clip.id || transition.toClipID == clip.id else { return false }
-                let clips = Dictionary(track.clips.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
                 return ReviewLog.span(of: transition, clips: clips).map { $0.start <= time && time <= $0.end } ?? false
             }
-            if !inTransition, fillsFrame(clip, item: item, at: time, in: project) { break }
+            for transition in transitions {
+                for id in [transition.fromClipID, transition.toClipID].compactMap({ $0 }) where id != clip.id {
+                    if let other = clips[id], other.enabled { shown.append(other) }
+                }
+            }
+            if transitions.isEmpty, fillsFrame(clip, item: item, at: time, in: project) { break }
         }
         return shown
     }

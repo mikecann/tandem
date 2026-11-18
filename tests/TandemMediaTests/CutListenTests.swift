@@ -43,6 +43,9 @@ final class CutListenTests: XCTestCase {
         let cut = CutListen.compare(said: words("build this whole little3D | world with robots"),
                                     heard: words("build this whole little three | world with robots"), at: 10)
         XCTAssertTrue(cut.clipped, "\(cut.findings)")
+        let one = CutListen.compare(said: words("build this whole little3D | world with robots"),
+                                    heard: words("build this whole little3 | world with robots"), at: 10)
+        XCTAssertTrue(one.clipped, "\(one.findings)")
         XCTAssertEqual(CutListen.canonical("mp4"), "mpfour")
         XCTAssertEqual(CutListen.canonical("2026"), "twothousandtwentysix")
     }

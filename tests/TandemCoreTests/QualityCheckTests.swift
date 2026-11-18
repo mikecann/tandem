@@ -298,6 +298,25 @@ final class QualityCheckTests: XCTestCase {
         XCTAssertEqual(over(scale: 0.5), [.whiteBlock], "the camera shows round the page")
     }
 
+    func testWhatShowsIsWhatsSeen() {
+        let camera = MediaItem(id: "med_c", path: "source/camera.mov", kind: .video, role: .camera, duration: t(60), width: 3840, height: 2160, hasVideo: true)
+        let page = MediaItem(id: "med_p", path: "broll/page.mp4", kind: .video, role: .broll, duration: t(60), width: 3840, height: 2160, hasVideo: true)
+        // A camera faded right out over the page doesn't show.
+        var faded = Clip(id: "clip_c", content: .media(mediaID: "med_c"), start: .zero, duration: t(60))
+        faded.video = VideoProperties(opacity: 0)
+        var p = project([Clip(id: "clip_p", content: .media(mediaID: "med_p"), start: .zero, duration: t(60))], media: [camera, page])
+        p.videoTracks.append(Track(id: "trk_top", kind: .video, name: "Top", clips: [faded]))
+        XCTAssertEqual(QualityCheck.shownPictures(at: t(5), in: p).map(\.id), ["clip_p"])
+        // In a dissolve from the page to the camera on one track, both show,
+        // the camera from its handle before the cut.
+        let from = Clip(id: "clip_p", content: .media(mediaID: "med_p"), start: .zero, duration: t(10))
+        let to = Clip(id: "clip_c", content: .media(mediaID: "med_c"), start: t(10), duration: t(10), sourceStart: t(5))
+        var q = project([from, to], media: [camera, page])
+        q.videoTracks[0].transitions = [Transition(type: .dissolve, duration: t(1), fromClipID: "clip_p", toClipID: "clip_c")]
+        XCTAssertEqual(Set(QualityCheck.shownPictures(at: t(9.7), in: q).map(\.id)), ["clip_p", "clip_c"])
+        XCTAssertEqual(QualityCheck.shownPictures(at: t(5), in: q).map(\.id), ["clip_p"])
+    }
+
     // MARK: - Measuring
 
     func testTilesKnowGreenScreenAndWhite() {
