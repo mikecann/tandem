@@ -479,11 +479,28 @@ public enum CutListen {
     ]
 
     /// Lower case letters and digits only, numbers as words, and spoken
-    /// forms spelled out ("wanna" is "wantto").
+    /// forms spelled out ("wanna" is "wantto"). A number inside a word is
+    /// spelled out too: on the Examples Page video (18 Nov 2026) the take's
+    /// transcript had "little3D" and Bark heard "little three D", every
+    /// sound of it, so "little3D" is "littlethreed".
     static func canonical(_ text: String) -> String {
         let plain = text.lowercased().filter { $0.isLetter || $0.isNumber }
         if let number = Int(plain), number >= 0 { return numberWords(number) }
-        return spoken[plain] ?? plain
+        if let spelled = spoken[plain] { return spelled }
+        guard plain.contains(where: \.isNumber), plain.contains(where: \.isLetter) else { return plain }
+        var out = "", digits = ""
+        func flush() {
+            if let number = Int(digits) { out += numberWords(number) } else { out += digits }
+            digits = ""
+        }
+        for character in plain {
+            if character.isNumber { digits.append(character) } else {
+                flush()
+                out.append(character)
+            }
+        }
+        flush()
+        return out
     }
 
     /// "15" as "fifteen", "2026" as "twothousandtwentysix": how the

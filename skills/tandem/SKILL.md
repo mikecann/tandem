@@ -144,7 +144,11 @@ rounds up.
 
    Fix each note or give the reason it stays when you hand back
    (`--reason "deadAir 3:56 the build animation plays here"`); the
-   hand-back lists any you haven't.
+   hand-back lists any you haven't. A problem you've looked at or
+   listened to and found a false alarm takes a `--reason` too, saying
+   what you saw (`--reason "whiteBlock 1:08.3 an empty ad slot on the real
+   page"`); tell Mike which in your message. Don't use `--unchecked` for
+   those: it says the checks didn't run.
 5. **Hand back.** Open the project in the app for Mike with
    `open "<video folder>/<name>.tandem"` (skip it if `tandem status` says
    the app already has it open), rather than asking him to open it. Then

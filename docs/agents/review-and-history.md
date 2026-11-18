@@ -22,7 +22,10 @@ their own beside it, and reports, with the clips on screen there:
   the last line is a `tandem apply` that makes them all. One at a cut is
   usually a frame of the wrong shot: trim it instead;
 - green screen that didn't key, and flat white blocks that come and go
-  (a key or matte that failed);
+  (a key or matte that failed), where something on screen could have a
+  key or matte: not over B-roll or a screen recording with no cutout on,
+  which is footage shown as it is (a web page's white ad slot, a quiz's
+  green right answer);
 - double jumps: full-frame B-roll (or a solid) over the take that starts
   within 0.75 s after a cut in the take or ends within 0.75 s before one,
   so the viewer sees the camera change and a few frames later the shot,
@@ -658,12 +661,14 @@ at refuses, saying what to run, until all of these hold since the last
 agent edit:
 
 - a rendering `tandem check` (not `--quick` or `--privacy`) covered every
-  change waiting for review (`--changed` does) and found no problems;
+  change waiting for review (`--changed` does);
 - if the round cut the take (a ripple delete or trim on a `cut` track),
-  `tandem check --changed --cuts --listen` covered those cuts too, with no
-  problems;
-- every note those checks left is fixed (a later check no longer finds it)
-  or answered with a reason.
+  `tandem check --changed --cuts --listen` covered those cuts too;
+- every problem and note those checks left is fixed (a later check no
+  longer finds it) or answered with a reason. Fix problems: answer one
+  only when you've looked or listened and it's a false alarm, and say
+  what you saw. The history keeps those answers, and the hand-back asks
+  you to tell Mike which they were.
 
 Mike's own edits after the check, Tandem finding new media and an agent
 only resolving comments don't count against it; any other agent edit does,
@@ -678,7 +683,7 @@ tandem handback '{"notes": [{"at": "3:50", "name": "The build animation"}], "rea
 tandem handback --at 3:50 --name "The build animation" --unchecked "Bark isn't downloaded on this Mac, so --listen can't run"
 ```
 
-A reason names the note's kind and a time within about a second of its
+A reason names the problem's or note's kind and a time within about a second of its
 stretch, as the refusal lists them (`  deadAir  03:56.000-03:56.800  Dead
 air: ...` with the `--reason` to copy under it). A join `--listen` heard
 whole needs none. `--unchecked` hands back anyway and keeps your reason in

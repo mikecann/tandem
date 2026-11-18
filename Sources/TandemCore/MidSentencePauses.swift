@@ -225,7 +225,10 @@ extension QualityCheck {
     /// deliberate beat included.
     static func midSentenceFix(_ pause: HeardPause, from: Time, to: Time) -> String {
         let file = "/tmp/pause-\(Int((from.seconds * 1000).rounded())).json"
-        return "tandem tighten --filmora --from \(from) --to \(to) --kinds \(file), set its pauses' kind to mid, then the same with --apply"
+        // "--kinds <file>" read as a file to have already, and on the
+        // Examples Page video (18 Nov 2026) an agent wrote one by hand, which
+        // didn't read. So it says the dry run writes it.
+        return "tandem tighten --filmora --from \(from) --to \(to) --kinds \(file) (a dry run, which writes that file), set its pauses' kind to mid, then the same with --apply"
     }
 
     /// Notes for pauses of `midSentencePauseMinimum` or more, heard, in the

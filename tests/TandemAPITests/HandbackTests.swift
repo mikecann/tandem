@@ -193,6 +193,40 @@ final class HandbackGateServiceTests: XCTestCase {
         XCTAssertTrue(history.contains("tandem check --changed --quick (quick)"), history)
     }
 
+    func testAProblemCanBeAnsweredAsAFalseAlarmAndTheHistoryKeepsIt() async throws {
+        // The Examples Page video (18 Nov 2026): white on a real web page,
+        // over the camera here, read as a white block.
+        var renderer = FakeRenderer()
+        renderer.scanned = stride(from: 39.5, to: 44.5 - 0.0001, by: 1.0 / 30).map { seconds in
+            let lit = abs(seconds - 42) < 0.001
+            return FrameStats(time: Time(seconds: seconds), luma: 0.4, brightestTile: 0.4, flatGreen: 0, flatWhite: lit ? 0.3 : 0,
+                              thumbnail: [UInt8](repeating: 100, count: 16))
+        }
+        let h = try ServiceHarness(renderer: renderer)
+        defer { h.close() }
+        try addShot(h)
+        let checked = try await CheckRequest(changed: true).run(on: h.service, context: h.context)
+        XCTAssertEqual(checked.problems.map(\.kind), [.whiteBlock], "\(checked.problems.map(\.message))")
+        XCTAssertEqual(h.session.history.records().last?.check?.found?.map(\.kind), ["whiteBlock"], "the check keeps its problems")
+        let reasons = checked.notes.map { HandbackReason(kind: $0.kind.rawValue, at: $0.start, why: "fine") }
+
+        let refused = refusal(h, reasons: reasons)
+        XCTAssertTrue(refused.hasPrefix("Not handed back. The checks found a problem. Fix each one and check again. If one is a false alarm"), refused)
+        XCTAssertTrue(refused.contains("    --reason \"whiteBlock 00:42.000 <why>\""), refused)
+
+        let why = "an empty ad slot on the real web page"
+        let handed = try h.service.handback(HandbackRequest(notes: look, reasons: reasons + [HandbackReason(kind: "whiteBlock", at: t(42), why: why)]), context: h.context)
+        XCTAssertEqual(handed.recorded, 1)
+        XCTAssertEqual(handed.overruled, ["whiteBlock at 00:42.000: \(why)"])
+        XCTAssertTrue(handed.readableText.contains("Tell Mike in your message which ones and why"), handed.readableText)
+        let row = try XCTUnwrap(h.session.history.records().last)
+        XCTAssertEqual(row.kind, .handback)
+        XCTAssertNil(row.unchecked, "it was checked")
+        XCTAssertEqual(row.overruled, ["whiteBlock at 00:42.000: \(why)"])
+        let history = h.service.history(limit: 5).readableText
+        XCTAssertTrue(history.contains("false alarm, it said: whiteBlock at 00:42.000: \(why)"), history)
+    }
+
     func testNothingWaitingWithdrawingAndListingArentGated() throws {
         let h = try ServiceHarness()
         defer { h.close() }

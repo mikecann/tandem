@@ -144,6 +144,9 @@ public struct HandbackResult: Codable, Sendable {
     public var answered: Int?
     /// Reasons that matched no note the checks left, as "deadAir at 01:00.000".
     public var unmatched: [String]?
+    /// The checks' problems the reasons called false alarms, each as
+    /// "kind at time: why".
+    public var overruled: [String]?
     /// Handed back without the checks, for this reason.
     public var unchecked: String?
 }
@@ -156,6 +159,10 @@ extension HandbackResult: ReadableResult {
             if recorded > 7 { lines.append("That's a lot for a walkthrough: two to five is the idea, the places that carry the round's risk.") }
             if let unchecked {
                 lines.append("Handed back without Tandem's checks (\"\(CommentEdits.oneLine(unchecked))\"), which the history keeps. Say so to Mike in your message: that this round wasn't checked, and why.")
+            }
+            if let overruled, !overruled.isEmpty {
+                let count = overruled.count
+                lines.append("Your reasons answered \(count == 1 ? "a problem" : "\(count) problems") the checks found, as false alarms, which the history keeps: \(overruled.map(CommentEdits.oneLine).joined(separator: "; ")). Tell Mike in your message which ones and why, so he can look.")
             }
             if let answered, answered > 0 {
                 lines.append("Your reasons answered \(answered == 1 ? "the 1 note" : "the \(answered) notes") the checks left.")
@@ -194,6 +201,7 @@ extension TandemService {
         var answered: Int?
         var unmatched: [String]?
         var uncheckedReason: String?
+        var overruled: [String]?
         if let given = request.notes {
             let notes = try given.map { try Self.reviewNote($0, author: context.author, revision: revision, duration: project.duration) }
             // Withdrawing (an empty list) hands nothing back, so it isn't
@@ -209,6 +217,7 @@ extension TandemService {
                     let verdict = handbackVerdict(request.reasons ?? [], project: project)
                     if let refusal = Self.refusal(verdict, log: session.review.log) { throw ServiceError(.invalid, refusal) }
                     answered = verdict.answered
+                    overruled = verdict.overruled.isEmpty ? nil : verdict.overruled
                     unmatched = verdict.unmatched.isEmpty ? nil : verdict.unmatched.map { "\($0.kind) at \($0.at)" }
                 }
             }
@@ -219,7 +228,7 @@ extension TandemService {
             // checks. Withdrawing (an empty list) isn't one: `tandem rounds`
             // would read it as a round handed back.
             if !notes.isEmpty {
-                session.history.handedBack(by: context.author, count: notes.count, unchecked: uncheckedReason)
+                session.history.handedBack(by: context.author, count: notes.count, unchecked: uncheckedReason, overruled: overruled)
             }
             recorded = notes.count
         } else {
@@ -231,7 +240,7 @@ extension TandemService {
             return LookHere(note, comments: near.map { NoteComment(id: $0.id, time: $0.time, text: $0.name) })
         }
         return HandbackResult(
-            revision: revision, recorded: recorded, notes: waiting, answered: answered, unmatched: unmatched,
+            revision: revision, recorded: recorded, notes: waiting, answered: answered, unmatched: unmatched, overruled: overruled,
             unchecked: recorded.map { $0 > 0 } == true ? request.unchecked.map { CommentEdits.oneLine($0).trimmingCharacters(in: .whitespacesAndNewlines) } : nil
         )
     }
@@ -269,11 +278,21 @@ extension TandemService {
                 let some = uncovered.count < verdict.waiting.count ? " (the checks since the last agent edit missed \(batches(uncovered)))" : ""
                 lines.append("Tandem hasn't checked this round since the last agent edit\(some). Run tandem check --changed, fix every problem it finds, then hand back again.\(since(stale))")
             case .renderProblems(let count, let revision):
+                // Only a check from before checks kept their problems.
                 lines.append("tandem check (revision \(revision)) found \(count == 1 ? "a problem" : "\(count) problems"). Fix \(count == 1 ? "it" : "them"), run tandem check --changed again, then hand back.")
             case .listen(let uncovered, let stale):
                 lines.append("This round cut the take (\(batches(uncovered))), so also run tandem check --changed --cuts --listen and judge each cut it flags by ear.\(since(stale))")
             case .listenProblems(let count, let revision):
                 lines.append("tandem check --cuts --listen (revision \(revision)) found \(count == 1 ? "a problem" : "\(count) problems") at the cuts. Fix \(count == 1 ? "it" : "them") and run it again.")
+            }
+        }
+        if !verdict.unansweredProblems.isEmpty {
+            let count = verdict.unansweredProblems.count
+            lines.append("The checks found \(count == 1 ? "a problem" : "\(count) problems"). Fix each one and check again. If one is a false alarm (look at the frames, or listen with tandem clip, first), say what you saw: --reason \"<kind> <time> <why>\" for it, which the history keeps for Mike:")
+            for problem in verdict.unansweredProblems {
+                let when = problem.start == problem.end ? "\(problem.start)" : "\(problem.start)-\(problem.end)"
+                lines.append("  \(problem.kind)  \(when)  \(problem.message)")
+                lines.append("    --reason \"\(problem.kind) \(problem.start) <why>\"")
             }
         }
         if !verdict.unanswered.isEmpty {

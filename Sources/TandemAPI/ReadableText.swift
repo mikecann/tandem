@@ -508,6 +508,7 @@ extension HistoryResult: ReadableResult {
                 let count = edit.handedBack ?? 0
                 let unchecked = edit.unchecked.map { ", without the checks: \"\($0)\"" } ?? ""
                 lines.append(line + "Handed back \(count == 1 ? "1 thing" : "\(count) things") to look at\(unchecked)  (\(edit.author))")
+                for why in edit.overruled ?? [] { lines.append("      false alarm, it said: \(CommentEdits.oneLine(why))") }
                 index += 1
                 continue
             }

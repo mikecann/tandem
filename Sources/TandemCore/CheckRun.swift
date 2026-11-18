@@ -86,6 +86,10 @@ public struct CheckRun: Codable, Equatable, Sendable {
     /// it read.
     public var ranges: [TimeRange]
     public var problems: Int
+    /// The problems themselves, so a hand-back can answer a false alarm
+    /// with a reason. Nil in checks from before 18 Nov 2026, whose
+    /// problems can only be fixed.
+    public var found: [Note]?
     public var notes: [Note]
     /// The agent batches waiting for review that it covered, by the
     /// revision each made (`ReviewEntry.revision`): with `full`, every
@@ -94,11 +98,12 @@ public struct CheckRun: Codable, Equatable, Sendable {
     /// work out where those stretches are now, after Mike's own edits.
     public var covers: [Int]
 
-    public init(scope: Scope, mode: Mode, ranges: [TimeRange], problems: Int, notes: [Note], covers: [Int] = []) {
+    public init(scope: Scope, mode: Mode, ranges: [TimeRange], problems: Int, found: [Note]? = nil, notes: [Note], covers: [Int] = []) {
         self.scope = scope
         self.mode = mode
         self.ranges = ranges
         self.problems = problems
+        self.found = found
         self.notes = notes
         self.covers = covers
     }
@@ -142,7 +147,14 @@ public struct CheckRun: Codable, Equatable, Sendable {
 
 /// What `tandem handback` asks of a round before it hands it back with
 /// things to look at: the checks ran on it since the agents last edited,
-/// found nothing wrong, and every note they left is answered.
+/// and every problem and note they left is fixed or answered.
+///
+/// A problem can be answered too. The frame and cut checks are heuristics,
+/// and on the Examples Page video (18 Nov 2026) three false alarms (an ad
+/// slot's white on a real web page, the green in a quiz, a word written
+/// "little3D" heard as "little three D") left the agent only --unchecked,
+/// which threw away that the checks had run. An answered problem is kept
+/// in the history with its reason, and the agent tells Mike.
 public enum HandbackGate {
     /// An agent's answer to a note it keeps: the note's kind, a time in it
     /// (within about a second of its stretch), and why it stays.
@@ -169,7 +181,9 @@ public enum HandbackGate {
         /// No rendering check covers these batches since the agents' last
         /// edit. `stale` is the revision of a check that did, before it.
         case render(uncovered: [Int], stale: Int?)
-        /// The newest rendering check that covers them found problems.
+        /// The newest rendering check that covers them found problems, and
+        /// didn't keep them (a check from an older Tandem), so they can't
+        /// be answered.
         case renderProblems(count: Int, revision: Int)
         /// No `--cuts --listen` check covers these batches' cuts in the take.
         case listen(uncovered: [Int], stale: Int?)
@@ -183,15 +197,21 @@ public enum HandbackGate {
         public var needs: [Need] = []
         /// The checks' notes with no answer.
         public var unanswered: [CheckRun.Note] = []
+        /// The checks' problems with no answer: fix them, or say why each
+        /// is a false alarm.
+        public var unansweredProblems: [CheckRun.Note] = []
         /// How many notes the answers covered.
         public var answered = 0
+        /// The problems answered, each as "kind at time: why", for the
+        /// history and for Mike.
+        public var overruled: [String] = []
         /// Answers that match no note the checks left.
         public var unmatched: [Answer] = []
         /// The newest agent edit after the checks the gate looked at, when
         /// there is one: why an earlier check doesn't count.
         public var lastAgentEdit: Int?
 
-        public var passes: Bool { needs.isEmpty && unanswered.isEmpty }
+        public var passes: Bool { needs.isEmpty && unanswered.isEmpty && unansweredProblems.isEmpty }
     }
 
     /// The cuts each waiting batch made in the take, where they are now:
@@ -257,7 +277,9 @@ public enum HandbackGate {
             for check in current where modes.contains(check.run.mode) {
                 let mine = left.intersection(check.run.covers)
                 guard !mine.isEmpty else { continue }
-                if check.run.problems > 0 {
+                // Problems the check kept can be answered like notes; a
+                // check that only counted them has to run again.
+                if check.run.problems > 0, (check.run.found?.count ?? -1) != check.run.problems {
                     return (chosen, listening ? .listenProblems(count: check.run.problems, revision: check.revision) : .renderProblems(count: check.run.problems, revision: check.revision))
                 }
                 chosen.append(check.run)
@@ -273,30 +295,45 @@ public enum HandbackGate {
         verdict.needs = [render.need, listen.need].compactMap { $0 }
         guard verdict.needs.isEmpty else { return verdict }
 
-        // Every note the checks relied on, once: two checks of the same
-        // stretch leave the same notes.
-        var notes: [CheckRun.Note] = []
-        for note in (render.chosen + listen.chosen).flatMap(\.notes) where !needsNoAnswer.contains(note.kind) {
-            if !notes.contains(where: { $0.kind == note.kind && $0.start == note.start && $0.end == note.end }) { notes.append(note) }
+        // Every problem and note the checks relied on, once: two checks of
+        // the same stretch leave the same ones.
+        func distinct(_ list: [CheckRun.Note]) -> [CheckRun.Note] {
+            var out: [CheckRun.Note] = []
+            for note in list where !out.contains(where: { $0.kind == note.kind && $0.start == note.start && $0.end == note.end }) { out.append(note) }
+            return out
         }
+        let chosen = render.chosen + listen.chosen
+        let problems = distinct(chosen.flatMap { $0.found ?? [] })
+        let notes = distinct(chosen.flatMap(\.notes).filter { !needsNoAnswer.contains($0.kind) })
         var used = Set<Int>()
-        for note in notes {
+        func answer(_ note: CheckRun.Note) -> Int? {
             // One reason answers one note: a reason for the comments sting
             // doesn't also dismiss the subscribe sting beside it.
-            let answer = answers.indices.first { index in
+            let found = answers.indices.first { index in
                 guard !used.contains(index) else { return false }
                 let given = answers[index]
                 return sameKind(given.kind, note.kind) && note.start - answerReach <= given.at && given.at <= note.end + answerReach
                     && !given.why.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             }
-            if let answer {
-                used.insert(answer)
+            if let found { used.insert(found) }
+            return found
+        }
+        for problem in problems {
+            if let index = answer(problem) {
+                verdict.overruled.append("\(problem.kind) at \(problem.start): \(answers[index].why.trimmingCharacters(in: .whitespacesAndNewlines))")
+            } else {
+                verdict.unansweredProblems.append(problem)
+            }
+        }
+        for note in notes {
+            if answer(note) != nil {
                 verdict.answered += 1
             } else {
                 verdict.unanswered.append(note)
             }
         }
         verdict.unanswered.sort { ($0.start, $0.kind) < ($1.start, $1.kind) }
+        verdict.unansweredProblems.sort { ($0.start, $0.kind) < ($1.start, $1.kind) }
         verdict.unmatched = answers.indices.filter { !used.contains($0) }.map { answers[$0] }
         return verdict
     }

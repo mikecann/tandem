@@ -477,6 +477,17 @@ extension CutCheck {
                 note.message = "Heard whole at the join, so not clipped: \(why). The check said: \(note.message) \(words)"
                 result.notes.append(note)
             }
+            for (flag, margin) in verdict.tooClose {
+                // Every word is heard, but this close to the speech level
+                // the engine fills in what a cut takes: on the Examples Page
+                // video (18 Nov 2026) "if you like" was heard whole at a join
+                // the levels flagged, and the agent had no way to say it had
+                // listened. So the problem says why it stands, and how to
+                // answer it once heard.
+                let index = here[flag]
+                let db = String(format: "%.1f", margin)
+                levels[index].message += " Every kept word is heard whole, but the clip at the cut is only \(db) dB under the speech, where the engine fills in a clipped word, so listening can't clear it. Listen with tandem clip: recut it, or if it's whole, answer it at hand-back with --reason \"clippedWord \(levels[index].start) <what you heard>\"."
+            }
             let kept = here.filter { !dismissed.contains($0) }
             func said(_ index: Int) -> String {
                 let finding = join.findings[index]

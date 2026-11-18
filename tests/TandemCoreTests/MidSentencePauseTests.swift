@@ -83,6 +83,7 @@ final class MidSentencePauseTests: XCTestCase {
         XCTAssertTrue(message.contains("using. [0.80 s] The latest"), message)
         XCTAssertTrue(message.contains("full stop after \"using\""), message)
         XCTAssertTrue(message.contains("tandem tighten --filmora --from 00:40.500 --to 00:42.300 --kinds /tmp/pause-"), message)
+        XCTAssertTrue(message.contains(".json (a dry run, which writes that file), set its pauses' kind to mid"), message)
         XCTAssertEqual(found.first?.start, t(41.0))
         XCTAssertEqual(found.first?.clipIDs, ["clip_voice"])
     }

@@ -259,6 +259,26 @@ final class QualityCheckTests: XCTestCase {
         XCTAssertTrue(white([0.1, 0.1] + Array(repeating: 0.13, count: 8) + [0.1]).isEmpty, "it was there before and after")
     }
 
+    func testGreenAndWhiteInFootageShownAsItIsArentAFailedKey() {
+        // The Examples Page video (18 Nov 2026): a web page's empty white ad
+        // slot, and a quiz's green right answer, in B-roll and a screen
+        // recording with no cutout on.
+        func found(_ role: MediaRole, cutout: Bool = false) -> [CheckProblem.Kind] {
+            let item = MediaItem(id: "med_f", path: "broll/page.mp4", kind: .video, role: role, duration: t(60), width: 1920, height: 1080, hasVideo: true)
+            var clip = Clip(id: "clip_f", content: .media(mediaID: "med_f"), start: .zero, duration: t(60))
+            if cutout { clip.video = VideoProperties(cutout: Cutout()) }
+            let shares = [0, 0] + Array(repeating: 0.13, count: 8) + [0, 0]
+            return QualityCheck.frameProblems(frames([UInt8](repeating: 100, count: shares.count)) { index, stats in
+                stats.flatWhite = shares[index]
+                stats.flatGreen = shares[index] > 0 ? 0.03 : 0
+            }, in: project([clip], media: [item])).map(\.kind)
+        }
+        XCTAssertEqual(found(.broll), [], "a web page in B-roll, as it is")
+        XCTAssertEqual(found(.screen), [], "a screen recording, as it is")
+        XCTAssertEqual(found(.broll, cutout: true), [.unkeyed, .whiteBlock], "with a cutout on, a matte could have failed")
+        XCTAssertEqual(found(.camera), [.unkeyed, .whiteBlock], "the camera could have a green screen behind it")
+    }
+
     // MARK: - Measuring
 
     func testTilesKnowGreenScreenAndWhite() {

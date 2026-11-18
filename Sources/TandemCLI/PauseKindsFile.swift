@@ -42,6 +42,28 @@ struct PauseKindsFile: Codable {
         }
     }
 
+    /// Reads a kinds file, saying what's wrong with one that doesn't read:
+    /// on the Examples Page video (18 Nov 2026) an agent wrote one by hand,
+    /// with no `revision` or `settings`, and got only "The data couldn't be
+    /// read because it is missing". A dry run writes the file; only the
+    /// kinds in it are for filling in.
+    static func read(_ url: URL, as given: String) throws -> PauseKindsFile {
+        let remake = "The dry run writes this file: delete it (or give --kinds a new path), run the same command without --apply, then fill in each pause's \"kind\" in what it writes."
+        let data: Data
+        do {
+            data = try Data(contentsOf: url)
+        } catch {
+            throw UsageError(message: "Couldn't read \(given): \(error.localizedDescription)")
+        }
+        do {
+            return try JSONDecoder().decode(PauseKindsFile.self, from: data)
+        } catch let error as DecodingError {
+            throw UsageError(message: "\(given) isn't a kinds file tighten wrote: \(DecodingErrorText.describe(error)). \(remake)")
+        } catch {
+            throw UsageError(message: "\(given) isn't a kinds file tighten wrote: \(error.localizedDescription). \(remake)")
+        }
+    }
+
     /// Each filled-in kind, at the middle of its pause.
     func marks() throws -> [PauseKindMark] {
         try pauses.compactMap { entry in

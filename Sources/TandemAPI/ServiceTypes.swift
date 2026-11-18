@@ -982,6 +982,8 @@ public struct HistoryEdit: Codable, Equatable, Sendable {
     public var check: CheckRun?
     /// For a hand-back without the checks: why.
     public var unchecked: String?
+    /// For a hand-back: the checks' problems called false alarms, with why.
+    public var overruled: [String]?
 
     public init(_ record: HistoryRecord) {
         revision = record.revision
@@ -997,6 +999,7 @@ public struct HistoryEdit: Codable, Equatable, Sendable {
         handedBack = record.handedBack
         check = record.check
         unchecked = record.unchecked
+        overruled = record.overruled
     }
 }
 

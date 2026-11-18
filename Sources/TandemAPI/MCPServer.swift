@@ -812,10 +812,10 @@ enum MCPTools {
                     "question": S.boolean("True when you want his answer; he leaves a comment there.")
                 ], required: ["at", "name"]), "The things to look at, in any order. An empty list withdraws yours. Leave it out to list what's waiting."),
                 "reasons": S.array(S.object([
-                    "kind": S.string("The note's kind, as the refusal lists it, like deadAir."),
+                    "kind": S.string("The note's or problem's kind, as the refusal lists it, like deadAir."),
                     "at": time("A time within about a second of the note's stretch."),
                     "why": S.string("Why it stays as it is.")
-                ], required: ["kind", "at", "why"]), "Why each note the checks left stays, for the ones you keep rather than fix."),
+                ], required: ["kind", "at", "why"]), "Why each note the checks left stays, for the ones you keep rather than fix, and why a problem you looked at or listened to is a false alarm (kept in the history; tell Mike which)."),
                 "unchecked": S.string("Hand back without the checks, for this reason (kept in the history). Tell Mike so in your message.")
             ],
             readOnly: false, idempotent: true

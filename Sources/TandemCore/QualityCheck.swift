@@ -612,7 +612,8 @@ public enum QualityCheck {
     }
 
     static func unkeyed(_ frames: [FrameStats], project: Project, frameDuration: Time) -> [CheckProblem] {
-        runs(of: frames.map { $0.flatGreen >= greenShare }).map { run in
+        runs(of: frames.map { $0.flatGreen >= greenShare }).compactMap { run in
+            guard couldBeAKey(frames, run, in: project) else { return nil }
             let share = run.map { frames[$0].flatGreen }.max() ?? 0
             return problem(.unkeyed, frames, run, project: project, frameDuration: frameDuration,
                            message: "Green screen: flat green covers \(percent(share)) of the frame (a key that didn't happen?).")
@@ -630,11 +631,35 @@ public enum QualityCheck {
             let least = run.map { frames[$0].flatWhite }.min() ?? 0
             let before = frames[run.lowerBound - 1].flatWhite
             let after = frames[run.upperBound].flatWhite
-            guard before < least / 3 && after < least / 3 else { return nil }
+            guard before < least / 3 && after < least / 3, couldBeAKey(frames, run, in: project) else { return nil }
             let share = run.map { frames[$0].flatWhite }.max() ?? 0
             return problem(.whiteBlock, frames, run, project: project, frameDuration: frameDuration,
                            message: "White block: a flat white patch over \(percent(share)) of the frame comes and goes in \(run.count) frame\(run.count == 1 ? "" : "s") (a key or matte that failed?).")
         }
+    }
+
+    /// Whether flat green or white over `run` could be a key or matte that
+    /// failed: something on screen there could have a green screen behind
+    /// it or a matte on it. Not when every picture is B-roll or a screen
+    /// recording with no cutout on, which is footage shown as it is: on the
+    /// Examples Page video (18 Nov 2026) that was a web page with an empty
+    /// white ad slot as a white block, and a 3D robot world and a quiz's
+    /// green right answer as a green screen, and the only way past them was
+    /// to hand back unchecked.
+    static func couldBeAKey(_ frames: [FrameStats], _ run: Range<Int>, in project: Project) -> Bool {
+        let times = [frames[run.lowerBound].time, frames[run.upperBound - 1].time]
+        var ids: [String] = []
+        for time in times { for id in pictures(at: time, in: project) where !ids.contains(id) { ids.append(id) } }
+        return ids.isEmpty || !ids.allSatisfy { id in
+            guard let clip = project.clip(id), case .media(let mediaID) = clip.content, let item = project.media(mediaID) else { return false }
+            return (item.role == .broll || item.role == .screen) && !hasCutout(clip)
+        }
+    }
+
+    /// A cutout on in the main frame or in any other format.
+    static func hasCutout(_ clip: Clip) -> Bool {
+        guard let video = clip.video else { return false }
+        return video.cutout?.enabled == true || video.formatOverrides.values.contains { $0.cutout == true }
     }
 
     // MARK: - Screen recordings

@@ -32,8 +32,8 @@ final class HandbackGateTests: XCTestCase {
         return record
     }
 
-    private func check(_ revision: Int, _ mode: CheckRun.Mode = .full, covers: [Int], problems: Int = 0, notes: [CheckRun.Note] = []) -> HistoryRecord {
-        let run = CheckRun(scope: .changed, mode: mode, ranges: [TimeRange(start: t(19.5), end: t(32.5))], problems: problems, notes: notes, covers: covers)
+    private func check(_ revision: Int, _ mode: CheckRun.Mode = .full, covers: [Int], problems: Int = 0, found: [CheckRun.Note]? = nil, notes: [CheckRun.Note] = []) -> HistoryRecord {
+        let run = CheckRun(scope: .changed, mode: mode, ranges: [TimeRange(start: t(19.5), end: t(32.5))], problems: found?.count ?? problems, found: found, notes: notes, covers: covers)
         var record = HistoryRecord(revision: revision, kind: .check, label: run.command, author: "claude")
         record.check = run
         return record
@@ -49,6 +49,24 @@ final class HandbackGateTests: XCTestCase {
         let verdict = HandbackGate.judge(records: [], log: ReviewLog(), project: project, answers: [])
         XCTAssertTrue(verdict.passes)
         XCTAssertEqual(verdict.waiting, [])
+    }
+
+    func testAProblemTheCheckKeptCanBeAnsweredAsAFalseAlarm() {
+        // The Examples Page video (18 Nov 2026): a web page's empty ad slot
+        // read as a white block, with no way past but --unchecked.
+        let white = CheckRun.Note(kind: "whiteBlock", start: t(21), end: t(21.3), message: "White block: a flat white patch over 8% of the frame comes and goes in 9 frames (a key or matte that failed?).")
+        let records = [edit(5), check(5, covers: [5], found: [white])]
+        let refused = judge(records)
+        XCTAssertFalse(refused.passes)
+        XCTAssertEqual(refused.needs, [], "the check ran and covered it")
+        XCTAssertEqual(refused.unansweredProblems, [white])
+        let answered = judge(records, answers: [.init(kind: "whiteBlock", at: t(21), why: "an empty ad slot on the real Fortune page")])
+        XCTAssertTrue(answered.passes)
+        XCTAssertEqual(answered.overruled, ["whiteBlock at 00:21.000: an empty ad slot on the real Fortune page"])
+        XCTAssertEqual(answered.answered, 0, "notes answered are counted apart")
+        // A check from before problems were kept can't be answered.
+        XCTAssertEqual(judge([edit(5), check(5, covers: [5], problems: 1)], answers: [.init(kind: "whiteBlock", at: t(21), why: "ad")]).needs,
+                       [.renderProblems(count: 1, revision: 5)])
     }
 
     func testARenderingCheckSinceTheLastAgentEditIsNeeded() {
