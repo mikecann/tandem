@@ -9,12 +9,24 @@ import TandemCore
 /// before the rest of the highlights. Given `notes`, they take the place
 /// of what this agent handed back before; without, it lists what's still
 /// waiting, so the next round knows what he watched and what he didn't.
+///
+/// Handing back with notes is refused until the checks have run on the
+/// round since the agents last edited it and every note they left is
+/// answered (`HandbackGate`): `reasons` answers the notes that stay, and
+/// `unchecked` hands back anyway, with the reason kept in the history.
 public struct HandbackRequest: ServiceCall {
     public static let operation = ServiceOperation.handback
     public var notes: [HandbackNote]?
+    /// Why each note the checks left stays as it is.
+    public var reasons: [HandbackReason]?
+    /// Hands back without the checks, for this reason, which goes in the
+    /// history. Tell Mike so in your message.
+    public var unchecked: String?
 
-    public init(notes: [HandbackNote]? = nil) {
+    public init(notes: [HandbackNote]? = nil, reasons: [HandbackReason]? = nil, unchecked: String? = nil) {
         self.notes = notes
+        self.reasons = reasons
+        self.unchecked = unchecked
     }
 
     public func run(on service: TandemService, context: CallContext) async throws -> HandbackResult {
@@ -60,6 +72,32 @@ public struct HandbackNote: Codable, Equatable, Sendable {
     }
 }
 
+/// Why a note `tandem check` left stays: its kind (`deadAir`), a time in
+/// its stretch, and the reason.
+public struct HandbackReason: Codable, Equatable, Sendable {
+    public var kind: String
+    public var at: Time
+    public var why: String
+
+    public init(kind: String, at: Time, why: String) {
+        self.kind = kind
+        self.at = at
+        self.why = why
+    }
+
+    private enum CodingKeys: String, CodingKey { case kind, at, why }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        kind = try c.decode(String.self, forKey: .kind)
+        guard let at = try c.decodeTime(.at) else {
+            throw DecodingError.keyNotFound(CodingKeys.at, DecodingError.Context(codingPath: c.codingPath, debugDescription: "Each reason needs `at`, a time in the note's stretch."))
+        }
+        self.at = at
+        why = try c.decode(String.self, forKey: .why)
+    }
+}
+
 /// One thing to look at, as it waits in the review log.
 public struct LookHere: Codable, Equatable, Sendable {
     public var id: String
@@ -102,6 +140,12 @@ public struct HandbackResult: Codable, Sendable {
     public var recorded: Int?
     /// What's still waiting for Mike to look at, in timeline order.
     public var notes: [LookHere]
+    /// How many of the checks' notes the reasons answered.
+    public var answered: Int?
+    /// Reasons that matched no note the checks left, as "deadAir at 01:00.000".
+    public var unmatched: [String]?
+    /// Handed back without the checks, for this reason.
+    public var unchecked: String?
 }
 
 extension HandbackResult: ReadableResult {
@@ -110,6 +154,15 @@ extension HandbackResult: ReadableResult {
         if let recorded {
             lines.append("Handed back \(recorded == 1 ? "1 thing" : "\(recorded) things") to look at (revision \(revision)). Mike's review chip in Tandem reads \"\(recorded) to look at\": ] steps him through them first, in timeline order, playing each stretch, then through the rest of your highlighted changes. One goes once he's watched its stretch; Mark reviewed clears them all. Tell him in a line that Tandem will walk him through them, rather than listing the times again.")
             if recorded > 7 { lines.append("That's a lot for a walkthrough: two to five is the idea, the places that carry the round's risk.") }
+            if let unchecked {
+                lines.append("Handed back without Tandem's checks (\"\(CommentEdits.oneLine(unchecked))\"), which the history keeps. Say so to Mike in your message: that this round wasn't checked, and why.")
+            }
+            if let answered, answered > 0 {
+                lines.append("Your reasons answered \(answered == 1 ? "the 1 note" : "the \(answered) notes") the checks left.")
+            }
+            if let unmatched, !unmatched.isEmpty {
+                lines.append("These reasons matched no note the checks left, so they did nothing: \(unmatched.joined(separator: "; ")).")
+            }
         } else if notes.isEmpty {
             lines.append("Nothing handed back is waiting (revision \(revision)): Mike has watched them all or marked them reviewed, or nothing was handed back. Hand back with tandem handback '[{\"at\": \"2:45\", \"to\": \"3:10\", \"name\": \"...\"}]' before your final message.")
             return lines.joined(separator: "\n")
@@ -138,12 +191,32 @@ extension TandemService {
     func handback(_ request: HandbackRequest, context: CallContext) throws -> HandbackResult {
         let (project, revision) = coordinator.snapshot()
         let recorded: Int?
+        var answered: Int?
+        var unmatched: [String]?
+        var uncheckedReason: String?
         if let given = request.notes {
             let notes = try given.map { try Self.reviewNote($0, author: context.author, revision: revision, duration: project.duration) }
+            // Withdrawing (an empty list) hands nothing back, so it isn't
+            // gated; nor is listing what's waiting.
+            if !notes.isEmpty {
+                if let why = request.unchecked {
+                    let reason = CommentEdits.oneLine(why).trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !reason.isEmpty else {
+                        throw ServiceError(.badRequest, "--unchecked needs the reason you're handing back without the checks, for Mike and the history.")
+                    }
+                    uncheckedReason = reason
+                } else {
+                    let verdict = handbackVerdict(request.reasons ?? [], project: project)
+                    if let refusal = Self.refusal(verdict, log: session.review.log) { throw ServiceError(.invalid, refusal) }
+                    answered = verdict.answered
+                    unmatched = verdict.unmatched.isEmpty ? nil : verdict.unmatched.map { "\($0.kind) at \($0.at)" }
+                }
+            }
             session.review.handBack(notes, by: context.author)
             // The review log keeps only the latest handback; the history
             // keeps each one, which is where `tandem rounds` finds them.
-            session.history.handedBack(by: context.author, count: notes.count)
+            // One row per hand-back, with the reason when it skipped the checks.
+            session.history.handedBack(by: context.author, count: notes.count, unchecked: uncheckedReason)
             recorded = notes.count
         } else {
             recorded = nil
@@ -153,7 +226,63 @@ extension TandemService {
             let near = comments.filter { $0.time >= note.start - Self.noteCommentReach && $0.time <= note.end + Self.noteCommentReach }
             return LookHere(note, comments: near.map { NoteComment(id: $0.id, time: $0.time, text: $0.name) })
         }
-        return HandbackResult(revision: revision, recorded: recorded, notes: waiting)
+        return HandbackResult(
+            revision: revision, recorded: recorded, notes: waiting, answered: answered, unmatched: unmatched,
+            unchecked: recorded.map { $0 > 0 } == true ? request.unchecked.map { CommentEdits.oneLine($0).trimmingCharacters(in: .whitespacesAndNewlines) } : nil
+        )
+    }
+
+    /// The gate's view of the round as it stands (`HandbackGate.judge`).
+    func handbackVerdict(_ reasons: [HandbackReason], project: Project) -> HandbackGate.Verdict {
+        HandbackGate.judge(
+            records: session.history.records(), log: session.review.log, project: project,
+            answers: reasons.map { HandbackGate.Answer(kind: $0.kind, at: $0.at, why: $0.why) },
+            cutsMatter: !TranscriptTools.speechTracks(project).isEmpty
+        )
+    }
+
+    /// Why a hand-back is refused, saying exactly what to run, or nil when
+    /// it can go. Mike's comments stopped coming back once Tandem checked
+    /// for a thing itself, and kept coming back while the rule to check
+    /// lived only in the skill, so this is the skill's step 4 enforced.
+    static func refusal(_ verdict: HandbackGate.Verdict, log: ReviewLog) -> String? {
+        guard !verdict.passes else { return nil }
+        let labels = Dictionary(log.entries.map { ($0.revision, $0.label) }, uniquingKeysWith: { a, _ in a })
+        func batches(_ revisions: [Int]) -> String {
+            var names = revisions.suffix(4).map { revision in labels[revision].map { "\"\(CommentEdits.oneLine($0))\" (r\(revision))" } ?? "r\(revision)" }
+            if revisions.count > names.count { names.insert("\(revisions.count - names.count) more", at: 0) }
+            return names.joined(separator: ", ")
+        }
+        func since(_ stale: Int?) -> String {
+            guard let stale else { return "" }
+            let edit = verdict.lastAgentEdit.map { " at revision \($0)" } ?? ""
+            return " The last one (revision \(stale)) ran before an agent's edit\(edit), so it doesn't count."
+        }
+        var lines: [String] = []
+        for need in verdict.needs {
+            switch need {
+            case .render(let uncovered, let stale):
+                let some = uncovered.count < verdict.waiting.count ? " (the checks since the last agent edit missed \(batches(uncovered)))" : ""
+                lines.append("Tandem hasn't checked this round since the last agent edit\(some). Run tandem check --changed, fix every problem it finds, then hand back again.\(since(stale))")
+            case .renderProblems(let count, let revision):
+                lines.append("tandem check (revision \(revision)) found \(count == 1 ? "a problem" : "\(count) problems"). Fix \(count == 1 ? "it" : "them"), run tandem check --changed again, then hand back.")
+            case .listen(let uncovered, let stale):
+                lines.append("This round cut the take (\(batches(uncovered))), so also run tandem check --changed --cuts --listen and judge each cut it flags by ear.\(since(stale))")
+            case .listenProblems(let count, let revision):
+                lines.append("tandem check --cuts --listen (revision \(revision)) found \(count == 1 ? "a problem" : "\(count) problems") at the cuts. Fix \(count == 1 ? "it" : "them") and run it again.")
+            }
+        }
+        if !verdict.unanswered.isEmpty {
+            let count = verdict.unanswered.count
+            lines.append("The checks left \(count == 1 ? "a note" : "\(count) notes") with no answer. Fix each one (then check again), or say why it stays: --reason \"<kind> <time> <why>\" for each (JSON reasons: [{\"kind\": \"deadAir\", \"at\": \"3:56\", \"why\": \"...\"}]):")
+            for note in verdict.unanswered {
+                let when = note.start == note.end ? "\(note.start)" : "\(note.start)-\(note.end)"
+                lines.append("  \(note.kind)  \(when)  \(note.message)")
+                lines.append("    --reason \"\(note.kind) \(note.start) <why>\"")
+            }
+        }
+        lines.append("If the checks can't run here, hand back with --unchecked \"<why>\" (JSON unchecked) and tell Mike so in your message.")
+        return "Not handed back. " + lines.joined(separator: "\n")
     }
 
     /// The card over the viewer has to read at a glance (Mike: "you have to

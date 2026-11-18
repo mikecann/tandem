@@ -445,6 +445,28 @@ extension HistoryResult: ReadableResult {
         return "  " + EditPlace(start: start, end: end, tracks: tracks ?? []).description
     }
 
+    /// "tandem check --changed (rendered): 2 stretches, no problems, 2
+    /// notes: deadAir 03:56.000, littleBRoll 01:00.000".
+    static func checkLine(_ check: CheckRun) -> String {
+        let how: String
+        switch check.mode {
+        case .full: how = "rendered"
+        case .quick: how = "quick"
+        case .cuts: how = "cut edges"
+        case .listen: how = "heard each join"
+        case .privacy: how = "read the text"
+        }
+        let stretches = check.ranges.count == 1 ? "\(check.ranges[0].start)-\(check.ranges[0].end)" : "\(check.ranges.count) stretches"
+        let problems = check.problems == 0 ? "no problems" : check.problems == 1 ? "1 problem" : "\(check.problems) problems"
+        var line = "tandem \(check.command) (\(how)): \(check.ranges.isEmpty ? "nothing to check" : stretches), \(problems)"
+        if !check.notes.isEmpty {
+            var names = check.notes.prefix(4).map { "\($0.kind) \($0.start)" }
+            if check.notes.count > names.count { names.append("\(check.notes.count - names.count) more") }
+            line += ", \(check.notes.count == 1 ? "1 note" : "\(check.notes.count) notes"): " + names.joined(separator: ", ")
+        }
+        return line
+    }
+
     /// One line per edit, with a run of Tandem finding new media (which
     /// can be dozens) on one line.
     static func editLines(_ edits: [HistoryEdit]) -> [String] {
@@ -459,6 +481,16 @@ extension HistoryResult: ReadableResult {
         var index = 0
         while index < edits.count {
             let edit = edits[index]
+            if edit.kind == .check, let check = edit.check {
+                lines.append("  r\(edit.revision)  \(when(edit.date))  \(Self.checkLine(check))  (\(edit.author))")
+                index += 1
+                continue
+            }
+            if edit.kind == .handback {
+                lines.append("  r\(edit.revision)  \(when(edit.date))  Handed back without the checks: \"\(edit.unchecked ?? "")\"  (\(edit.author))")
+                index += 1
+                continue
+            }
             if edit.kind == .opened {
                 let before = edit.revision > 0 ? " (edits before it weren't recorded, or were made somewhere that kept no history)" : ""
                 lines.append("  r\(edit.revision)  \(when(edit.date))  the history starts here\(before)")

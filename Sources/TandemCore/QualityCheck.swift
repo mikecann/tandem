@@ -107,6 +107,14 @@ public struct CheckProblem: Codable, Equatable, Sendable {
         /// said with the camera full screen and nothing over most of it,
         /// and no answer saying why nothing needs showing (`bareClaims`).
         case bareClaim
+        /// An ask for comments with no "Comment below" segment near it, or
+        /// an ask to like and subscribe near the end with no "Like and
+        /// subscribe" (`outroStings`).
+        case outroSting
+        /// A sign-off with no section card, Convex wipe or wipe transition
+        /// in the minute before it (`outroWipe`): nothing takes the viewer
+        /// into the outro.
+        case outroWipe
 
         /// Worth knowing rather than wrong: Mike signed off softer zooms on
         /// cartoon B-roll than on screen recordings, a pause can let a point
@@ -116,7 +124,7 @@ public struct CheckProblem: Codable, Equatable, Sendable {
             self == .soft || self == .deadAir || self == .pageChange || self == .sliver || self == .lowFrameRate || self == .marginalJoin
                 || self == .heardDifferently || self == .heardWhole || self == .swellOffCard || self == .readableText || self == .shortOpening
                 || self == .cutTalk || self == .littleBRoll || self == .midSentencePause || self == .offStylePip || self == .faceWaits
-                || self == .bareClaim
+                || self == .bareClaim || self == .outroSting || self == .outroWipe
         }
     }
 
@@ -350,6 +358,8 @@ public enum QualityCheck {
             found += shortOpening(in: project, ranges: ranges, speech: speech)
             found += cutTalk(in: project, ranges: ranges, speech: speech)
             found += littleBRoll(in: project, ranges: ranges, speech: speech)
+            found += outroStings(in: project, ranges: ranges, speech: speech)
+            found += outroWipe(in: project, ranges: ranges, speech: speech)
             if let pauses {
                 found += midSentencePauses(pauses, in: project, ranges: ranges, speech: speech)
             }

@@ -490,15 +490,25 @@ public struct HistoryRecord: Codable, Equatable, Sendable {
         /// The project was opened at this revision and the history before
         /// it doesn't lead here (it was edited by something that kept none).
         case opened
+        /// `tandem check` ran at this revision (`check`). It changed nothing.
+        case check
         /// An agent handed the round back to Mike (`tandem handback`) at
-        /// this revision. Not a change: walking the history steps over it.
-        /// An older Tandem can't read the kind and skips the line.
+        /// this revision, with the reason in `unchecked` when it handed back
+        /// without the checks. Not a change: walking the history steps over
+        /// it. An older Tandem can't read these kinds and skips the line.
         case handback
+
+        /// Whether the record is a change to the project, which made its
+        /// revision. A check or a hand-back only happened at one, so the
+        /// walk back through the history passes over them.
+        public var changesProject: Bool {
+            self != .check && self != .handback
+        }
     }
 
     /// True for a record of something done to the project, which the
     /// chain can undo or must stop at, rather than a note beside it.
-    public var isChange: Bool { kind != .handback }
+    public var isChange: Bool { kind.changesProject }
 
     /// The revision the change made.
     public var revision: Int
@@ -522,6 +532,10 @@ public struct HistoryRecord: Codable, Equatable, Sendable {
     public var comments: [HistoryComment]?
     /// For a handback, how many things it gave Mike to look at.
     public var handedBack: Int?
+    /// For a `check`: what it read and found, for the hand-back's gate.
+    public var check: CheckRun?
+    /// For a `handback` made without the checks: the agent's reason.
+    public var unchecked: String?
 
     public init(revision: Int, kind: Kind, label: String, author: String, date: Date = Date()) {
         self.revision = revision
@@ -558,9 +572,10 @@ public struct HistoryRecord: Codable, Equatable, Sendable {
 
     /// An agent handing the round back at `revision`, with `count` things
     /// for Mike to look at.
-    public static func handback(revision: Int, author: String, count: Int, date: Date = Date()) -> HistoryRecord {
-        var record = HistoryRecord(revision: revision, kind: .handback, label: "Hand back", author: author, date: date)
+    public static func handback(revision: Int, author: String, count: Int, unchecked: String? = nil, date: Date = Date()) -> HistoryRecord {
+        var record = HistoryRecord(revision: revision, kind: .handback, label: unchecked == nil ? "Hand back" : "Handed back unchecked", author: author, date: date)
         record.handedBack = count
+        record.unchecked = unchecked
         return record
     }
 
@@ -642,7 +657,7 @@ public enum HistoryChain {
             while index >= 0 {
                 let record = records[index]
                 index -= 1
-                guard record.isChange else { continue }
+                guard record.kind.changesProject else { continue }
                 if record.kind == .opened { break }
                 if record.revision == at {
                     found = record
@@ -664,7 +679,7 @@ public enum HistoryChain {
         while index >= 0 {
             let record = records[index]
             index -= 1
-            guard record.isChange else { continue }
+            guard record.kind.changesProject else { continue }
             if record.kind == .opened { break }
             if record.revision == at { at -= 1 }
         }
@@ -733,8 +748,10 @@ public final class EditHistoryLog: @unchecked Sendable {
         return data.split(separator: 0x0A).compactMap { try? decoder.decode(HistoryRecord.self, from: Data($0)) }
     }
 
-    /// The revision of the last record, read from the end of the file so a
-    /// long history doesn't slow every CLI command down.
+    /// The revision of the last change, read from the end of the file so a
+    /// long history doesn't slow every CLI command down. A check finishing
+    /// after a later edit carries the older revision it read, so checks and
+    /// hand-backs are passed over.
     public func lastRevision() -> Int? {
         guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
         defer { try? handle.close() }
@@ -747,9 +764,14 @@ public final class EditHistoryLog: @unchecked Sendable {
             var lines = data.split(separator: 0x0A)
             // Unless the chunk starts the file, its first line may be partial.
             if offset > 0, !lines.isEmpty { lines.removeFirst() }
-            struct Header: Decodable { var revision: Int }
+            struct Header: Decodable {
+                var revision: Int
+                var kind: String?
+            }
             for line in lines.reversed() {
-                if let header = try? JSONDecoder().decode(Header.self, from: Data(line)) { return header.revision }
+                guard let header = try? JSONDecoder().decode(Header.self, from: Data(line)) else { continue }
+                if let kind = header.kind.flatMap(HistoryRecord.Kind.init(rawValue:)), !kind.changesProject { continue }
+                return header.revision
             }
             if offset == 0 { return nil }
             chunk *= 4
@@ -808,6 +830,17 @@ public final class HistoryRecorder: @unchecked Sendable {
         token = coordinator.observe { [weak self] event in self?.heard(event) }
     }
 
+    /// Adds a record of something that happened at a revision without
+    /// changing the project (a check, a hand-back), after the changes
+    /// already heard. It's written even once the recorder is closed: a
+    /// headless check closes the project before it renders.
+    public func note(_ record: HistoryRecord) {
+        queue.sync {
+            writeOpening()
+            log?.append(record)
+        }
+    }
+
     /// Every record, oldest first, once the changes already heard are in.
     public func records() -> [HistoryRecord] {
         queue.sync { (log?.records() ?? []) + (opening.map { [$0] } ?? []) }
@@ -823,12 +856,12 @@ public final class HistoryRecorder: @unchecked Sendable {
     /// An agent handed the round back with `count` things to look at: a
     /// row of its own, after the edits already heard, at the revision they
     /// left the project at.
-    public func handedBack(by author: String, count: Int, date: Date = Date()) {
+    public func handedBack(by author: String, count: Int, unchecked: String? = nil, date: Date = Date()) {
         let revision = coordinator.revision
         queue.async { [weak self] in
             guard let self, !self.closed, let log = self.log else { return }
             self.writeOpening()
-            log.append(.handback(revision: revision, author: author, count: count, date: date))
+            log.append(.handback(revision: revision, author: author, count: count, unchecked: unchecked, date: date))
         }
     }
 

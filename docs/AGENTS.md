@@ -280,7 +280,10 @@ follows.
   ([recipe](agents/broll-and-titles.md#show-what-he-says-the-proof-list)).
 - `tandem handback` before your final message: the two to five places
   Mike should look at first, which the app walks him through before the
-  rest of your highlighted changes.
+  rest of your highlighted changes. It refuses until the checks above have
+  run on your changes since your last edit, with no problems and every
+  note fixed or answered, and says what to run
+  ([details](agents/review-and-history.md#hand-back-what-to-look-at-first)).
 - `tandem diff --since <revision>` for what Mike changed since your last
   round, and `tandem comments` for the notes he left on the timeline.
 

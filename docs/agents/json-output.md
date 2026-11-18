@@ -103,13 +103,16 @@ and he hasn't watched yet, in timeline order (see `handback` below).
 ```
 {"revision": 155, "recorded"?: 3,
  "notes": [{"id", "author", "date", "revision", "start", "end", "name", "note"?, "question",
-            "comments": [{"id", "time", "text"}]}]}  // timeline order
+            "comments": [{"id", "time", "text"}]}],  // timeline order
+ "answered"?: 2, "unmatched"?: ["deadAir at 01:00.000"], "unchecked"?: "why"}
 ```
 
 `recorded` is how many were just handed back; without notes in the
 request it's absent and `notes` is what's still waiting. `comments` are
 Mike's comments in or within 2 s of the stretch: his answer, when it was
-a question.
+a question. `answered` is how many of the checks' notes your `reasons`
+answered, `unmatched` the reasons that matched none, and `unchecked` the
+reason you handed back without the checks.
 
 ## claims
 
@@ -130,15 +133,21 @@ the timeline.
 {"revision": 4, "undo": [{"label", "author", "start"?, "end"?, "tracks"?}],  // newest first
  "redo"?: "label", "events": [{"seq", "kind", "date", "revision"?, "label"?, "author"?}],
  "edits"?: [{"revision", "kind", "label", "author", "date", "start"?, "end"?, "tracks"?, "summary"?,
-             "comments"?: [{"id", "time", "text"}], "handedBack"?: 3}]}  // newest first
+             "comments"?: [{"id", "time", "text"}], "handedBack"?: 3,
+             "check"?: {"scope", "mode", "ranges", "problems", "notes": [{"kind", "start", "end", "message"}], "covers"},
+             "unchecked"?: "why"}]}  // newest first
 ```
 
 `events` are the changes this server saw; `edits` is the edit history,
 which lasts across restarts. `kind` is `edit`, `undo`, `redo`, `reload`,
-`opened` (where the history starts again) or `handback` (an agent handed
-the round back, with `handedBack` things to look at; not a change).
-`comments` are the comments an edit added or reworded, with their words.
-`tracks` are labels like `"V2 Camera"`.
+`opened` (where the history starts again), `check` (a `tandem check` at
+the revision it read: `scope` is `timeline`, `stretch` or `changed`,
+`mode` is `quick`, `full`, `cuts`, `listen` or `privacy`, and `covers`
+the agent batches waiting for review it covered, by revision) or
+`handback` (an agent handed the round back, with `handedBack` things to
+look at, and `unchecked` with its reason when it skipped the checks;
+not a change). `comments` are the comments an edit added or reworded,
+with their words. `tracks` are labels like `"V2 Camera"`.
 
 ## diff
 
