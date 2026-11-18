@@ -668,7 +668,9 @@ agent edit:
 Mike's own edits after the check, Tandem finding new media and an agent
 only resolving comments don't count against it; any other agent edit does,
 so check again after a fix. Several checks of their own stretches can
-cover a round between them.
+cover a round between them, as long as each batch's changes lie inside
+one of them (`--changed` always does), and the newest check over a batch
+is the one that counts.
 
 ```bash
 tandem handback --at 3:50 --name "The build animation" --reason "deadAir 3:56 the build animation plays here"

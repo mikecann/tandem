@@ -110,7 +110,7 @@ public enum ReviewRounds {
     }
 
     static func actor(_ record: HistoryRecord) -> Actor? {
-        if record.kind == .handback { return .handback }
+        if record.kind == .handback { return (record.handedBack ?? 1) > 0 ? .handback : nil }
         // Opening and a `tandem check` changed nothing, so neither is anyone's edit.
         if record.kind == .opened || record.kind == .check { return nil }
         if EditAuthor.isAgent(record.author) { return .agent }

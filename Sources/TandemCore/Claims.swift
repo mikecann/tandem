@@ -485,7 +485,10 @@ extension QualityCheck {
         // The same words (and the same ID, for a line said twice).
         for claim in claims {
             let same = left.filter { claimKey(answers[$0].said) == claim.key }
-            let pick = same.first { answers[$0].id == claim.id } ?? nearest(same, to: claim)
+            // A line said twice is told apart by time, not by its ID: IDs
+            // number the repeats in order, so cutting the first one would
+            // give the second its answer.
+            let pick = nearest(same, to: claim) ?? same.first { answers[$0].id == claim.id }
             guard let pick else { continue }
             byClaim[claim.id] = answers[pick]
             left.removeAll { $0 == pick }
@@ -493,9 +496,13 @@ extension QualityCheck {
         // Most of the words the same.
         for claim in claims where byClaim[claim.id] == nil {
             let words = Set(claim.key.split(separator: " "))
+            let mine = anchors(claim.said)
             let close = left.filter { index in
                 let theirs = Set(claimKey(answers[index].said).split(separator: " "))
                 guard !words.isEmpty, !theirs.isEmpty else { return false }
+                // "ten dollars" isn't "twenty dollars", nor Clerk WorkOS:
+                // a near match keeps the same numbers and names.
+                guard anchors(answers[index].said) == mine else { return false }
                 return 2 * Double(words.intersection(theirs).count) / Double(words.count + theirs.count) >= 0.6
             }
             guard let pick = nearest(close, to: claim) ?? close.first else { continue }
@@ -503,6 +510,28 @@ extension QualityCheck {
             left.removeAll { $0 == pick }
         }
         return (byClaim, left.map { answers[$0] })
+    }
+
+    static let numberWords: Set<String> = [
+        "zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve", "thirteen", "fourteen",
+        "fifteen", "sixteen", "seventeen", "eighteen", "nineteen", "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety",
+        "hundred", "thousand", "million", "billion", "percent", "half", "no", "not", "never",
+    ]
+
+    /// What a near match must keep: the numbers (and "not" and "never"),
+    /// and the names, words capitalised after the line's first.
+    static func anchors(_ said: String) -> Set<String> {
+        let words = said.split { !$0.isLetter && !$0.isNumber && $0 != "'" }.map(String.init)
+        var found = Set<String>()
+        for (index, word) in words.enumerated() {
+            let lower = word.lowercased()
+            if word.contains(where: \.isNumber) || numberWords.contains(lower) || lower.hasSuffix("n't") {
+                found.insert(lower)
+            } else if index > 0, word != "I", word.first?.isUppercase == true {
+                found.insert(lower)
+            }
+        }
+        return found
     }
 
     // MARK: - The check

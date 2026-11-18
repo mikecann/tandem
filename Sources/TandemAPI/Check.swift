@@ -261,9 +261,12 @@ extension TandemService {
         let history = session.history
         return {
             let result = try await work()
-            // A listen check that had nothing to listen with only read the
-            // levels, so it counts as the cuts check it was.
-            let ran = mode == .listen && result.listened == nil ? .cuts : mode
+            // A listen check that had nothing to listen with, or couldn't
+            // hear some joins (the engine failed, or the take's words there
+            // aren't known), only read the levels there, so it counts as the
+            // cuts check it was.
+            let unheard = result.listened?.joins.contains { $0.skipped == "couldn't listen" || $0.skipped == "no transcript" } ?? true
+            let ran = mode == .listen && unheard ? .cuts : mode
             let run = CheckRun(scope: scope, mode: ran, ranges: ranges, problems: result.problems.count, notes: result.notes.map(CheckRun.Note.init), covers: covers)
             var record = HistoryRecord(revision: revision, kind: .check, label: run.command, author: author)
             record.check = run

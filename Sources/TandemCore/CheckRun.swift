@@ -248,18 +248,21 @@ public enum HandbackGate {
         /// what's still missing.
         func cover(_ wanted: Set<Int>, modes: Set<CheckRun.Mode>) -> (chosen: [CheckRun], need: Need?) {
             guard !wanted.isEmpty else { return ([], nil) }
+            let listening = modes.contains(.listen)
             var left = wanted
             var chosen: [CheckRun] = []
-            for check in current where modes.contains(check.run.mode) && check.run.problems == 0 {
+            // Newest first, and the newest check covering a batch decides
+            // it: an older clean check doesn't outvote a newer one that
+            // found a problem there (after Mike's own edit, say).
+            for check in current where modes.contains(check.run.mode) {
                 let mine = left.intersection(check.run.covers)
                 guard !mine.isEmpty else { continue }
+                if check.run.problems > 0 {
+                    return (chosen, listening ? .listenProblems(count: check.run.problems, revision: check.revision) : .renderProblems(count: check.run.problems, revision: check.revision))
+                }
                 chosen.append(check.run)
                 left.subtract(mine)
                 if left.isEmpty { return (chosen, nil) }
-            }
-            let listening = modes.contains(.listen)
-            if let failed = current.first(where: { modes.contains($0.run.mode) && $0.run.problems > 0 && !left.isDisjoint(with: $0.run.covers) }) {
-                return (chosen, listening ? .listenProblems(count: failed.run.problems, revision: failed.revision) : .renderProblems(count: failed.run.problems, revision: failed.revision))
             }
             let stale = earlier.last { modes.contains($0.run.mode) && !left.isDisjoint(with: $0.run.covers) }?.revision
             return (chosen, listening ? .listen(uncovered: left.sorted(), stale: stale) : .render(uncovered: left.sorted(), stale: stale))
@@ -278,7 +281,10 @@ public enum HandbackGate {
         }
         var used = Set<Int>()
         for note in notes {
+            // One reason answers one note: a reason for the comments sting
+            // doesn't also dismiss the subscribe sting beside it.
             let answer = answers.indices.first { index in
+                guard !used.contains(index) else { return false }
                 let given = answers[index]
                 return sameKind(given.kind, note.kind) && note.start - answerReach <= given.at && given.at <= note.end + answerReach
                     && !given.why.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty

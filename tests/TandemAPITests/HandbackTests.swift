@@ -64,7 +64,8 @@ final class HandbackTests: XCTestCase {
     }
 
     /// Each handback is a row in the edit history, where `tandem rounds`
-    /// reads where one round ends; listing what's waiting isn't one.
+    /// reads where one round ends; listing what's waiting, or withdrawing,
+    /// isn't one.
     func testEachHandbackIsKeptInTheHistory() throws {
         let h = try ServiceHarness()
         defer { h.close() }
@@ -73,9 +74,9 @@ final class HandbackTests: XCTestCase {
         _ = try h.service.handback(HandbackRequest(), context: h.context)
         _ = try h.service.handback(HandbackRequest(notes: []), context: h.context)
         let rows = h.session.history.records().filter { $0.kind == .handback }
-        XCTAssertEqual(rows.map(\.handedBack), [2, 0])
-        XCTAssertEqual(rows.map(\.author), ["claude", "claude"])
-        XCTAssertEqual(rows.map(\.revision), [2, 2])
+        XCTAssertEqual(rows.map(\.handedBack), [2], "withdrawing hands nothing back, so rounds doesn't count it")
+        XCTAssertEqual(rows.map(\.author), ["claude"])
+        XCTAssertEqual(rows.map(\.revision), [2])
 
         try h.apply(.addMarker(marker: Marker(id: "mk_umm", time: t(12), name: "Cut the umm here", kind: .comment)), label: "Add comment")
         let history = h.service.history(limit: 20).readableText

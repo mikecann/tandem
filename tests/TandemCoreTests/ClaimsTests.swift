@@ -199,6 +199,34 @@ final class ClaimsTests: XCTestCase {
         XCTAssertFalse(ClaimAnswer(said: "x", shot: "  ", link: "", skip: nil).isAnswered, "blanks are no answer")
     }
 
+    /// A line said twice keeps each answer with its own saying when the
+    /// first is cut: IDs number repeats in order, so time tells them apart.
+    func testCuttingTheFirstOfALineSaidTwiceKeepsTheSecondsAnswer() {
+        let line = "Check out the brand new Convex Auth v2."
+        let key = QualityCheck.claimKey(line)
+        // After the cut the second saying is the only one, and gets the base ID.
+        let survivor = SpokenClaim(id: "cl_line", key: key, start: t(190), end: t(193), said: line, because: ["Convex Auth"])
+        let answers = [
+            ClaimAnswer(id: "cl_line", said: line, at: t(10), skip: "the title card says it"),
+            ClaimAnswer(id: "cl_line-2", said: line, at: t(200), shot: "broll/auth-v2-docs.png", link: "https://docs.convex.dev/auth")
+        ]
+        let matched = QualityCheck.match([survivor], answers: answers)
+        XCTAssertEqual(matched.byClaim["cl_line"]?.shot, "broll/auth-v2-docs.png")
+        XCTAssertEqual(matched.unmatched.map(\.skip), ["the title card says it"])
+    }
+
+    /// A near match keeps the numbers and names: "ten dollars" isn't "twenty dollars".
+    func testANearMatchNeedsTheSameNumbersAndNames() {
+        let twenty = "I pay twenty dollars a month for the pro plan."
+        let claim = SpokenClaim(id: "cl_twenty", key: QualityCheck.claimKey(twenty), start: t(30), end: t(33), said: twenty, because: ["twenty dollars"])
+        let answers = [ClaimAnswer(said: "I pay ten dollars a month for the pro plan.", at: t(10), skip: "said on the pricing page already")]
+        XCTAssertNil(QualityCheck.match([claim], answers: answers).byClaim["cl_twenty"])
+        let named = "So yeah, if you've used Clerk before, you might remember the webhooks."
+        let other = SpokenClaim(id: "cl_named", key: QualityCheck.claimKey(named), start: t(40), end: t(44), said: named, because: ["Clerk"])
+        let renamed = [ClaimAnswer(said: "So yeah, if you've used WorkOS before, you might remember the webhooks.", skip: "covered")]
+        XCTAssertNil(QualityCheck.match([other], answers: renamed).byClaim["cl_named"])
+    }
+
     // MARK: - The check
 
     private func bare(_ project: Project, _ lines: [String], answers: [ClaimAnswer]? = nil, ranges: [TimeRange]? = nil) -> [CheckProblem] {

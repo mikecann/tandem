@@ -89,6 +89,29 @@ final class HandbackGateTests: XCTestCase {
         XCTAssertTrue(both.passes)
     }
 
+    /// The newest check over a batch decides it: Mike changes the picture
+    /// after a clean check, the next check finds a gap, and the older clean
+    /// one doesn't let the hand-back through.
+    func testANewerFailingCheckOutvotesAnOlderCleanOne() {
+        let verdict = judge([edit(5), check(5, covers: [5]), edit(6, by: EditAuthor.person), check(6, covers: [5], problems: 1)])
+        XCTAssertEqual(verdict.needs, [.renderProblems(count: 1, revision: 6)])
+        XCTAssertTrue(judge([edit(5), check(5, covers: [5], problems: 1), check(5, covers: [5])]).passes, "fixed and checked again")
+    }
+
+    /// One reason answers one note, even where two of the same kind sit side by side.
+    func testOneReasonAnswersOneNote() {
+        let comments = CheckRun.Note(kind: "outroSting", start: t(400), end: t(401), message: "Comments ask with no Comment below.")
+        let subscribe = CheckRun.Note(kind: "outroSting", start: t(401.5), end: t(402.5), message: "Subscribe ask with no Like and subscribe.")
+        let records = [edit(5), check(5, covers: [5], notes: [comments, subscribe])]
+        var verdict = judge(records, answers: [HandbackGate.Answer(kind: "outroSting", at: t(401), why: "he asks in the description instead")])
+        XCTAssertEqual(verdict.unanswered, [subscribe])
+        verdict = judge(records, answers: [
+            HandbackGate.Answer(kind: "outroSting", at: t(401), why: "asked in the description"),
+            HandbackGate.Answer(kind: "outroSting", at: t(402), why: "no subscribe sting on a release video")
+        ])
+        XCTAssertTrue(verdict.passes, "\(verdict)")
+    }
+
     func testACutInTheTakeAlsoNeedsTheListenCheck() {
         var verdict = judge([edit(5), edit(6), check(6, covers: [5, 6])], cut: true)
         XCTAssertEqual(verdict.needs, [.listen(uncovered: [6], stale: nil)])

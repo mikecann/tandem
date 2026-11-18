@@ -215,8 +215,12 @@ extension TandemService {
             session.review.handBack(notes, by: context.author)
             // The review log keeps only the latest handback; the history
             // keeps each one, which is where `tandem rounds` finds them.
-            // One row per hand-back, with the reason when it skipped the checks.
-            session.history.handedBack(by: context.author, count: notes.count, unchecked: uncheckedReason)
+            // One row per hand-back, with the reason when it skipped the
+            // checks. Withdrawing (an empty list) isn't one: `tandem rounds`
+            // would read it as a round handed back.
+            if !notes.isEmpty {
+                session.history.handedBack(by: context.author, count: notes.count, unchecked: uncheckedReason)
+            }
             recorded = notes.count
         } else {
             recorded = nil
