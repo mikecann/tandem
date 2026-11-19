@@ -91,21 +91,37 @@ public enum CutEvidence {
     public static func judge(_ join: CutListen.Join, flags: [Flag], cut: [String]) -> Verdict {
         var verdict = Verdict()
         let said = sides(join.said), heard = sides(join.heard)
-        let joinWords = [said.before.last, said.after.first].compactMap { $0 }.map(CutListen.canonical)
         let cutWords = cut + flags.compactMap(\.cutWord)
 
+        // Sides a slip on a join word backs up, and whether a finding that
+        // isn't slip-prone backs up every flag.
+        var confirmedSides: Set<CutAudit.Side> = []
+        var confirmsAll = false
         for (index, finding) in join.findings.enumerated() {
             if let why = explanation(finding, in: join, said: said, heard: heard, cut: cutWords) {
                 verdict.explained[index] = why
                 continue
             }
-            if !finding.slip { verdict.heardCutOff = true }
-            let onJoinWord = finding.kind != .extra && finding.said.map { joinWords.contains(CutListen.canonical($0)) && !isFiller($0) } == true
+            if !finding.slip { verdict.heardCutOff = true; confirmsAll = true }
+            // A slip on the kept word at the join only backs up a flag on
+            // that word's side. On the workbench short (19 Nov 2026) "in
+            // like | the first wood project", with "the first time" cut,
+            // was heard without "like", and that kept the level flag on the
+            // start of the clip after the join standing, whose fix put the
+            // cut words back.
+            let side: CutAudit.Side = finding.time <= join.time ? .before : .after
+            // The kept word right at the join on the finding's own side.
+            let joinWord = (side == .before ? said.before.last : said.after.first).map(CutListen.canonical)
+            let onJoinWord = finding.kind != .extra && finding.said.map { CutListen.canonical($0) == joinWord && !isFiller($0) } == true
+                && flags.contains { $0.keeps == side }
+            if onJoinWord { confirmedSides.insert(side) }
             if !finding.slip || onJoinWord { verdict.confirming.append(index) }
         }
-        guard verdict.confirming.isEmpty else { return verdict }
+        guard !confirmsAll else { return verdict }
 
-        for (index, flag) in flags.enumerated() {
+        // A flag on the other side of the join from a confirmed slip is
+        // judged on its own.
+        for (index, flag) in flags.enumerated() where !confirmedSides.contains(flag.keeps) {
             if flag.fragment != nil {
                 // Hearing the leftover only says it's there: whether it reads
                 // wrong is the sentence's, not the sound's.

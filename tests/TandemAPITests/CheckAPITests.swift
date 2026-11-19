@@ -64,7 +64,9 @@ final class CheckAPITests: XCTestCase {
 
         _ = try h.service.apply(ApplyRequest(label: QualityCheck.holdLabel, commands: result.commands, expectedRevision: result.revision), context: h.context)
         let screen = try XCTUnwrap(h.service.coordinator.project.track(named: "Screen")).clips
-        XCTAssertEqual(screen.filter(\.freezeFrame).map(\.range), [flash])
+        let held = try XCTUnwrap(screen.first { $0.range.contains(flash.start) })
+        XCTAssertEqual(screen.flatMap(\.holds).count, 1, "held on the clip, not cut into it")
+        XCTAssertEqual(held.holds.map(\.source), [TimeRange(start: held.sourceTime(atTimelineTime: flash.start), end: held.sourceTime(atTimelineTime: flash.end))])
         XCTAssertEqual(h.service.coordinator.project.track(named: "Voice")?.clips.first?.range, TimeRange(start: t(0), end: t(30)), "the sound plays on uncut")
     }
 
@@ -469,11 +471,17 @@ final class CheckAPITests: XCTestCase {
         XCTAssertNil(cut.to)
         let fix = EditCommand.trim(clipID: "clip_voc1", edge: .end, to: t(32), ripple: true, includeLinked: nil)
         XCTAssertEqual(cut.fix, fix, "the end of the first piece on to where the second starts in the take")
-        XCTAssertEqual(result.commands, [fix])
-        XCTAssertTrue(result.readableText.contains("No pause it can reach without bringing back a cut word: put back the 2.00 s cut here, filler and all (the end of clip_voc1 2.000 s later)."), result.readableText)
+        // Putting a cut back may undo a cut made on purpose (the workbench
+        // short's repeated "the first time"), so it's offered on its own,
+        // saying what it brings back, and not in the Fix batch.
+        XCTAssertEqual(result.commands, [])
+        let text = result.readableText
+        XCTAssertTrue(text.contains("No pause it can reach without bringing back a cut word: put back the 2.00 s cut here (\"because\"), filler and all (the end of clip_voc1 2.000 s later), if the cut didn't take those words on purpose."), text)
+        XCTAssertTrue(text.contains("\n    puts back the cut words: tandem apply --expect \(result.revision ?? 0) --label \"Put back a cut\" '[{\"trim\":"), text)
+        XCTAssertFalse(text.contains("Fix: tandem apply"), text)
 
         // Put back, the take carries straight on: nothing left to check there.
-        try h.service.apply(ApplyRequest(label: "fix", commands: result.commands), context: h.context)
+        try h.service.apply(ApplyRequest(label: "fix", commands: [fix]), context: h.context)
         let again = try await CheckRequest(cuts: true).run(on: h.service, context: h.context)
         XCTAssertTrue(again.ok, "\(again.problems)")
         XCTAssertEqual(again.cuts, 2, "the take's start and end")

@@ -101,8 +101,8 @@ extension EditorModel {
     }
 
     /// Hold previous frame (a clip's menu): the frame at the playhead on
-    /// `clipID` shows the one before it, picture only, then picks out the
-    /// held frame.
+    /// `clipID` shows the one before it, picture only, then selects the
+    /// clip (the hold is kept on it, `Clip.holds`).
     @discardableResult
     func holdPreviousFrame(clipID: String) -> Bool {
         let time = playback.time

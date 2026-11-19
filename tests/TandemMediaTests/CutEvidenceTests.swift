@@ -67,6 +67,32 @@ final class CutEvidenceTests: XCTestCase {
         XCTAssertFalse(verdict.heardCutOff)
     }
 
+    func testASlipOnTheOtherSideOfTheJoinDoesntKeepTheLevelFlag() {
+        // The workbench short (19 Nov 2026): "in like | the first wood
+        // project", with "the first time" cut on purpose. The engine left
+        // out "like", before the join; the levels flagged the start of the
+        // clip after it, 19 dB under, and the flag's fix put the cut back.
+        let finding = CutListen.Finding(kind: .notHeard, said: "like", time: 9.9, slip: true, why: "a short or filler word the engine often leaves out")
+        let heard = join(
+            "annoying i didn't discover that until i was like a little bit further in like | the first wood project didn't make any mistakes",
+            "Annoying. I didn't discover that until I was like a little bit further in. | The first wood project didn't make any mistakes,", [finding]
+        )
+        let verdict = CutEvidence.judge(heard, flags: [.init(keeps: .after, margin: 19)], cut: ["the", "first", "time"])
+        XCTAssertEqual(verdict.confirming, [])
+        XCTAssertEqual(verdict.dismissed, [0: "levels flagged it, but every kept word is heard whole"])
+        XCTAssertFalse(verdict.heardCutOff)
+
+        // The same slip does back up a flag on its own side.
+        let before = CutEvidence.judge(heard, flags: [.init(keeps: .before, margin: 6.5)], cut: ["the", "first", "time"])
+        XCTAssertEqual(before.confirming, [0])
+
+        // With a flag either side, it backs up its own, and the other is
+        // judged on what's heard after the join.
+        let both = CutEvidence.judge(heard, flags: [.init(keeps: .before, margin: 6.5), .init(keeps: .after, margin: 19)], cut: ["the", "first", "time"])
+        XCTAssertEqual(both.confirming, [0])
+        XCTAssertEqual(both.dismissed, [1: "levels flagged it, but every kept word is heard whole"])
+    }
+
     func testACutWordHeardWholeIsExplainedAndDismissesTheLevels() {
         // 9:42: the transcript has "see" just past the edge.
         let heard = join("and we should hopefully | the first pass edit", "and we should hopefully see | the first pass edit,", [extra("see")])

@@ -209,7 +209,8 @@ final class HoldPreviousFrameEditTests: XCTestCase {
         XCTAssertEqual(batch.label, "Hold previous frame")
         XCTAssertEqual(batch.commands, [.holdFrame(clipID: screen.id, range: TimeRange(start: t(10), duration: frame))])
         try f.apply(batch)
-        XCTAssertEqual(f.track("Screen").clips.count, 3)
+        XCTAssertEqual(f.track("Screen").clips.count, 1, "held on the clip, not cut into it")
+        XCTAssertEqual(f.track("Screen").clips[0].holds.count, 1)
         XCTAssertEqual(f.track("Camera").clips.count, 1)
         XCTAssertEqual(f.track("Voice").clips.count, 1)
 

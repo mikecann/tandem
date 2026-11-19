@@ -20,7 +20,11 @@ their own beside it, and reports, with the clips on screen there:
   it comes with the `holdFrame` that holds the frame before it over it, as
   Mike fixed a one-frame jump in a screen recording in the Tandem video;
   the last line is a `tandem apply` that makes them all. One at a cut is
-  usually a frame of the wrong shot: trim it instead;
+  usually a frame of the wrong shot: trim it instead. The frames are read
+  in 10 s pieces side by side, and with HDR video (an iPhone's HLG take)
+  each piece starts a second early, since AVFoundation's HDR to SDR
+  conversion makes a reader's first frame brighter: on the workbench short
+  that showed as a flicker at every 10 s mark;
 - green screen that didn't key, and flat white blocks that come and go
   (a key or matte that failed), where something on screen could have a
   key or matte: not over B-roll or a screen recording with no cutout on,
@@ -68,6 +72,18 @@ their own beside it, and reports, with the clips on screen there:
   talking at the same time. It seems a bit odd" (30 Oct 2026). A copy
   under a blur (the fill behind a shot that doesn't cover the frame) is
   left out. Read from the timeline, so it's in a quick check;
+- picture off the voice (`pictureOffVoice`): a camera clip (a camera file,
+  or a clip linked with the sound) and a clip of the same file on a sound
+  track under it, playing it at moments more than half a frame apart, so
+  the lips are out of step with the words. On the workbench short (19 Nov
+  2026) a linked ripple trim after a `holdFrame` (which then cut the clip
+  into pieces) left the camera 0.2 to 0.4 s behind the voice from 0:10 to
+  the end; Mike saw the lips, and
+  nothing in the check, `--cuts`, `--listen` or `sync --check` did. Held
+  frames are left out. When one voice clip covers the camera clip, it
+  comes with the `slip` that puts the picture back on the voice's offset;
+  otherwise rebuild the picture from the voice's clips. Read from the
+  timeline, so it's in a quick check;
 - a levelled clip whose file isn't measured (`unlevelled`): a clip with
   `audio.normalizeTo` plays and exports at its file's own level until the
   file's loudness is measured, so a bed meant for -45 LUFS is as loud as
@@ -347,7 +363,12 @@ off, the margin, and its fix (`fixKind`):
 - `putBack`: no such move, and the stretch cut at that join is 2 s or
   less, so the fix puts it back, filler and all, by trimming the end of
   the clip before the join on to where the next one starts in the take.
-  On the Ian video that's what sounded right.
+  On the Ian video that's what sounded right. It's never in the check's
+  `Fix:` batch (or `commands` in `--json`), since the cut may have taken
+  those words on purpose: on the workbench short "the first time" was a
+  repeated phrase cut out. The problem names the words it brings back,
+  and its own `puts back the cut words:` line has the trim to apply once
+  you've heard the join and want them back.
 - `nothingNearby`: neither. Listen with `tandem clip` and recut it by hand.
 
 When a trim back would drop a kept word, the problem names it (`drops` in
@@ -389,8 +410,8 @@ on the Ian video's final cut after it was signed off:
   A cut that goes on through the word again ("the, like, the") is a false
   start, cut whole on purpose (`beforeFiller`).
 
-The last line is a `tandem apply` that makes every fix (in `--json`,
-`commands`, latest first, and `revision`; each problem's `cut` has
+The last line is a `tandem apply` that makes every fix but a put-back
+(in `--json`, `commands`, latest first, and `revision`; each problem's `cut` has
 `clipID`, `edge`, `margin`, `fixKind`, `to`, `fix`, and `drops` (the kept
 word a trim back would drop), `lastWordCut` (the sentence's last word,
 cut right after the clip), `firstWordCut`, `fragment` and `beforeFiller`
@@ -463,7 +484,8 @@ joins and 4 were real.
   meant. Only a short word: a longer one cut part way can leave a piece
   the engine misses.
 - A join with both a level flag and a finding (any that isn't explained
-  and isn't a slip, or a kept word at the join not heard right) is one
+  and isn't a slip, or a kept word at the join not heard right on the
+  side the flag is on) is one
   `clippedWord` problem that says both, "and heard cut off (...)", with the
   levels' fix.
 

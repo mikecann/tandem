@@ -194,7 +194,7 @@ final class DoubleJumpTests: XCTestCase {
         let coordinator = ProjectCoordinator(project: sped)
         let frame = FrameRate.fps30.frameDuration
         try coordinator.apply(EditBatch(label: QualityCheck.holdLabel, commands: [.holdFrame(clipID: "clip_cam3", range: TimeRange(start: t(25), duration: Time(flicks: frame.flicks * 3)))]))
-        XCTAssertEqual(coordinator.project.videoTracks[0].clips.filter(\.freezeFrame).count, 1)
+        XCTAssertEqual(coordinator.project.videoTracks[0].clips.first { $0.id == "clip_cam3" }?.holds.count, 1, "held on the clip, not cut into it")
         XCTAssertTrue(jumps(coordinator.project).isEmpty, "\(jumps(coordinator.project).map(\.message))")
     }
 

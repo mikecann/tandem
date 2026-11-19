@@ -1,5 +1,6 @@
 import AVFoundation
 import CoreGraphics
+import VideoToolbox
 import XCTest
 import TandemCore
 import TandemMedia
@@ -31,17 +32,28 @@ final class TestMedia {
         size: CGSize = CGSize(width: 320, height: 180),
         fps: Int32 = 30,
         codec: AVVideoCodecType = .h264,
+        hlg: Bool = false,
+        tenBit: Bool = true,
+        attempt: Int = 1,
         draw: @escaping (Int, CGContext) -> Void,
         sound: ((Int) -> Float)? = nil
     ) async throws -> URL {
         let url = folder.appendingPathComponent(name)
         let writer = try AVAssetWriter(outputURL: url, fileType: .mov)
+        // With `hlg`, 10-bit HEVC in BT.2100 HLG, as an iPhone records HDR,
+        // the drawn values taken as the HLG signal.
+        var compression: [String: Any] = [AVVideoAverageBitRateKey: 20_000_000, AVVideoMaxKeyFrameIntervalKey: 10]
+        if hlg { compression[AVVideoProfileLevelKey] = tenBit ? kVTProfileLevel_HEVC_Main10_AutoLevel : kVTProfileLevel_HEVC_Main_AutoLevel }
         let video = AVAssetWriterInput(mediaType: .video, outputSettings: [
-            AVVideoCodecKey: codec,
+            AVVideoCodecKey: hlg ? .hevc : codec,
             AVVideoWidthKey: Int(size.width),
             AVVideoHeightKey: Int(size.height),
-            AVVideoCompressionPropertiesKey: [AVVideoAverageBitRateKey: 20_000_000, AVVideoMaxKeyFrameIntervalKey: 10],
-            AVVideoColorPropertiesKey: [
+            AVVideoCompressionPropertiesKey: compression,
+            AVVideoColorPropertiesKey: hlg ? [
+                AVVideoColorPrimariesKey: AVVideoColorPrimaries_ITU_R_2020,
+                AVVideoTransferFunctionKey: AVVideoTransferFunction_ITU_R_2100_HLG,
+                AVVideoYCbCrMatrixKey: AVVideoYCbCrMatrix_ITU_R_2020
+            ] : [
                 AVVideoColorPrimariesKey: AVVideoColorPrimaries_ITU_R_709_2,
                 AVVideoTransferFunctionKey: AVVideoTransferFunction_ITU_R_709_2,
                 AVVideoYCbCrMatrixKey: AVVideoYCbCrMatrix_ITU_R_709_2
@@ -120,9 +132,9 @@ final class TestMedia {
                     CVPixelBufferUnlockBaseAddress(buffer, [])
                     // Tag the frame as BT.709 so the encoder converts it
                     // straight to YCbCr instead of colour matching it.
-                    CVBufferSetAttachment(buffer, kCVImageBufferColorPrimariesKey, kCVImageBufferColorPrimaries_ITU_R_709_2, .shouldPropagate)
-                    CVBufferSetAttachment(buffer, kCVImageBufferTransferFunctionKey, kCVImageBufferTransferFunction_ITU_R_709_2, .shouldPropagate)
-                    CVBufferSetAttachment(buffer, kCVImageBufferYCbCrMatrixKey, kCVImageBufferYCbCrMatrix_ITU_R_709_2, .shouldPropagate)
+                    CVBufferSetAttachment(buffer, kCVImageBufferColorPrimariesKey, hlg ? kCVImageBufferColorPrimaries_ITU_R_2020 : kCVImageBufferColorPrimaries_ITU_R_709_2, .shouldPropagate)
+                    CVBufferSetAttachment(buffer, kCVImageBufferTransferFunctionKey, hlg ? kCVImageBufferTransferFunction_ITU_R_2100_HLG : kCVImageBufferTransferFunction_ITU_R_709_2, .shouldPropagate)
+                    CVBufferSetAttachment(buffer, kCVImageBufferYCbCrMatrixKey, hlg ? kCVImageBufferYCbCrMatrix_ITU_R_2020 : kCVImageBufferYCbCrMatrix_ITU_R_709_2, .shouldPropagate)
                     adaptor.append(buffer, withPresentationTime: CMTime(value: CMTimeValue(progress.frame), timescale: fps))
                     progress.frame += 1
                 }
@@ -157,6 +169,12 @@ final class TestMedia {
         guard written else { throw MediaError.failed("writing \(name) stalled") }
         writer.endSession(atSourceTime: CMTime(value: CMTimeValue(frames), timescale: fps))
         try await writer.finishWriting(within: 60)
+        // The 10-bit HEVC encoder fails now and then (-12902) on a busy
+        // machine; another go writes it.
+        if hlg, writer.status != .completed, attempt < 3 {
+            try? FileManager.default.removeItem(at: url)
+            return try await movie(name, seconds: seconds, size: size, fps: fps, codec: codec, hlg: hlg, tenBit: tenBit, attempt: attempt + 1, draw: draw, sound: sound)
+        }
         XCTAssertEqual(writer.status, .completed, "\(writer.error as Any)")
         return url
     }

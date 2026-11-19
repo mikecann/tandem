@@ -36,6 +36,26 @@ final class FrameScannerTests: XCTestCase {
         XCTAssertEqual(green.clipIDs, ["clip_p"])
     }
 
+    /// A frame held over a flash (`holdFrame`, kept on the clip by media
+    /// time) renders as the frame before it, in a clip that isn't cut.
+    func testAHeldFrameCoversTheFlash() async throws {
+        let media = try TestMedia()
+        try await media.movie("flash.mov", seconds: 2, draw: { frame, c in
+            TestMedia.fill(c, 0.4, 0.4, 0.4)
+            if frame == 15 { TestMedia.fill(c, 1, 1, 1) }
+        })
+        let clip = Clip(id: "clip_p", content: .media(mediaID: "med_p"), start: .zero, duration: t(2))
+        var project = smallProject(video: [Track(kind: .video, name: "V1", clips: [clip])], media: [media.item("med_p", "flash.mov", seconds: 2)])
+        var context = EditContext(seed: 1)
+        let frame = project.settings.frameRate.frameDuration
+        try Editing.apply(.holdFrame(clipID: "clip_p", range: TimeRange(start: frame.scaled(by: 15), duration: frame)), to: &project, context: &context)
+        XCTAssertEqual(project.videoTracks[0].clips.count, 1)
+        let frames = try await FrameScanner.scan(RenderContext(project: project, folder: media.projectFolder), ranges: [TimeRange(start: .zero, end: t(2))], width: 128)
+        XCTAssertEqual(frames.count, 60)
+        XCTAssertLessThan(frames[15].difference(from: frames[14]), 0.01, "frame 15 shows frame 14, not the white flash")
+        XCTAssertTrue(QualityCheck.frameProblems(frames, in: project).isEmpty, "\(QualityCheck.frameProblems(frames, in: project).map(\.message))")
+    }
+
     /// A reader that starts partway through a held frame could stall forever
     /// (the Convex 1.49 release edit: `tandem check` hung silently on 1:00
     /// to 1:10, where a push went between two clips holding their edges).
@@ -165,6 +185,64 @@ final class FrameScannerTests: XCTestCase {
         XCTAssertEqual(frames.first?.time.seconds ?? 0, 3, accuracy: 0.001)
         XCTAssertTrue(zip(frames, frames.dropFirst()).allSatisfy { $1.time > $0.time }, "in order, none twice")
         XCTAssertEqual(QualityCheck.frameProblems(frames, in: project).map(\.start.seconds), [12])
+    }
+
+    /// AVFoundation's HDR to SDR conversion settles over a reader's first
+    /// frames, so a piece read from its own start began a tenth brighter
+    /// than the frame before it: the workbench short (an iPhone's HLG take,
+    /// 19 Nov 2026) showed a flicker at every 10 s mark the scan's pieces
+    /// are cut on, which moved with the grid when the timeline moved.
+    func testHDRPiecesReadTheSameAsOneStretch() async throws {
+        let media = try TestMedia()
+        // A gradient with a bright window, moving a little each frame, in
+        // 10-bit HLG.
+        try await media.movie("hlg.mov", seconds: 12, hlg: true, draw: { frame, c in
+            for x in stride(from: 0, to: 320, by: 8) {
+                let v = 0.15 + 0.5 * Double(x) / 320
+                c.setFillColor(CGColor(srgbRed: v, green: v * 0.9, blue: v * 0.8, alpha: 1))
+                c.fill(CGRect(x: x, y: 0, width: 8, height: 180))
+            }
+            c.setFillColor(CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 1))
+            c.fill(CGRect(x: 40 + frame % 40, y: 30, width: 90, height: 60))
+        })
+        let clip = Clip(id: "clip_h", content: .media(mediaID: "med_h"), start: .zero, duration: t(12))
+        let project = smallProject(video: [Track(kind: .video, name: "V1", clips: [clip])], media: [media.item("med_h", "hlg.mov", seconds: 12)])
+        let context = RenderContext(project: project, folder: media.projectFolder)
+        let range = TimeRange(start: t(9), end: t(11))
+        let frames = try await FrameScanner.scan(context, ranges: [range], width: 128)
+        XCTAssertEqual(frames.count, 60)
+
+        // The same stretch read straight through from the start, as an
+        // export reads it.
+        var small = context
+        small.sizeOverride = CGSize(width: 128, height: 72)
+        let built = try await CompositionAssembler.build(await ConvertedMedia.prepare(small).0)
+        let hdr = await FrameScanner.hasHDR(built.composition)
+        XCTAssertTrue(hdr)
+        let tracks = try await built.composition.loadTracks(withMediaType: .video)
+        let straight = try await FrameScanner.read(built, tracks: tracks, range: range, scanlines: false, from: .zero)
+        XCTAssertEqual(straight.map(\.time), frames.map(\.time))
+        for (scanned, read) in zip(frames, straight) {
+            XCTAssertLessThan(scanned.difference(from: read), 0.01, "\(scanned.time) differs from reading straight through")
+        }
+        XCTAssertTrue(QualityCheck.frameProblems(frames, in: project).isEmpty, "\(QualityCheck.frameProblems(frames, in: project).map(\.message))")
+
+    }
+
+    /// A proxy of an HDR take is 8-bit HEVC still tagged HLG, which
+    /// AVFoundation converts the same way, so it counts as HDR too (and
+    /// `containsHDRVideo`, which wants 10 bits, would miss it).
+    func testAnEightBitHLGProxyIsHDR() async throws {
+        let media = try TestMedia()
+        try await media.movie("proxy.mov", seconds: 1, hlg: true, tenBit: false, draw: { _, c in TestMedia.fill(c, 0.5, 0.5, 0.5) })
+        try await media.movie("sdr.mov", seconds: 1, codec: .hevc, draw: { _, c in TestMedia.fill(c, 0.5, 0.5, 0.5) })
+        for (name, hdr) in [("proxy.mov", true), ("sdr.mov", false)] {
+            let clip = Clip(id: "clip_p", content: .media(mediaID: "med_p"), start: .zero, duration: t(1))
+            let project = smallProject(video: [Track(kind: .video, name: "V1", clips: [clip])], media: [media.item("med_p", name, seconds: 1)])
+            let built = try await CompositionAssembler.build(await ConvertedMedia.prepare(RenderContext(project: project, folder: media.projectFolder)).0)
+            let found = await FrameScanner.hasHDR(built.composition)
+            XCTAssertEqual(found, hdr, name)
+        }
     }
 
     func testPiecesComeBackInOrderWhateverFinishesFirst() async throws {

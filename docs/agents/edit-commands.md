@@ -236,6 +236,15 @@ clip at its end (a ripple trim, `setSpeed` slower with `ripple`) still take
 a marker at that end along with the clip after it, and a section card's
 room (`addSectionCards` with `insert`) moves its marker on with the section.
 
+`holdFrame` doesn't cut the clip: it adds a hold to the clip's `holds`
+(`{"source": <range in media time>, "frame": <media time shown>}`), so the
+clip stays one clip, linked as it was, and the hold stays on the frames it
+covers through any cut, trim, slide or speed change. It used to cut the
+clip into pieces that all shared the take's link group, and a linked trim
+then moved every piece's edge: on the workbench short (19 Nov 2026) that
+pushed the camera 0.2 to 0.4 s off the voice. To take a hold out, set
+`holds` with `updateClip` (`null` clears them all).
+
 An `at` within half a frame of a clip's start or end on a track it splits
 goes on that cut, so a time read to the millisecond doesn't leave a sliver.
 Further inside a clip it splits where you said, and a piece under a quarter

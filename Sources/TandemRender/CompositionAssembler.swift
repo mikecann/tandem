@@ -442,6 +442,37 @@ enum CompositionAssembler {
         let last = Time(cmTime: available.end)
         let frame = min(frameDuration, max(last - first, Time(flicks: 1)))
 
+        // Frames held over a flash (`Clip.holds`): the stretches either side
+        // play as they would, and each held one is the millisecond of the
+        // file up to the held frame, stretched, all on this track. A whole
+        // project frame of a 60 fps file would hold two of its frames.
+        if !segment.freeze, !segment.holds.isEmpty {
+            var cursor = start
+            func play(to time: Time) throws {
+                guard time > cursor else { return }
+                var part = segment
+                part.holds = []
+                part.timeline = TimeRange(start: cursor, end: time)
+                part.sourceStart = segment.sourceStart + (cursor - start).scaled(by: segment.speed > 0 ? segment.speed : 1)
+                try insert(part, into: track, from: source, available: available, end: &trackEnd, holdLastFrame: holdLastFrame, frameDuration: frameDuration)
+                cursor = time
+            }
+            for hold in segment.holds.sorted(by: { $0.timeline.start < $1.timeline.start }) {
+                guard let held = hold.timeline.intersection(TimeRange(start: cursor, end: end)), !held.isEmpty else { continue }
+                try play(to: held.start)
+                // Ending at the held time, which is before the flash, so it
+                // can't reach into it whatever the file's frame times.
+                let still = min(Time(seconds: 0.001), frame)
+                let at = min(max(hold.frame - still, first), last - still)
+                try track.insertTimeRange(TimeRange(start: at, duration: still).cmTimeRange, of: source, at: held.start.cmTime)
+                track.scaleTimeRange(TimeRange(start: held.start, duration: still).cmTimeRange, toDuration: held.duration.cmTime)
+                trackEnd = held.end
+                cursor = held.end
+            }
+            try play(to: end)
+            return
+        }
+
         if segment.freeze {
             let at = min(max(segment.sourceStart, first), last - frame)
             try track.insertTimeRange(TimeRange(start: at, duration: frame).cmTimeRange, of: source, at: start.cmTime)
