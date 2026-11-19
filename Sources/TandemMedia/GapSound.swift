@@ -382,9 +382,11 @@ public struct GapSound: Equatable, Sendable {
         let speakerPower = wordPower.max() ?? -120
         let lines = wordLines.indices.map { wordPower[$0] >= speakerPower - speakerUnder ? wordLines[$0] : nil }
         guard lines.contains(where: { $0 != nil }) else { return nil }
-        // Every frame of a track with a voice but no line is voice where it
-        // has sound.
-        let unread = layers.indices.filter { lines[$0] == nil && hasVoice($0) }
+        // Every frame of a track with no line is voice where it has sound:
+        // a device's recording that's digital silence but for an app
+        // talking reads as no voice by its levels, and its talk stays. Pure
+        // digital silence has no sound to keep.
+        let unread = layers.indices.filter { lines[$0] == nil }
         var played = [Bool](repeating: false, count: count)
         var voiced = [Bool](repeating: false, count: count)
         var hiss = [Bool](repeating: false, count: count)
