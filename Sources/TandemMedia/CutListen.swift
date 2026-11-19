@@ -275,6 +275,23 @@ public enum CutListen {
                 return between && theirs < mine
             }
         }
+        // A restart cut where the voice runs straight on: "is. So I'm just
+        // gonna, uh. | so I'm just gonna", cut at the onset of the first
+        // "So". The transcript's times put most of that "So" before the
+        // edge, so it reads as the last kept word, but the cut starts with
+        // it: the words cut past the edge begin with the same two words the
+        // other side starts with, which is heard. Its not being heard is the
+        // cut, as meant. On the Coordinators video (19 Nov 2026) it stood as
+        // a cut-off however the join was cut, and the agent had to hand back
+        // unchecked. A kept word cut short ("I said stop. | Stop the
+        // recording", with "uh" cut) doesn't repeat the cut's two words.
+        func restartCut(_ s: Int) -> Bool {
+            guard let after = afterIndex, after + 1 < said.count, cutPast.count >= 2,
+                  let index = stepOfSaid[after], case .match = steps[index] else { return false }
+            let word = canonical(said[s].text)
+            return !word.isEmpty && canonical(cutPast[0]) == word && canonical(said[after].text) == word
+                && canonical(cutPast[1]) == canonical(said[after + 1].text) && !canonical(cutPast[1]).isEmpty
+        }
         var heardTwice: [Int: String] = [:]
         for s in [beforeIndex, afterIndex].compactMap({ $0 }) {
             guard let index = stepOfSaid[s] else { continue }
@@ -340,6 +357,7 @@ public enum CutListen {
                 let atJoin = s == beforeIndex || s == afterIndex
                 // A word between two joins is the nearer one's to report.
                 if atJoin, !owns(s) { continue }
+                if s == beforeIndex, restartCut(s) { continue }
                 let short = isFunctionWord(text) || canonical(text).count <= 2
                 let why = short ? "a short or filler word the engine often leaves out"
                     : atJoin ? "nothing heard for it" : "nothing heard for it, away from the join, where the cut can't reach"

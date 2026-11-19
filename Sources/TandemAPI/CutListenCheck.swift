@@ -450,11 +450,11 @@ extension CutCheck {
         var dismissed = Set<Int>()
         var folded: [Int: String] = [:]
         result.joins = summary.joins
-        for (place, original) in summary.joins.enumerated() where original.skipped == nil {
+        for (place, join) in summary.joins.enumerated() where join.skipped == nil {
             // The level problems at this join, by their edge's clip.
             let here = levels.indices.filter { index in
-                guard let cut = levels[index].cut, original.clipIDs.contains(cut.clipID) else { return false }
-                return abs((levels[index].start - original.time).seconds) < 0.0005
+                guard let cut = levels[index].cut, join.clipIDs.contains(cut.clipID) else { return false }
+                return abs((levels[index].start - join.time).seconds) < 0.0005
             }
             let flags = here.map { index -> CutEvidence.Flag in
                 let cut = levels[index].cut!
@@ -463,14 +463,8 @@ extension CutCheck {
                     firstWordCut: cut.firstWordCut, fragment: cut.fragment, beforeFiller: cut.beforeFiller
                 )
             }
-            var verdict = CutEvidence.judge(CutListen.Join(time: original.time.seconds, said: original.said, heard: original.heard, findings: original.findings), flags: flags, cut: original.cut ?? [])
-            if !verdict.dropped.isEmpty {
-                // A restart the cut dropped as meant isn't a difference:
-                // judge the join again without it.
-                result.joins[place].findings = original.findings.enumerated().filter { !verdict.dropped.contains($0.offset) }.map(\.element)
-                verdict = CutEvidence.judge(CutListen.Join(time: original.time.seconds, said: original.said, heard: original.heard, findings: result.joins[place].findings), flags: flags, cut: original.cut ?? [])
-            }
-            let join = result.joins[place]
+            let heard = CutListen.Join(time: join.time.seconds, said: join.said, heard: join.heard, findings: join.findings)
+            let verdict = CutEvidence.judge(heard, flags: flags, cut: join.cut ?? [])
             for (index, why) in verdict.explained {
                 result.joins[place].findings[index].slip = true
                 result.joins[place].findings[index].why = why

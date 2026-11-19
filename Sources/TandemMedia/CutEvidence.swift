@@ -78,10 +78,6 @@ public enum CutEvidence {
         /// speech, with that margin: listening can't settle these, an ear
         /// can.
         public var tooClose: [Int: Float] = [:]
-        /// Findings, by index, on a word the take's kept words shouldn't
-        /// have had: a restart the cut dropped as meant
-        /// (`droppedRestart`). Not a difference at all, so not a note.
-        public var dropped: Set<Int> = []
     }
 
     /// Weighs the flags at a heard join against what was heard there.
@@ -99,10 +95,6 @@ public enum CutEvidence {
         let cutWords = cut + flags.compactMap(\.cutWord)
 
         for (index, finding) in join.findings.enumerated() {
-            if droppedRestart(finding, in: join, said: said, heard: heard, cut: cutWords) {
-                verdict.dropped.insert(index)
-                continue
-            }
             if let why = explanation(finding, in: join, said: said, heard: heard, cut: cutWords) {
                 verdict.explained[index] = why
                 continue
@@ -179,31 +171,6 @@ public enum CutEvidence {
             }
         }
         return nil
-    }
-
-    /// A restart cut at the join, the voice running straight on: "is. So
-    /// I'm just gonna, uh. | so I'm just gonna", cut at the onset of the
-    /// first "So". The transcript's times put most of that "So" before the
-    /// edge, so the take's kept words have it, but it's the cut's (it's in
-    /// the cut too), and the same word starts the other side and is heard
-    /// once. On the Coordinators video (19 Nov 2026) its not being heard
-    /// stood as a cut-off however the join was cut, so the agent had to
-    /// hand back unchecked. A word cut short ("opinion" before "is.") isn't
-    /// the word on the other side, so it still stands.
-    static func droppedRestart(
-        _ finding: CutListen.Finding, in join: CutListen.Join, said: (before: [String], after: [String]),
-        heard: (before: [String], after: [String]), cut: [String]
-    ) -> Bool {
-        guard finding.kind == .notHeard, let text = finding.said else { return false }
-        let target = CutListen.canonical(text)
-        let before = finding.time <= join.time
-        let joinWord = before ? said.before.last : said.after.first
-        let otherSide = before ? said.after.first : said.before.last
-        let heardAtJoin = Array(heard.before.suffix(2)) + Array(heard.after.prefix(2))
-        guard let joinWord, let otherSide, !target.isEmpty else { return false }
-        return CutListen.canonical(joinWord) == target && CutListen.canonical(otherSide) == target
-            && cut.contains { CutListen.canonical($0) == target }
-            && heardAtJoin.filter { CutListen.canonical($0) == target }.count == 1
     }
 
     /// The words either side of " | " in a join's said or heard text.
