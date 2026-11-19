@@ -276,26 +276,36 @@ extension TandemService {
 
     /// The revisions of edits undone and not redone, replaying the undo
     /// stack through the history: an edit pushes its revision, an undo pops
-    /// the top, a redo pushes back the last popped. Opening or reloading
-    /// the project clears it.
+    /// the top, a redo pushes it back with its own revision beside it (it's
+    /// learned under that one), so undoing it again takes out both. An undo
+    /// or redo made from another process is a reload labelled "Undo ..." or
+    /// "Redo ..."; any other reload, or opening the project, clears it.
     static func undone(_ records: [HistoryRecord]) -> Set<Int> {
-        var stack: [Int] = [], popped: [Int] = []
+        var stack: [[Int]] = [], popped: [[Int]] = []
         var undone = Set<Int>()
+        func undo() {
+            guard let top = stack.popLast() else { return }
+            popped.append(top)
+            undone.formUnion(top)
+        }
+        func redo(_ revision: Int) {
+            guard let back = popped.popLast() else { return }
+            stack.append(back + [revision])
+            undone.subtract(back)
+        }
         for record in records where record.kind.changesProject {
             switch record.kind {
             case .edit:
-                stack.append(record.revision)
+                stack.append([record.revision])
                 popped.removeAll()
             case .undo:
-                if let top = stack.popLast() {
-                    popped.append(top)
-                    undone.insert(top)
-                }
+                undo()
             case .redo:
-                if let back = popped.popLast() {
-                    stack.append(back)
-                    undone.remove(back)
-                }
+                redo(record.revision)
+            case .reload where record.label.hasPrefix("Undo "):
+                undo()
+            case .reload where record.label.hasPrefix("Redo "):
+                redo(record.revision)
             case .opened, .reload:
                 stack.removeAll()
                 popped.removeAll()

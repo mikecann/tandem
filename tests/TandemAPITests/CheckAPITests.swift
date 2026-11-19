@@ -381,6 +381,14 @@ final class CheckAPITests: XCTestCase {
         // Undone and redone isn't undone; a new edit drops what could be redone.
         XCTAssertEqual(TandemService.undone([record(10, .edit), record(11, .undo), record(12, .redo)]), [])
         XCTAssertEqual(TandemService.undone([record(10, .edit), record(11, .undo), record(12, .edit), record(13, .redo)]), [10])
+        // Redone, then undone again: both the edit and its redo (which is
+        // learned under its own revision) are out.
+        XCTAssertEqual(TandemService.undone([record(10, .edit), record(11, .undo), record(12, .redo), record(13, .undo)]), [10, 12])
+        // An undo from another process is a reload labelled "Undo ...".
+        var fromCLI = record(11, .reload)
+        fromCLI.label = "Undo Ripple delete"
+        XCTAssertEqual(TandemService.undone([record(10, .edit), fromCLI]), [10])
+        XCTAssertEqual(TandemService.undone([record(10, .edit), record(11, .reload)]), [], "a plain reload clears the stack")
         // A check in between changes nothing.
         XCTAssertEqual(TandemService.undone([record(10, .edit), record(10, .check), record(11, .undo)]), [10])
     }
