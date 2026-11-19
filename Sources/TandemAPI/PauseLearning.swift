@@ -48,11 +48,11 @@ extension TandemService {
     /// after is rebuilt from the history (`HistoryChain`), and the pause is
     /// the gap between the same two words in both. A trim that took words
     /// out is a cut, not a pause, and is left out.
-    public func learnPauses(since: Int = 0) async throws -> (trims: [PauseTrim], through: Int) {
+    public func learnPauses(since: Int = 0) async throws -> (trims: [PauseTrim], complaints: [PauseComplaint], through: Int) {
         let (project, revision) = coordinator.snapshot()
         let records = session.history.records()
         let earliest = max(HistoryChain.earliest(records, currentRevision: revision), since)
-        guard earliest < revision else { return ([], revision) }
+        guard earliest < revision else { return ([], [], revision) }
         let walk = try HistoryChain.walk(records, current: TimelineClips(project), currentRevision: revision, back: earliest)
         let takeTracks = ReviewRounds.takeTracks(project)
         let key = Self.tasteKey(project, url: session.fileURL)
@@ -98,7 +98,62 @@ extension TandemService {
                 before: trim.before, after: trim.after, kind: trim.kind, was: trim.was, left: trim.left
             ))
         }
-        return (found, revision)
+        // His comments on a pause being too long, with the pause he heard,
+        // as `tandem rounds` finds them: in the history, or for an older
+        // project in its backups and exports' snapshots.
+        var heard: [PauseComplaint] = []
+        let comments = ((try? ReviewRounds.read(session.fileURL))?.rounds ?? []).flatMap(\.comments)
+        var seen = Set<String>()
+        for comment in comments {
+            guard let text = comment.text, let time = comment.time, Self.isPauseComplaint(text),
+                  comment.revision > earliest, comment.revision <= revision else { continue }
+            let id = comment.id ?? "\(comment.revision)@\(time.flicks)"
+            guard seen.insert(id).inserted else { continue }
+            let state = Self.project(project, with: walk.states[comment.revision - earliest])
+            guard let pause = await complainedPause(in: state, at: time) else { continue }
+            heard.append(PauseComplaint(
+                project: key, name: project.name, revision: comment.revision, comment: id, date: comment.date, at: pause.start,
+                text: text, before: pause.before, after: pause.after, kind: SpokenPause.heldKind(before: pause.before, next: pause.after),
+                silence: pause.silence
+            ))
+        }
+        return (found, heard, revision)
+    }
+
+    /// A comment about a pause or silence being too long: not one asking
+    /// for a longer pause, or to keep one.
+    static func isPauseComplaint(_ text: String) -> Bool {
+        let range = NSRange(text.startIndex..., in: text)
+        let micro = try! NSRegularExpression(pattern: #"\bmicro ?pauses?\b"#, options: .caseInsensitive)
+        guard CommentTheme.classify(text) == .pauses || micro.firstMatch(in: text, range: range) != nil else { return false }
+        // Not an ask for more pause, or one he's already made how he wants
+        // ("I tighten the pause to how I want it to be, but can you just
+        // fix this swipe").
+        let longer = try! NSRegularExpression(
+            pattern: #"\b(longer(?! than (needed|necessary|it needs))|extend\w*|keep (it|this|that|the)|put (it |that |the pause )?back|add (a |more )?pause|more (of a )?pause|how i want it|i('ve| have)? (tighten|trimm?)(ed)? (the|this|that) pause)\b"#,
+            options: .caseInsensitive
+        )
+        return longer.firstMatch(in: text, range: range) == nil
+    }
+
+    /// The pause a comment at `time` is about: the one with the most
+    /// silence from 1.5 s before it to 0.5 s after (he stops a moment after
+    /// he hears it), as heard.
+    func complainedPause(in project: Project, at time: Time) async -> (start: Time, before: String, after: String, silence: Double)? {
+        let from = max(.zero, time - Time(seconds: 1.5)), to = time + Time(seconds: 0.5)
+        let map = await SoundTightening.withoutPhantoms(
+            TranscriptTools.speechMap(project, analysis: analysis), from: max(.zero, from - Time(seconds: 4)), to: to + Time(seconds: 4), project: project, folder: folder
+        ).map
+        let candidates = TranscriptTools.pauses(in: map, minimum: Time(seconds: CutAudit.minPause), from: max(.zero, from - Time(seconds: 4)), to: to + Time(seconds: 4))
+            .filter { $0.end >= from && $0.start <= to }
+        guard !candidates.isEmpty else { return nil }
+        let heard = await SoundTightening.listened(candidates, map: map, project: project, folder: folder).pauses
+        let measured = heard.compactMap { pause -> (Pause, Double)? in
+            guard let silence = pause.sound?.silence else { return nil }
+            return (pause, silence.duration.seconds)
+        }
+        guard let loudest = measured.max(by: { $0.1 < $1.1 }) else { return nil }
+        return (loudest.0.start, loudest.0.before, loudest.0.after, loudest.1)
     }
 
     /// The key a project's trims are kept under: its ID, or its path.
@@ -184,7 +239,7 @@ extension TandemService {
         // heard the mumble as part of the pause he cut.
         let was = between.isEmpty ? silence(heardBefore) : gap.duration.seconds
         guard let was, let left = silence(heardAfter), abs(was - left) >= 0.02 else { return nil }
-        return (pauseAfter.start, pauseAfter.before, pauseAfter.after, SpokenPause.kind(before: pauseAfter.before, next: pauseAfter.after), was, left)
+        return (pauseAfter.start, pauseAfter.before, pauseAfter.after, SpokenPause.heldKind(before: pauseAfter.before, next: pauseAfter.after), was, left)
     }
 
     /// At most this many short words cut with a pause still make it a
@@ -212,13 +267,13 @@ extension TandemService {
     /// Reads this project's trims into Mike's pause taste from where it was
     /// last read, and saves it. The taste as it is when the file can't be
     /// written.
-    public func updatePauseTaste(at url: URL = PauseTasteStore.url) async throws -> (taste: PauseTaste, found: [PauseTrim]) {
+    public func updatePauseTaste(at url: URL = PauseTasteStore.url) async throws -> (taste: PauseTaste, found: [PauseTrim], complaints: [PauseComplaint]) {
         var taste = PauseTasteStore.load(from: url)
         let (project, _) = coordinator.snapshot()
         let key = Self.tasteKey(project, url: session.fileURL)
         let learned = try await learnPauses(since: taste.learned[key] ?? 0)
-        taste.add(learned.trims, project: key, through: learned.through)
+        taste.add(learned.trims, complaints: learned.complaints, project: key, through: learned.through)
         try? PauseTasteStore.save(taste, to: url)
-        return (taste, learned.trims)
+        return (taste, learned.trims, learned.complaints)
     }
 }

@@ -47,17 +47,61 @@ public struct PauseTrim: Codable, Equatable, Sendable {
 
 extension SpokenPause.Kind: Codable {}
 
+/// A pause Mike left a comment on as too long ("too much silence at the
+/// end here", "micropause mid-sentence here, get rid of that"), with its
+/// silence as he heard it then. He trims few pauses himself and comments
+/// on many (7 on the Convex Auth v2 cut, none trimmed), so these set the
+/// line from which a pause is long as much as his trims do.
+public struct PauseComplaint: Codable, Equatable, Sendable {
+    public var project: String
+    public var name: String
+    /// The revision that added the comment, and the comment's ID.
+    public var revision: Int
+    public var comment: String
+    public var date: Date
+    public var at: Time
+    public var text: String
+    public var before: String
+    public var after: String
+    public var kind: SpokenPause.Kind
+    /// The silence he heard there, seconds.
+    public var silence: Double
+
+    public init(project: String, name: String, revision: Int, comment: String, date: Date, at: Time, text: String, before: String, after: String, kind: SpokenPause.Kind, silence: Double) {
+        self.project = project
+        self.name = name
+        self.revision = revision
+        self.comment = comment
+        self.date = date
+        self.at = at
+        self.text = text
+        self.before = before
+        self.after = after
+        self.kind = kind
+        self.silence = silence
+    }
+}
+
 /// Every pause Mike has trimmed, and the rule for each kind of pause that
 /// comes from them.
 public struct PauseTaste: Codable, Equatable, Sendable {
     public var trims: [PauseTrim]
+    public var complaints: [PauseComplaint]
     /// The last revision of each project already read (by `PauseTrim.project`),
     /// so a project's history is only read from there on.
     public var learned: [String: Int]
 
-    public init(trims: [PauseTrim] = [], learned: [String: Int] = [:]) {
+    public init(trims: [PauseTrim] = [], complaints: [PauseComplaint] = [], learned: [String: Int] = [:]) {
         self.trims = trims
+        self.complaints = complaints
         self.learned = learned
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        trims = try c.decodeIfPresent([PauseTrim].self, forKey: .trims) ?? []
+        complaints = try c.decodeIfPresent([PauseComplaint].self, forKey: .complaints) ?? []
+        learned = try c.decodeIfPresent([String: Int].self, forKey: .learned) ?? [:]
     }
 
     /// How long a pause of a kind should be, and from when it's too long.
@@ -70,6 +114,8 @@ public struct PauseTaste: Codable, Equatable, Sendable {
         public var flag: Double
         /// How many of his trims it comes from: under `fewest`, the usual.
         public var trims: Int
+        /// How many of his comments brought the flag down.
+        public var complaints: Int = 0
         public var learned: Bool { trims >= PauseTaste.fewest }
     }
 
@@ -104,24 +150,47 @@ public struct PauseTaste: Codable, Equatable, Sendable {
     /// The beats he kept, cut back or not.
     public var beats: [PauseTrim] { trims.filter { $0.left >= Self.beatFrom } }
 
-    /// The rule for `kind`, from the pauses he shortened to under a beat.
+    /// The rule for `kind`, from the pauses he shortened to under a beat;
+    /// then a pause as short as one he commented on as too long is long
+    /// too (a little under it), though never within `complaintMargin` of
+    /// what he leaves: a comment can land by a pause other than the one he
+    /// meant.
     public func rule(for kind: SpokenPause.Kind) -> Rule {
         let usual = Self.usual[kind] ?? (0.35, 0.6)
         let lengths = trims.filter { $0.kind == kind && $0.left < $0.was && $0.left < Self.beatFrom }.map(\.left).sorted()
-        guard lengths.count >= Self.fewest else { return Rule(kind: kind, leave: usual.leave, flag: usual.flag, trims: lengths.count) }
-        let leave = lengths[lengths.count / 2]
-        return Rule(kind: kind, leave: leave, flag: max(leave * Self.flagOver, leave + Self.flagMargin), trims: lengths.count)
+        var rule: Rule
+        if lengths.count >= Self.fewest {
+            let leave = lengths[lengths.count / 2]
+            rule = Rule(kind: kind, leave: leave, flag: max(leave * Self.flagOver, leave + Self.flagMargin), trims: lengths.count)
+        } else {
+            rule = Rule(kind: kind, leave: usual.leave, flag: usual.flag, trims: lengths.count)
+        }
+        let heard = complaints.filter { $0.kind == kind && $0.silence >= rule.leave + Self.complaintMargin && $0.silence < Self.beatFrom }
+        if let shortest = heard.map(\.silence).min(), shortest - Self.complaintUnder < rule.flag {
+            rule.flag = max(rule.leave + Self.complaintMargin, shortest - Self.complaintUnder)
+        }
+        rule.complaints = heard.count
+        return rule
     }
+
+    /// A pause he called too long brings the flag to this much under it.
+    public static let complaintUnder = 0.02
+    /// And never nearer what he leaves than this.
+    public static let complaintMargin = 0.08
 
     public var rules: [Rule] { [SpokenPause.Kind.mid, .comma, .sentence].map(rule(for:)) }
 
-    /// Adds `found` from `project`, read up to `revision`, in place of any
-    /// trims already kept from the same edits.
-    public mutating func add(_ found: [PauseTrim], project: String, through revision: Int) {
+    /// Adds `found` and `heard` from `project`, read up to `revision`, in
+    /// place of any already kept from the same edits and comments.
+    public mutating func add(_ found: [PauseTrim], complaints heard: [PauseComplaint] = [], project: String, through revision: Int) {
         let revisions = Set(found.map(\.revision))
         trims.removeAll { $0.project == project && revisions.contains($0.revision) }
         trims += found
         trims.sort { ($0.date, $0.revision) < ($1.date, $1.revision) }
+        let ids = Set(heard.map(\.comment))
+        complaints.removeAll { $0.project == project && ids.contains($0.comment) }
+        complaints += heard
+        complaints.sort { ($0.date, $0.revision) < ($1.date, $1.revision) }
         learned[project] = max(learned[project] ?? 0, revision)
     }
 }

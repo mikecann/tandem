@@ -367,6 +367,25 @@ final class CheckAPITests: XCTestCase {
         XCTAssertEqual(again.taste.trims.count, 1)
     }
 
+    func testWhichCommentsSayAPauseIsTooLong() {
+        // Mike's own, from the Examples Page and Convex Auth v2 reviews.
+        for text in [
+            "Again, too much silence at the end here. Again, again, again. I have to keep telling you about these silences. Should we make something in tandem so that you can learn from it so I can make some silence cuts or I can get the silences to how I want.",
+            "There's a micropause mid-sentence here, get rid of that please.",
+            "Again, longer than needed pause here between sentences, I think.",
+            "Again, awkward pause mid-sentence, get rid of it.",
+        ] {
+            XCTAssertTrue(TandemService.isPauseComplaint(text), text)
+        }
+        for text in [
+            "I tighten the pause to how I want it to be, but can you just fix this, this swipe now, this section divider.",
+            "Keep this pause a bit longer, I'm shrugging.",
+            "Can you show some of the other slides as well that I did for this?",
+        ] {
+            XCTAssertFalse(TandemService.isPauseComplaint(text), text)
+        }
+    }
+
     func testAWordRunningPastACutIsAProblemWithItsFix() async throws {
         // "section." runs on 0.12 s past file time 30, where the first piece
         // of the take ends; "Now" starts well after the second piece does (32).

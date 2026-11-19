@@ -11,12 +11,35 @@ import Foundation
 // his own trims (`PauseTaste`), and a pause past that is a note to tighten
 // or answer.
 
+extension SpokenPause {
+    /// The kind a pause is held to for its length (`PauseTaste`). With no
+    /// punctuation before a word that starts sentences ("one of your pages
+    /// | it goes from this", "made | I guess"), the transcript may have
+    /// missed a full stop, so it's held to a comma's length, not
+    /// mid-sentence's: on the Examples Page edit Mike had signed off, 14 of
+    /// the 30 mid-sentence pauses over 0.25 s were these.
+    public static func heldKind(before: String, next: String) -> Kind {
+        let kind = kind(before: before, next: next)
+        guard kind == .mid, punctuation(edgeWord(before, last: true)) == .mid else { return kind }
+        let word = bareWord(edgeWord(next, last: false))
+        return starters.contains(word) || openers.contains(word) ? .comma : kind
+    }
+
+    /// Words that start a sentence in Mike's run-on speech but can't be in
+    /// `starters`, which also reads capitals: "I" always has one.
+    static let openers: Set<String> = ["i", "i'm", "i've", "i'll", "i'd", "gonna", "thanks", "thank", "maybe", "obviously", "cheers", "cheerio"]
+}
+
 extension QualityCheck {
     /// Longer than this, a gap is a beat for something on screen or a
     /// change of section, which dead air and the section cards cover.
     public static let longPauseLongest = Time(seconds: 4)
     /// The most a check lists.
     static let longPausesListed = 40
+
+    static func flagKind(_ pause: HeardPause) -> SpokenPause.Kind {
+        SpokenPause.heldKind(before: pause.before, next: pause.after)
+    }
 
     /// Notes for pauses in `ranges` whose silence is at least `taste`'s
     /// flag for their kind, with the `tighten` that takes each to what
@@ -25,24 +48,30 @@ extension QualityCheck {
     /// person's turn.
     public static func longPauses(_ pauses: [HeardPause], taste: PauseTaste, in project: Project, ranges: [TimeRange], speech: Speech) -> [CheckProblem] {
         guard !isConversation(project, speech: speech) else { return [] }
-        let flagged = Set(midSentencePauses(pauses, in: project, ranges: ranges, speech: speech).map(\.start))
+        let flagged = midSentencePauses(pauses, in: project, ranges: ranges, speech: speech).map { TimeRange(start: $0.start, end: $0.end) }
         let rules = Dictionary(uniqueKeysWithValues: taste.rules.map { ($0.kind, $0) })
-        let found = pauses.filter { pause in
-            guard let silence = pause.silence, let rule = rules[SpokenPause.kind(before: pause.before, next: pause.after)] else { return false }
-            return silence.duration.seconds >= rule.flag - 1e-9 && silence.duration <= longPauseLongest
-                && ranges.contains { $0.overlaps(pause.range) } && !flagged.contains(pause.range.start)
-        }.sorted { $0.range.start < $1.range.start }
+        var found: [HeardPause] = []
+        for pause in pauses.sorted(by: { $0.range.start < $1.range.start }) {
+            guard let silence = pause.silence, let rule = rules[flagKind(pause)],
+                  silence.duration.seconds >= rule.flag - 1e-9, silence.duration <= longPauseLongest,
+                  ranges.contains(where: { $0.overlaps(pause.range) }),
+                  !flagged.contains(where: { $0.overlaps(silence) }) else { continue }
+            // Two gaps either side of a word too soft to hear as voice
+            // ("Okay, | stick | around") are one silence: noted once.
+            if let last = found.last?.silence, last.overlaps(silence) { continue }
+            found.append(pause)
+        }
 
         func keep(_ kind: SpokenPause.Kind) -> String { String(format: "%.2f", rules[kind]?.leave ?? 0.35) }
         return found.prefix(longPausesListed).map { pause in
-            let kind = SpokenPause.kind(before: pause.before, next: pause.after)
+            let kind = flagKind(pause)
             let rule = rules[kind]!
             let silence = pause.silence!
             let from = max(.zero, pause.range.start - Time(seconds: 0.5)), to = pause.range.end + Time(seconds: 0.5)
             let what: String
             switch kind {
             case .sentence: what = "after a sentence"
-            case .comma: what = "after a comma"
+            case .comma: what = SpokenPause.kind(before: pause.before, next: pause.after) == .comma ? "after a comma" : "where a new sentence may start"
             case .mid: what = "mid-sentence"
             }
             let source = rule.learned ? "the middle of \(rule.trims) of his own trims" : "his usual, until he's trimmed \(PauseTaste.fewest) of these"

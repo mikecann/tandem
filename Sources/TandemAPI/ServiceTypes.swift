@@ -395,11 +395,11 @@ public struct PausesRequest: ServiceCall {
     public func run(on service: TandemService, context: CallContext) async throws -> PausesResult {
         if learn == true || taste == true {
             let url = PauseTasteStore.url
-            let (taste, found) = learn == true ? try await service.updatePauseTaste(at: url) : (PauseTasteStore.load(from: url), [])
+            let (taste, found, heard) = learn == true ? try await service.updatePauseTaste(at: url) : (PauseTasteStore.load(from: url), [], [])
             let (_, revision) = service.coordinator.snapshot()
             return PausesResult(
                 revision: revision, minimum: .zero, pauses: [], total: .zero, missing: [],
-                taste: PauseTasteReport(taste, file: url, found: found, learned: learn == true)
+                taste: PauseTasteReport(taste, file: url, found: found, complaints: heard, learned: learn == true)
             )
         }
         return try await service.listenedPauses(minimum: Time(seconds: min ?? TranscriptTools.defaultMinimum), from: from, to: to)
@@ -414,6 +414,7 @@ public struct PauseTasteReport: Codable, Sendable {
         public var leave: Time
         public var flag: Time
         public var trims: Int
+        public var complaints: Int
         public var learned: Bool
     }
 
@@ -426,16 +427,24 @@ public struct PauseTasteReport: Codable, Sendable {
     /// middle of what he left them at.
     public var beats: Int
     public var beat: Time?
-    /// With learn, the trims found in this project this time.
+    /// His comments on pauses being too long, kept.
+    public var complaints: Int
+    /// With learn, the trims and comments found in this project this time.
     public var found: [PauseTrim]?
+    public var heard: [PauseComplaint]?
 
-    public init(_ taste: PauseTaste, file: URL, found: [PauseTrim], learned: Bool) {
+    public init(_ taste: PauseTaste, file: URL, found: [PauseTrim], complaints heard: [PauseComplaint] = [], learned: Bool) {
         self.file = file.path
         rules = taste.rules.map {
-            Rule(kind: $0.kind.rawValue, leave: Time(seconds: ($0.leave * 1000).rounded() / 1000), flag: Time(seconds: ($0.flag * 1000).rounded() / 1000), trims: $0.trims, learned: $0.learned)
+            Rule(
+                kind: $0.kind.rawValue, leave: Time(seconds: ($0.leave * 1000).rounded() / 1000), flag: Time(seconds: ($0.flag * 1000).rounded() / 1000),
+                trims: $0.trims, complaints: $0.complaints, learned: $0.learned
+            )
         }
         trims = taste.trims.count
-        projects = Set(taste.trims.map(\.project)).count
+        complaints = taste.complaints.count
+        projects = Set(taste.trims.map(\.project) + taste.complaints.map(\.project)).count
+        self.heard = learned ? heard : nil
         let beats = taste.beats.map(\.left).sorted()
         self.beats = beats.count
         beat = beats.isEmpty ? nil : Time(seconds: (beats[beats.count / 2] * 1000).rounded() / 1000)

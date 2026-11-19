@@ -214,18 +214,25 @@ extension PauseTasteReport {
     var readableText: String {
         var lines: [String] = []
         if let found {
-            if found.isEmpty {
-                lines.append("No new pauses Mike trimmed himself in this project's history.")
-            } else {
+            if found.isEmpty && (heard ?? []).isEmpty {
+                lines.append("No new pauses Mike trimmed himself or called too long in this project's history.")
+            } else if !found.isEmpty {
                 lines.append("\(found.count) pause\(found.count == 1 ? "" : "s") Mike trimmed himself, the silence as he hears it before and after:")
                 for trim in found {
                     lines.append("  \(trim.at)  \(trim.kind.rawValue)  \(TimeText.duration(Time(seconds: trim.was))) -> \(TimeText.duration(Time(seconds: trim.left)))  ...\(trim.before) | \(trim.after)...")
                 }
             }
+            if let heard, !heard.isEmpty {
+                lines.append("\(heard.count) pause\(heard.count == 1 ? "" : "s") Mike called too long in a comment, with the silence he heard:")
+                for complaint in heard {
+                    lines.append("  \(complaint.at)  \(complaint.kind.rawValue)  \(TimeText.duration(Time(seconds: complaint.silence)))  ...\(complaint.before) | \(complaint.after)...  \"\(complaint.text.prefix(80))\"")
+                }
+            }
         }
-        lines.append("Mike's pauses, from \(trims) trim\(trims == 1 ? "" : "s") in \(projects) project\(projects == 1 ? "" : "s") (\(file)):")
+        lines.append("Mike's pauses, from \(trims) trim\(trims == 1 ? "" : "s") and \(complaints) comment\(complaints == 1 ? "" : "s") in \(projects) project\(projects == 1 ? "" : "s") (\(file)):")
         for rule in rules {
-            let source = rule.learned ? "from \(rule.trims) of his trims" : "the usual, \(rule.trims) trim\(rule.trims == 1 ? "" : "s") so far"
+            var source = rule.learned ? "from \(rule.trims) of his trims" : "the usual, \(rule.trims) trim\(rule.trims == 1 ? "" : "s") so far"
+            if rule.complaints > 0 { source += ", and \(rule.complaints) of his comments" }
             lines.append("  \(rule.kind): leave \(TimeText.duration(rule.leave)), too long from \(TimeText.duration(rule.flag)) (\(source))")
         }
         if let beat {
