@@ -165,7 +165,7 @@ public struct PauseTaste: Codable, Equatable, Sendable {
         } else {
             rule = Rule(kind: kind, leave: usual.leave, flag: usual.flag, trims: lengths.count)
         }
-        let heard = complaints.filter { $0.kind == kind && $0.silence >= rule.leave + Self.complaintMargin && $0.silence < Self.beatFrom }
+        let heard = complaints.filter { $0.kind == kind && $0.silence >= rule.leave + Self.complaintMargin && $0.silence < Self.complaintLongest }
         if let shortest = heard.map(\.silence).min(), shortest - Self.complaintUnder < rule.flag {
             rule.flag = max(rule.leave + Self.complaintMargin, shortest - Self.complaintUnder)
         }
@@ -173,6 +173,9 @@ public struct PauseTaste: Codable, Equatable, Sendable {
         return rule
     }
 
+    /// A comment by a pause this long is about a beat, not the length he
+    /// likes: his "too much silence" comments were by 0.7 to 0.95 s.
+    public static let complaintLongest = 1.2
     /// A pause he called too long brings the flag to this much under it.
     public static let complaintUnder = 0.02
     /// And never nearer what he leaves than this.

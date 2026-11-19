@@ -332,6 +332,9 @@ public struct GapSound: Equatable, Sendable {
     /// A dip under the voice's line this short inside a word is still the
     /// word: shorter than the closure of a stop, which is 50 ms or more.
     static let voiceDip = 0.02
+    /// A track whose loudest frame beside the words is this far or more
+    /// under the loudest track's isn't the one they're said on.
+    static let speakerUnder: Float = 10
 
     /// `silence`, from each track's frames (`frames[layer][index]`, nil
     /// where the track doesn't play), the first at `low`: the stretch with
@@ -354,7 +357,7 @@ public struct GapSound: Equatable, Sendable {
         // Each track's lines for its voice, from the words either side as
         // the transcript has them and the voice round them.
         func hasVoice(_ layer: Int) -> Bool { layers[layer].pieces.contains { $0.placer.levels.isVoice } }
-        let lines: [(voice: Float, high: Float, hum: Float)?] = layers.indices.map { layer in
+        let wordLines: [(voice: Float, high: Float, hum: Float)?] = layers.indices.map { layer in
             guard hasVoice(layer) else { return nil }
             func word(_ range: ClosedRange<Double>) -> [FaintSound.Frame] {
                 (0..<count).filter { range.contains(time($0) + step / 2) }.compactMap { frames[layer][$0] }
@@ -367,6 +370,17 @@ public struct GapSound: Equatable, Sendable {
             let loudest = words.map { FaintSound.power($0.map(\.full)) }.max() ?? -120
             return (line.voice, line.high, loudest - humUnder)
         }
+        // Only the tracks that carry the words go by the voice's line. Any
+        // other (an iPad's app talking in the gap, on the Tandem tests'
+        // fixture) has no words of its own to set one, and what's under
+        // the speaker's words there is its quiet: all its sound stays.
+        let wordPower: [Float] = layers.indices.map { layer in
+            guard wordLines[layer] != nil else { return -120 }
+            return (0..<count).filter { before.contains(time($0) + step / 2) || after.contains(time($0) + step / 2) }
+                .compactMap { frames[layer][$0]?.voice }.max() ?? -120
+        }
+        let speakerPower = wordPower.max() ?? -120
+        let lines = wordLines.indices.map { wordPower[$0] >= speakerPower - speakerUnder ? wordLines[$0] : nil }
         guard lines.contains(where: { $0 != nil }) else { return nil }
         // Every frame of a track with a voice but no line is voice where it
         // has sound.
