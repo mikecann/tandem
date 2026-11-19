@@ -339,6 +339,57 @@ final class RedactTests: XCTestCase {
         XCTAssertEqual(moved.crop.right, 0.6, accuracy: 1e-9)
     }
 
+    func testTheRegionIsKeptThroughSavingAndPatches() throws {
+        let (c, screen, copy) = try shortReady(rect: Rect(x: 0.3, y: 0.2, width: 0.4, height: 0.1), mainCrop: 0.5)
+        try c.run("Rename", .updateClip(clipID: copy.id, patch: .object(["name": .string("Privacy: sidebar")])))
+        let saved = try JSONDecoder().decode(Project.self, from: JSONEncoder().encode(c.project))
+        XCTAssertEqual(saved.clip(copy.id)?.video?.redaction, Rect(x: 0.3, y: 0.2, width: 0.4, height: 0.1))
+        let reopened = ProjectCoordinator(project: saved)
+        try reopened.run("Short", .setFormatLayout(clipIDs: [screen.id], format: "portrait", slot: .top))
+        XCTAssertEqual(reopened.project.clip(copy.id)?.video?.formatOverrides["portrait"]?.crop?.left ?? 0, 0.3, accuracy: 1e-9)
+    }
+
+    func testABlurFollowsThePictureItWasMadeOverNotAnotherOfTheSameFile() throws {
+        // The same recording twice: full frame on "Screen", and as a PiP
+        // on a track above. Only the PiP is redacted.
+        let (_, c) = try Fixture.edited()
+        try c.run("Track", .addTrack(kind: .video, name: "Screen PiP", index: c.project.videoTracks.count, id: "trk_pip"))
+        try c.run("PiP", .placeMedia(mediaIDs: ["med_screen"], at: .zero, duration: t(60), videoTrackID: "trk_pip", includeAudio: false))
+        try c.run("Hide", .redact(range: TimeRange(start: t(10), end: t(15)), rect: email, trackID: "trk_pip"))
+        let pip = try XCTUnwrap(c.clips("Screen PiP").first { $0.range.start == t(10) })
+        let copy = try XCTUnwrap(c.clips("Privacy (Screen PiP)").first)
+        try c.run("Corner", .applyLayout(clipIDs: [pip.id], preset: .pipLeft))
+        XCTAssertEqual(c.project.clip(copy.id)?.video?.transform, c.project.clip(pip.id)?.video?.transform)
+        try c.run("Back", .applyLayout(clipIDs: [copy.id], preset: .full))
+        XCTAssertEqual(c.project.clip(copy.id)?.video?.transform, c.project.clip(pip.id)?.video?.transform, "still the PiP's place, not the full frame")
+    }
+
+    func testABlurOverTwoPicturesLaidOutApartStopsTheLayout() throws {
+        // Its track locked, the picture was bladed under it without it.
+        let (c, _, copy) = try shortReady()
+        let privacy = try XCTUnwrap(c.project.track(named: "Privacy (Screen)"))
+        try c.run("Lock", .updateTrack(trackID: privacy.id, patch: .object(["locked": .bool(true)])))
+        try c.run("Blade", .blade(at: t(12), trackIDs: [c.project.track(named: "Screen")!.id]))
+        XCTAssertEqual(c.project.clip(copy.id)?.range, TimeRange(start: t(10), end: t(15)), "the copy wasn't cut")
+        let right = try XCTUnwrap(c.clips("Screen").first { $0.range.start == t(12) })
+        XCTAssertThrowsError(try c.run("Short", .setFormatLayout(clipIDs: [right.id], format: "portrait", slot: .top)))
+        XCTAssertNil(c.project.clip(right.id)?.video?.formatOverrides["portrait"], "nothing moved")
+    }
+
+    func testABlurShowsItsRegionWhereThePicturesAnimatedCropDoes() throws {
+        let (_, c) = try Fixture.edited()
+        let first = c.clips("Screen")[0]
+        try c.run("Hold", .setKeyframes(clipID: first.id, parameter: "video.crop.left", keyframes: [Keyframe(time: .zero, value: .number(0), interpolation: .hold)]))
+        try c.run("Hide", .redact(range: TimeRange(start: t(10), end: t(15)), rect: Rect(x: 0.2, y: 0.2, width: 0.2, height: 0.1), mediaID: "med_screen"))
+        let copy = try XCTUnwrap(c.clips("Privacy (Screen)").first)
+        XCTAssertEqual(copy.keyframes["video.crop.left"]?.map(\.value), [.number(0.2)])
+        let screen = try XCTUnwrap(c.clips("Screen").first { $0.range.start == t(10) })
+        try c.run("Split", .applyLayout(clipIDs: [screen.id], preset: .split))
+        let moved = try XCTUnwrap(c.project.clip(copy.id))
+        XCTAssertEqual(moved.keyframes["video.crop.left"]?.map(\.value), [.number(0.2)], "the picture still shows from 0.2 by its keyframe")
+        XCTAssertEqual(moved.video?.crop.right ?? 0, 0.6, accuracy: 1e-9)
+    }
+
     func testASwitchBackToTheCameraTurnsOffOnlyTheRedactionsInIt() throws {
         let c = try SyncedPlacementTests.project()
         try c.run("Add the close-up", .placeSynced(mediaID: "med_angle"))

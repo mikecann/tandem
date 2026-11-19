@@ -1229,6 +1229,7 @@ extension VideoProperties {
         effects = try c.decode(.effects, or: [])
         layoutPreset = try c.decodeIfPresent(String.self, forKey: .layoutPreset)
         formatOverrides = try c.decode(.formatOverrides, or: [:])
+        redaction = try c.decodeIfPresent(Rect.self, forKey: .redaction)
     }
 }
 
