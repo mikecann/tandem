@@ -280,6 +280,31 @@ final class GapSoundTests: XCTestCase {
         XCTAssertEqual(silence.upperBound - silence.lowerBound, 0.2, accuracy: 0.03)
     }
 
+    func testATrackTalkingOnlyInTheGapKeepsItsTalk() throws {
+        // A device's recording that plays only inside the gap, someone
+        // talking on it the transcript missed: with no words of its own
+        // either side, everything it has is voice, so no silence covers it
+        // and no cut goes through it.
+        let take = Take(length: 5, words: [(10.5, 11.0), (12.0, 12.5)])
+        let device = Take(start: 11.3, length: 0.4, softWords: [(11.35, 11.65, 10)])
+        let sound = try listen([layer(take), layer(device, name: "Device")], gap: 11.0...12.0, before: 10.5...11.0, after: 12.0...12.5)
+        let silence = try XCTUnwrap(sound.silence)
+        XCTAssertFalse(silence.contains(11.5), "\(silence)")
+        for cut in (try? sound.place(keep: 0.4, minimum: 0.5, frame: frame).get()) ?? [] {
+            XCTAssertFalse(cut.from < 11.6 && 11.4 < cut.to, "\(cut) goes through the device's talk")
+        }
+    }
+
+    func testADigitallySilentTrackDoesntHideTheSilence() throws {
+        // A screen recording's sound that's digital silence plays beside
+        // the mic: it has no voice to hear, so the pause is still heard.
+        let take = Take(length: 5, words: [(10.5, 11.0), (12.0, 12.5)], room: 0.1, pulses: [(11.05, 11.75, 0.35, 0.3, -48)])
+        let screen = Take(length: 5, room: 0)
+        let sound = try listen([layer(take), layer(screen, name: "Screen")], gap: 11.0...12.0, before: 10.5...11.0, after: 12.0...12.5)
+        let silence = try XCTUnwrap(sound.silence)
+        XCTAssertEqual(silence.upperBound - silence.lowerBound, 1.0, accuracy: 0.05)
+    }
+
     func testSpeechRightThroughTheGapIsNoPause() throws {
         // The transcript has a gap in a word it timed badly: the voice runs
         // on from 10.5 to 12.0 without a break.

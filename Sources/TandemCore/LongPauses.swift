@@ -48,7 +48,10 @@ extension QualityCheck {
     /// person's turn.
     public static func longPauses(_ pauses: [HeardPause], taste: PauseTaste, in project: Project, ranges: [TimeRange], speech: Speech) -> [CheckProblem] {
         guard !isConversation(project, speech: speech) else { return [] }
-        let flagged = midSentencePauses(pauses, in: project, ranges: ranges, speech: speech).map { TimeRange(start: $0.start, end: $0.end) }
+        // The pauses the mid-sentence note has one by one: not its last
+        // line, which only counts how many more there are.
+        let flagged = midSentencePauses(pauses, in: project, ranges: ranges, speech: speech)
+            .prefix(midSentencePausesListed).map { TimeRange(start: $0.start, end: $0.end) }
         let rules = Dictionary(uniqueKeysWithValues: taste.rules.map { ($0.kind, $0) })
         var found: [HeardPause] = []
         for pause in pauses.sorted(by: { $0.range.start < $1.range.start }) {

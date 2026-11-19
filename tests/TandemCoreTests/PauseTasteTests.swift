@@ -47,6 +47,27 @@ final class PauseTasteTests: XCTestCase {
         XCTAssertEqual(taste.beats.count, 2)
     }
 
+    private func complaint(_ kind: SpokenPause.Kind, silence: Double, id: String) -> PauseComplaint {
+        PauseComplaint(project: "p", name: "Video", revision: 1, comment: id, date: Date(timeIntervalSince1970: 1), at: t(10),
+                       text: "Another bit of a silence, it's awkward here.", before: "past year or so.", after: "So if I want", kind: kind, silence: silence)
+    }
+
+    func testAPauseHeCalledTooLongBringsTheLineDown() {
+        // A comma pause he called too long at 0.33 s: the line comes down
+        // to just under it.
+        var taste = PauseTaste(complaints: [complaint(.comma, silence: 0.33, id: "a")])
+        XCTAssertEqual(taste.rule(for: .comma).flag, 0.31, accuracy: 1e-9)
+        XCTAssertEqual(taste.rule(for: .comma).complaints, 1)
+        // One longer than the line already is changes nothing, and nor does
+        // one so near what he leaves that it may be the wrong pause, or a beat.
+        taste.complaints = [complaint(.sentence, silence: 0.84, id: "b"), complaint(.sentence, silence: 0.38, id: "c"), complaint(.sentence, silence: 1.2, id: "d")]
+        XCTAssertEqual(taste.rule(for: .sentence).flag, 0.6)
+        XCTAssertEqual(taste.rule(for: .sentence).complaints, 1, "only the 0.84 s one counts")
+        // Kept once per comment.
+        taste.add([], complaints: [complaint(.sentence, silence: 0.84, id: "b")], project: "p", through: 3)
+        XCTAssertEqual(taste.complaints.filter { $0.comment == "b" }.count, 1)
+    }
+
     func testLearningAProjectAgainReplacesItsTrims() {
         var taste = PauseTaste()
         taste.add([trim(.sentence, was: 0.8, left: 0.3, revision: 5)], project: "p", through: 10)

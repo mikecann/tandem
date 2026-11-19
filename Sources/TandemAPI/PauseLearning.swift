@@ -62,6 +62,7 @@ extension TandemService {
         func blade(_ record: HistoryRecord) -> Bool { record.label.lowercased().hasPrefix("blade") }
 
         var found: [PauseTrim] = []
+        var unread: Int?
         var index = 0
         let chain = walk.records
         while index < chain.count {
@@ -87,16 +88,29 @@ extension TandemService {
                 last += 1
             }
             index = last + 1
+            // One he undid straight after isn't how he wants it.
+            if last + 1 < chain.count, chain[last + 1].kind == .undo, person(chain[last + 1]) { continue }
             let before = Self.project(project, with: walk.states[first])
             let after = Self.project(project, with: walk.states[last + 1])
-            // Where his last cut was (a close gap's place says nothing), in
-            // the timeline as it is after the trim.
-            let anchor = chain[first...last].last { ReviewRounds.isTakeTrim($0, takeTracks: takeTracks) && !closesGap($0) }?.place?.start ?? place.start
-            guard let trim = await pauseTrim(before: before, after: after, at: anchor) else { continue }
-            found.append(PauseTrim(
-                project: key, name: project.name, revision: chain[last].revision, date: chain[last].date, at: trim.at,
-                before: trim.before, after: trim.after, kind: trim.kind, was: trim.was, left: trim.left
-            ))
+            // Where each of his cuts was (a close gap's place says nothing),
+            // the last first, as it's in the timeline after the trim: two
+            // pauses trimmed a second apart are two trims.
+            let anchors = chain[first...last].filter { ReviewRounds.isTakeTrim($0, takeTracks: takeTracks) && !closesGap($0) }
+                .compactMap { $0.place?.start }.reversed()
+            // With no transcript to go by yet, nothing there can be read:
+            // stop the read short of it, so it's read once there is one.
+            if !TranscriptTools.speechMap(after, analysis: analysis).missing.isEmpty {
+                unread = min(unread ?? chain[first].revision - 1, chain[first].revision - 1)
+                continue
+            }
+            var pairs = Set<String>()
+            for anchor in anchors.isEmpty ? [place.start] : Array(anchors) {
+                guard let trim = await pauseTrim(before: before, after: after, at: anchor), pairs.insert("\(trim.before)|\(trim.after)").inserted else { continue }
+                found.append(PauseTrim(
+                    project: key, name: project.name, revision: chain[last].revision, date: chain[last].date, at: trim.at,
+                    before: trim.before, after: trim.after, kind: trim.kind, was: trim.was, left: trim.left
+                ))
+            }
         }
         // His comments on a pause being too long, with the pause he heard,
         // as `tandem rounds` finds them: in the history, or for an older
@@ -106,7 +120,7 @@ extension TandemService {
         var seen = Set<String>()
         for comment in comments {
             guard let text = comment.text, let time = comment.time, Self.isPauseComplaint(text),
-                  comment.revision > earliest, comment.revision <= revision else { continue }
+                  comment.revision > earliest, comment.revision <= (unread ?? revision) else { continue }
             let id = comment.id ?? "\(comment.revision)@\(time.flicks)"
             guard seen.insert(id).inserted else { continue }
             let state = Self.project(project, with: walk.states[comment.revision - earliest])
@@ -117,7 +131,7 @@ extension TandemService {
                 silence: pause.silence
             ))
         }
-        return (found, heard, revision)
+        return (found, heard, max(earliest, unread ?? revision))
     }
 
     /// A comment about a pause or silence being too long: not one asking
@@ -268,10 +282,12 @@ extension TandemService {
     /// last read, and saves it. The taste as it is when the file can't be
     /// written.
     public func updatePauseTaste(at url: URL = PauseTasteStore.url) async throws -> (taste: PauseTaste, found: [PauseTrim], complaints: [PauseComplaint]) {
-        var taste = PauseTasteStore.load(from: url)
         let (project, _) = coordinator.snapshot()
         let key = Self.tasteKey(project, url: session.fileURL)
-        let learned = try await learnPauses(since: taste.learned[key] ?? 0)
+        let learned = try await learnPauses(since: PauseTasteStore.load(from: url).learned[key] ?? 0)
+        // Read again just before writing, so what another project's check
+        // learned meanwhile stays.
+        var taste = PauseTasteStore.load(from: url)
         taste.add(learned.trims, complaints: learned.complaints, project: key, through: learned.through)
         try? PauseTasteStore.save(taste, to: url)
         return (taste, learned.trims, learned.complaints)

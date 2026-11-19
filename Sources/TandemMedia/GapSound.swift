@@ -197,7 +197,7 @@ public struct GapSound: Equatable, Sendable {
         // breath (a bump, the room's rumble) is no sound to keep whole: it
         // goes in the pause, as faint sound, so the cut can take it and
         // the keep is measured as he hears it.
-        let heardSilence = Self.silence(frames: frames, layers: layers, gap: gap, before: before, after: after, low: low)
+        let heardSilence = Self.silence(frames: frames, sounding: sounding, layers: layers, gap: gap, before: before, after: after, low: low)
         let silence = heardSilence?.range
         // Only a bump that would have been sound (`CutPlanner.soundFrames`
         // of it over the line) is faint sound to keep the cut's edges out
@@ -329,13 +329,22 @@ public struct GapSound: Equatable, Sendable {
     /// is the voice's hum. The bumps Mike hears as silence were 30 dB or
     /// more under the words there, an "m" about 8 under (a guess between).
     static let humUnder: Float = 15
+    /// A dip under the voice's line this short inside a word is still the
+    /// word: shorter than the closure of a stop, which is 50 ms or more.
+    static let voiceDip = 0.02
 
     /// `silence`, from each track's frames (`frames[layer][index]`, nil
     /// where the track doesn't play), the first at `low`: the stretch with
     /// no voice in it that overlaps the transcript's gap most, or the
     /// longest within `slack` of it when none does.
+    ///
+    /// A track with no voice to go by beside the words (it only plays in
+    /// the gap, so its words aren't there to set a line) keeps all its
+    /// sound as voice (`sounding`): it could be someone talking the
+    /// transcript missed. A track with no voice at all (a device's digital
+    /// silence, `SpeechLevels.isVoice`) has none to hear.
     static func silence(
-        frames: [[FaintSound.Frame?]], layers: [SoundLayer], gap: ClosedRange<Double>,
+        frames: [[FaintSound.Frame?]], sounding: [[Bool]], layers: [SoundLayer], gap: ClosedRange<Double>,
         before: ClosedRange<Double>, after: ClosedRange<Double>, low: Double
     ) -> (range: ClosedRange<Double>, frames: Range<Int>, hiss: [Bool])? {
         let step = SpeechEnergy.frameSeconds
@@ -344,7 +353,9 @@ public struct GapSound: Equatable, Sendable {
         func time(_ index: Int) -> Double { low + Double(index) * step }
         // Each track's lines for its voice, from the words either side as
         // the transcript has them and the voice round them.
+        func hasVoice(_ layer: Int) -> Bool { layers[layer].pieces.contains { $0.placer.levels.isVoice } }
         let lines: [(voice: Float, high: Float, hum: Float)?] = layers.indices.map { layer in
+            guard hasVoice(layer) else { return nil }
             func word(_ range: ClosedRange<Double>) -> [FaintSound.Frame] {
                 (0..<count).filter { range.contains(time($0) + step / 2) }.compactMap { frames[layer][$0] }
             }
@@ -357,6 +368,9 @@ public struct GapSound: Equatable, Sendable {
             return (line.voice, line.high, loudest - humUnder)
         }
         guard lines.contains(where: { $0 != nil }) else { return nil }
+        // Every frame of a track with a voice but no line is voice where it
+        // has sound.
+        let unread = layers.indices.filter { lines[$0] == nil && hasVoice($0) }
         var played = [Bool](repeating: false, count: count)
         var voiced = [Bool](repeating: false, count: count)
         var hiss = [Bool](repeating: false, count: count)
@@ -365,6 +379,7 @@ public struct GapSound: Equatable, Sendable {
             for layer in layers.indices {
                 guard let frame = frames[layer][index] else { continue }
                 played[index] = true
+                if unread.contains(layer), sounding[layer][index] { voiced[index] = true }
                 guard let line = lines[layer] else { continue }
                 if frame.voice >= line.voice { voiced[index] = true }
                 if frame.high >= max(line.high, frame.highLine) { hiss[index] = true }
@@ -389,10 +404,14 @@ public struct GapSound: Equatable, Sendable {
             return found
         }
         // A blip of voice too short to be a word is silence: a click, a
-        // lip smack, the room's bump just touching the line.
+        // lip smack, the room's bump just touching the line. A quiet word
+        // can dip under the line in places, so it's the voice in a run
+        // with dips of up to `voiceDip` that counts, as `FaintSound.near`
+        // counts it across the sound.
         let shortest = Int((briefestVoice / step).rounded())
+        let dip = Int((voiceDip / step).rounded())
         var speaking = [Bool](repeating: false, count: count)
-        for run in runs(voiced, holes: 1) where run.count >= shortest {
+        for run in runs(voiced, holes: dip) where run.filter({ voiced[$0] }).count >= shortest {
             for index in run { speaking[index] = true }
         }
         // Hiss that runs straight on from the voice is the word's "s" or
