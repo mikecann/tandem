@@ -53,6 +53,26 @@ final class RenderPlanTests: XCTestCase {
         Project(name: "Plan", media: [camera, screen, image, music], videoTracks: video, audioTracks: audio)
     }
 
+    /// A hold's stretch is planned out to the project's frames, so every
+    /// frame showing any of it is held: a slip off the frame grid left the
+    /// last frame of a hold playing the flash.
+    func testAHoldIsPlannedOutToWholeFrames() {
+        var clip = Clip(id: "clip_c", content: .media(mediaID: "med_cam"), start: .zero, duration: t(10), sourceStart: t(0.96))
+        let frame = FrameRate.fps30.frameDuration
+        // The flash is at file time 2, held for a frame: 1.04 on the timeline.
+        clip.holds = [HeldFrame(source: TimeRange(start: t(2), duration: frame), frame: t(2) - frame)]
+        let plan = RenderPlanner.plan(project(video: [Track(kind: .video, name: "V1", clips: [clip])]), format: nil, assets: nil)
+        let hold = plan.videoSegments.first { $0.role == .picture }?.holds.first?.timeline
+        // Frames 31 (1.0333) and 32 (1.0667) each show part of the flash.
+        XCTAssertEqual(hold?.start, Time.frames(31, at: .fps30))
+        XCTAssertEqual(hold?.end, Time.frames(33, at: .fps30))
+
+        // Half a millisecond past a frame is still that frame showing it.
+        clip.sourceStart = t(1) - Time(flicks: 1624 * Time.flicksPerSample48k)
+        let late = RenderPlanner.plan(project(video: [Track(kind: .video, name: "V1", clips: [clip])]), format: nil, assets: nil)
+        XCTAssertEqual(late.videoSegments.first { $0.role == .picture }?.holds.first?.timeline.end, Time.frames(33, at: .fps30))
+    }
+
     func mediaClip(_ id: String, _ media: String, start: Double, duration: Double, source: Double = 10, speed: Double = 1) -> Clip {
         Clip(id: id, content: .media(mediaID: media), start: t(start), duration: t(duration), sourceStart: t(source), speed: speed)
     }

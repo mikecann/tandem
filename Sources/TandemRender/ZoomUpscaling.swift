@@ -67,7 +67,11 @@ enum ZoomUpscaling {
     /// included.
     static func sourceRange(of segment: PlannedSegment) -> TimeRange {
         let length = segment.freeze ? .zero : segment.timeline.duration.scaled(by: abs(segment.speed))
-        return TimeRange(start: max(.zero, segment.sourceStart), end: max(.zero, segment.sourceStart) + length)
+        let start = max(.zero, segment.sourceStart)
+        // A frame held over a flash can be from before the stretch (a hold
+        // on the clip's first frame shows the file's frame before it).
+        let held = segment.holds.map { max(.zero, $0.frame) }
+        return TimeRange(start: ([start] + held).min() ?? start, end: ([start + length] + held).max() ?? start + length)
     }
 
     /// A segment's copy: its stretch and a second more each way, so a small

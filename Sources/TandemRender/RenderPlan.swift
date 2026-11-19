@@ -33,6 +33,9 @@ struct PlannedSegment: Equatable {
     var sourceStart: Time
     var speed: Double
     var freeze: Bool
+    /// Picture only: stretches of the timeline that show one held frame
+    /// (`Clip.holds`), each with the media time of the frame.
+    var holds: [PlannedHold] = []
     /// The picture of video with alpha, which only shares composition
     /// tracks with other such pictures (see `assignTracks`).
     var alpha = false
@@ -48,6 +51,11 @@ struct PlannedSegment: Equatable {
     /// Sound only: the clip's steady level in dB, its levelling plus its
     /// clip gain, which its dynamics effects run at (`AudioEffectChain`).
     var levelDB = 0.0
+}
+
+struct PlannedHold: Equatable {
+    var timeline: TimeRange
+    var frame: Time
 }
 
 struct GainPoint: Equatable {
@@ -207,10 +215,32 @@ enum RenderPlanner {
                 let lead = clip.speed == 1 ? head : head.scaled(by: clip.speed)
                 let sourceStart = (clip.freezeFrame ? clip.sourceStart : clip.sourceStart - lead) + delay
                 // The proxy and the converted copy keep the file's alpha.
-                let picture = PlannedSegment(
+                var picture = PlannedSegment(
                     clipID: clip.id, mediaID: item.id, role: .picture, timeline: visible,
                     sourceStart: sourceStart, speed: clip.speed, freeze: clip.freezeFrame, alpha: item.hasAlpha
                 )
+                // Frames held over a flash, where they land on the timeline.
+                if !clip.freezeFrame {
+                    picture.holds = clip.holds.compactMap { hold in
+                        let speed = max(clip.speed, 0.0001)
+                        // Out to the project's frames, so every frame showing
+                        // any of it is held from its very start (29.97 fps
+                        // frames fall between the samples times are kept in,
+                        // and a slip can leave a hold between frames).
+                        let rate = project.settings.frameRate
+                        let perFrame = rate.flicksPerFrame
+                        // A couple of samples: a frame more held is harmless,
+                        // a frame of the flash missed isn't.
+                        let tolerance = Time.flicksPerSample48k * 2
+                        let rawFrom = clip.start + (hold.source.start - clip.sourceStart).scaled(by: 1 / speed)
+                        let rawTo = clip.start + (hold.source.end - clip.sourceStart).scaled(by: 1 / speed)
+                        let from = Time(flicks: (rawFrom.flicks + tolerance).floorDivided(by: perFrame) * perFrame)
+                        var to = Time(flicks: (rawTo.flicks - tolerance + perFrame - 1).floorDivided(by: perFrame) * perFrame)
+                        if to <= from { to = from + rate.frameDuration }
+                        guard let shown = TimeRange(start: from, end: to).intersection(visible), !shown.isEmpty else { return nil }
+                        return PlannedHold(timeline: shown, frame: hold.frame + delay)
+                    }
+                }
                 videoSegments.append(picture)
                 if let cutout = clip.video?.cutout, cutout.enabled {
                     // While a long take is matted, a clip is cut out as soon

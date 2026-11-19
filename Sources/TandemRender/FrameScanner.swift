@@ -21,6 +21,17 @@ public enum FrameScanner {
     /// and the GPU idle much of the time. A piece starts from the keyframe
     /// before it, a fraction of a second of proxy.
     public static let pieceLength = Time(seconds: 10)
+    /// How far before a piece a reader starts when the timeline has HDR
+    /// video, the frames before the piece read and thrown away.
+    /// AVFoundation's HDR to SDR conversion settles over a reader's first
+    /// frames: on the workbench short (an iPhone's HLG take, 19 Nov 2026) a
+    /// fresh reader's first frame came out a tenth brighter than the same
+    /// frame read straight through, and once for most of a second, so every
+    /// piece's first frame (10 s, 1:00, 1:30...) showed as a flicker. Half a
+    /// second in, 2 of 18 pieces still differed; a second in, none, frame
+    /// for frame the same as reading the timeline from the start as an
+    /// export does.
+    static let hdrLeadIn = Time(seconds: 1)
     /// How many pieces are read at once.
     static var readers: Int { max(2, min(4, ProcessInfo.processInfo.activeProcessorCount / 3)) }
     /// How long a reader may go without a frame before the scan gives up. A
@@ -44,11 +55,38 @@ public enum FrameScanner {
         let timeline = TimeRange(start: .zero, end: built.duration)
         let wanted = ranges.compactMap { $0.intersection(timeline) }.filter { $0.duration > .zero }
         let pieces = QualityCheck.pieces(of: wanted, every: pieceLength)
+        let leadIn = await hasHDR(built.composition) ? hdrLeadIn : .zero
         let source = Unchecked((built: built, tracks: tracks))
         return try await inParallel(pieces, limit: readers) { piece in
             try Task.checkCancellation()
-            return try await read(source.value.built, tracks: source.value.tracks, range: piece, scanlines: scanlines)
+            return try await read(source.value.built, tracks: source.value.tracks, range: piece, scanlines: scanlines, leadIn: leadIn)
         }
+    }
+
+    /// Whether any video the composition plays is tagged HLG or PQ
+    /// (`hdrLeadIn`). By its tag, not `containsHDRVideo`: that also wants 10
+    /// bits, and a proxy of an HDR take is 8-bit HEVC still tagged HLG,
+    /// which AVFoundation converts to SDR the same way.
+    static func hasHDR(_ composition: AVComposition) async -> Bool {
+        var urls = Set<URL>()
+        for track in composition.tracks(withMediaType: .video) {
+            for segment in track.segments where !segment.isEmpty {
+                if let url = segment.sourceURL { urls.insert(url) }
+            }
+        }
+        let hdr: Set<String> = [
+            kCMFormatDescriptionTransferFunction_ITU_R_2100_HLG as String,
+            kCMFormatDescriptionTransferFunction_SMPTE_ST_2084_PQ as String
+        ]
+        for url in urls {
+            for track in (try? await AVURLAsset(url: url).loadTracks(withMediaType: .video)) ?? [] {
+                for format in (try? await track.load(.formatDescriptions)) ?? [] {
+                    if let transfer = CMFormatDescriptionGetExtension(format, extensionKey: kCMFormatDescriptionExtension_TransferFunction) as? String,
+                       hdr.contains(transfer) { return true }
+                }
+            }
+        }
+        return false
     }
 
     /// `body` over each of `pieces`, `limit` at a time, joined in order.
@@ -85,14 +123,15 @@ public enum FrameScanner {
         return composition
     }
 
-    /// Reads one stretch on a thread of its own: the reader blocks. `from`
-    /// overrides where reading starts, for a test to make a reader stall.
-    static func read(_ built: BuiltComposition, tracks: [AVAssetTrack], range: TimeRange, scanlines: Bool, stallLimit: TimeInterval = FrameScanner.stallLimit, from: Time? = nil) async throws -> [FrameStats] {
+    /// Reads one stretch on a thread of its own: the reader blocks. It
+    /// starts `leadIn` before the stretch (`hdrLeadIn`). `from` overrides
+    /// where reading starts, for a test to make a reader stall.
+    static func read(_ built: BuiltComposition, tracks: [AVAssetTrack], range: TimeRange, scanlines: Bool, leadIn: Time = .zero, stallLimit: TimeInterval = FrameScanner.stallLimit, from: Time? = nil) async throws -> [FrameStats] {
         let source = Unchecked((built: built, tracks: tracks))
         return try await withCheckedThrowingContinuation { continuation in
             DispatchQueue.global(qos: readerQoS).async {
                 do {
-                    continuation.resume(returning: try readNow(source.value.built, tracks: source.value.tracks, range: range, scanlines: scanlines, stallLimit: stallLimit, from: from))
+                    continuation.resume(returning: try readNow(source.value.built, tracks: source.value.tracks, range: range, scanlines: scanlines, leadIn: leadIn, stallLimit: stallLimit, from: from))
                 } catch {
                     continuation.resume(throwing: error)
                 }
@@ -100,11 +139,11 @@ public enum FrameScanner {
         }
     }
 
-    private static func readNow(_ built: BuiltComposition, tracks: [AVAssetTrack], range: TimeRange, scanlines: Bool, stallLimit: TimeInterval, from start: Time?) throws -> [FrameStats] {
+    private static func readNow(_ built: BuiltComposition, tracks: [AVAssetTrack], range: TimeRange, scanlines: Bool, leadIn: Time, stallLimit: TimeInterval, from start: Time?) throws -> [FrameStats] {
         let reader = try AVAssetReader(asset: built.composition)
         // As an export does: frames that can't be decoded from a seek are
         // read from their keyframe, and those before the range dropped.
-        let from = start ?? ExportPipeline.readStart(range.start, composition: built.composition, instructions: built.videoComposition.instructions)
+        let from = start ?? ExportPipeline.readStart(max(.zero, range.start - leadIn), composition: built.composition, instructions: built.videoComposition.instructions)
         reader.timeRange = CMTimeRange(start: from.cmTime, end: range.end.cmTime)
         let output = AVAssetReaderVideoCompositionOutput(videoTracks: tracks, videoSettings: [
             kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA

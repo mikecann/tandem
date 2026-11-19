@@ -23,7 +23,9 @@ struct CheckCache: Sendable {
     /// before aren't any more.
     /// 3: keyed by the matte served too (an older RVM matte stands in
     /// while a new version is made).
-    static let version = 3
+    /// 4: pieces with HDR video are read from a second before them
+    /// (`FrameScanner.hdrLeadIn`), so their first frame isn't brighter.
+    static let version = 4
     /// The newest pieces are kept up to this many bytes.
     static let sizeLimit: Int64 = 256 * 1024 * 1024
 

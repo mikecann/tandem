@@ -91,8 +91,10 @@ public struct CheckResult: Codable, Sendable {
     /// With `cuts`: how many cut edges on the speech tracks were checked.
     public var cuts: Int?
     /// The edits that fix what the check can fix: with `cuts`, the trims
-    /// that move each clipped edge into its pause, latest first; otherwise
-    /// the `updateClip` that runs each double jump's shot out to its cut,
+    /// that move each clipped edge into its pause, latest first (never a
+    /// `putBack`, which brings cut words back and is offered on its own);
+    /// otherwise the `updateClip` that runs each double jump's shot out to
+    /// its cut, then the `slip` that puts each picture back on its voice,
     /// then a `holdFrame` for each flicker it can tell the picture of,
     /// latest first. Pass them to `apply` with `revision`.
     public var commands: [EditCommand]
@@ -176,6 +178,9 @@ extension CheckResult: ReadableResult {
             ?? (privacy == true ? "\(frames) frames read" : frames > 0 ? "\(frames) frames" : "quick: no frames rendered")
         let verdict = problems.isEmpty ? "no problems." : "\(problems.count) problem\(problems.count == 1 ? "" : "s"):"
         var lines = ["Checked \(stretches) (\(scanned)) in \(String(format: "%.1f", seconds)) s: \(verdict)"]
+        // Each put-back offered once: both sides of a join can name the
+        // same trim.
+        var offered: [EditCommand] = []
         func line(_ problem: CheckProblem) -> String {
             let when = problem.start == problem.end ? "\(problem.start)" : "\(problem.start)-\(problem.end)"
             var line = "  \(when)  \(problem.message)"
@@ -191,6 +196,16 @@ extension CheckResult: ReadableResult {
                 let json = (try? encoder.encode(fix)).map { String(decoding: $0, as: UTF8.self) } ?? "{}"
                 let expect = revision.map { " --expect \($0)" } ?? ""
                 line += "\n    hide it: tandem apply\(expect) --label \"Blur private text\" '\(json)'"
+            }
+            // Putting a cut back undoes what may be a cut made on purpose,
+            // so it's never in the Fix batch: it's offered here, on its own.
+            if !problem.kind.isNote, problem.cut?.fixKind == .putBack, let fix = problem.cut?.fix, !offered.contains(fix) {
+                offered.append(fix)
+                let encoder = JSONEncoder()
+                encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+                let json = (try? encoder.encode([fix])).map { String(decoding: $0, as: UTF8.self) } ?? "[]"
+                let expect = revision.map { " --expect \($0)" } ?? ""
+                line += "\n    puts back the cut words: tandem apply\(expect) --label \"Put back a cut\" '\(json)'"
             }
             return line
         }

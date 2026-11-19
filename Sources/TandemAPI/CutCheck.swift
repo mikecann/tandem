@@ -123,7 +123,7 @@ enum CutCheck {
     static func run(project: Project, folder: ProjectFolder, ranges: [TimeRange], words: [String: [CutAudit.Word]] = [:]) async -> Outcome {
         let edges = edges(in: project, ranges: ranges)
         var outcome = Outcome(checked: edges.count)
-        var found: [(edge: Edge, verdict: CutAudit.Edge)] = []
+        var found: [(edge: Edge, verdict: CutAudit.Edge, cutWords: [String])] = []
         let byMedia = Dictionary(grouping: edges, by: \.media.id)
         for mediaID in byMedia.keys.sorted() {
             guard let group = byMedia[mediaID], let item = group.first?.media else { continue }
@@ -163,7 +163,9 @@ enum CutCheck {
                     transcript: said.filter { $0.end >= reach.lowerBound && $0.start <= reach.upperBound }
                 )
                 guard verdict.verdict != .clean else { continue }
-                found.append((edge, verdict))
+                found.append((edge, verdict, edge.removed.map { cut in
+                    said.filter { cut.contains(($0.start + $0.end) / 2) }.map(\.text)
+                } ?? []))
             }
         }
         // Where one side of a join is put back, so is the other: it's one
@@ -176,18 +178,30 @@ enum CutCheck {
             }
         }
         found.sort { ($0.edge.time, $0.edge.edge == .end ? 0 : 1) < ($1.edge.time, $1.edge.edge == .end ? 0 : 1) }
-        let problems = found.map { problem($0.edge, $0.verdict, project: project) }
+        let problems = found.map { problem($0.edge, $0.verdict, cutWords: $0.cutWords, project: project) }
         outcome.problems = problems.filter { $0.kind == .clippedWord }
         outcome.notes = problems.filter { $0.kind == .marginalJoin }
-        for fix in outcome.problems.reversed().compactMap(\.cut?.fix) where !outcome.commands.contains(fix) {
-            outcome.commands.append(fix)
-        }
+        outcome.commands = defaultFixes(outcome.problems)
         return outcome
     }
 
+    /// The fixes `check --cuts` offers as one batch, last first so each
+    /// trim's times are still right when it runs. A fix that puts cut words
+    /// back isn't one of them: the cut may have taken them on purpose (a
+    /// repeated phrase), so each is offered on its own, saying what it
+    /// brings back.
+    static func defaultFixes(_ problems: [CheckProblem]) -> [EditCommand] {
+        var commands: [EditCommand] = []
+        for problem in problems.reversed() where problem.cut?.fixKind != .putBack {
+            if let fix = problem.cut?.fix, !commands.contains(fix) { commands.append(fix) }
+        }
+        return commands
+    }
+
     /// The problem for a clipped edge, with its fix, or the note for a
-    /// marginal one.
-    static func problem(_ edge: Edge, _ verdict: CutAudit.Edge, project: Project) -> CheckProblem {
+    /// marginal one. `cutWords` are the take's words in the stretch cut at
+    /// the join, which putting it back brings back.
+    static func problem(_ edge: Edge, _ verdict: CutAudit.Edge, cutWords: [String] = [], project: Project) -> CheckProblem {
         let clip = edge.clip
         let isEnd = edge.edge == .end
         let place = isEnd ? "at the end of \(clip.id)" : "at the start of \(clip.id)"
@@ -243,7 +257,8 @@ enum CutCheck {
             let to = outgoing.end + Time(seconds: length / outgoing.speed)
             cut.fixKind = .putBack
             cut.fix = .trim(clipID: outgoing.id, edge: .end, to: to, ripple: true, includeLinked: nil)
-            advice = "No pause it can reach without bringing back a cut word: put back the \(String(format: "%.2f", length)) s cut here, filler and all (the end of \(outgoing.id) \(String(format: "%.3f", (to - outgoing.end).seconds)) s later).\(dropping)"
+            let words = cutWords.isEmpty ? "" : " (\"\(cutWords.joined(separator: " "))\")"
+            advice = "No pause it can reach without bringing back a cut word: put back the \(String(format: "%.2f", length)) s cut here\(words), filler and all (the end of \(outgoing.id) \(String(format: "%.3f", (to - outgoing.end).seconds)) s later), if the cut didn't take those words on purpose.\(dropping)"
         } else if let delta = shift(edge, verdict, project: project) {
             let to = edge.time + delta
             cut.fixKind = .trimToPause

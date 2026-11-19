@@ -28,13 +28,14 @@ struct SceneClip {
     var pictureRecovery: TimeRange?
     var matteRecovery: TimeRange?
 
-    /// Media time shown at a timeline time, following speed and freezes.
+    /// Media time shown at a timeline time, following speed, freezes and
+    /// held frames.
     /// The file's time at a timeline time; before the file starts (a
     /// transition into a clip used from its first frame) that's its first
     /// frame, held. A file whose picture lags its sound shows its picture
     /// that much later (`MediaItem.pictureDelay`), as the plan does.
     func mediaTime(at time: Time) -> CMTime {
-        let t = clip.freezeFrame ? clip.sourceStart : clip.sourceStart + (time - clip.start).scaled(by: clip.speed)
+        let t = clip.pictureTime(atTimelineTime: time)
         return max(t + (media?.pictureDelay ?? .zero), .zero).cmTime
     }
 }

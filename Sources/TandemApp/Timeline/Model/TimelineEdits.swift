@@ -328,11 +328,13 @@ enum TimelineEdits {
         hold.holdEdges = false
         hold.linkGroup = nil
         hold.audio = nil
+        hold.holds = []
         if clip.mediaID.flatMap({ project.media($0) })?.kind == .video {
             // The frame that shows at `time`, inside the file: a clip
             // holding its first or last frame past the file's ends shows
-            // that frame.
-            var frame = clip.sourceTime(atTimelineTime: time)
+            // that frame, and over a frame held on the clip (`holdFrame`),
+            // the held frame, not the flash it covers.
+            var frame = clip.pictureTime(atTimelineTime: time)
             if let limit = project.sourceLimit(for: clip) { frame = min(frame, limit) }
             hold.sourceStart = max(frame, .zero)
             hold.speed = 1

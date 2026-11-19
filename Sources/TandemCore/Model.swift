@@ -378,6 +378,15 @@ public struct Clip: Codable, Equatable, Identifiable, Sendable {
     /// Stored as nil when off, so project files only mention it where it's
     /// on.
     private var holdsEdges: Bool?
+    /// Frames of the file held over stretches of it (`holdFrame`), by
+    /// media time, so a hold stays on its frames however the clip is cut,
+    /// trimmed or moved, and the clip stays one clip.
+    public var holds: [HeldFrame] {
+        get { heldFrames ?? [] }
+        set { heldFrames = newValue.isEmpty ? nil : newValue }
+    }
+    /// Stored as nil when there are none.
+    private var heldFrames: [HeldFrame]?
     public var enabled: Bool
     /// Clips that share a link group are selected, moved, trimmed and cut
     /// together: a camera clip, its audio and the matching screen clip.
@@ -428,6 +437,7 @@ public struct Clip: Codable, Equatable, Identifiable, Sendable {
     enum CodingKeys: String, CodingKey {
         case id, name, content, start, duration, sourceStart, speed, freezeFrame
         case holdsEdges = "holdEdges"
+        case heldFrames = "holds"
         case enabled, linkGroup, video, audio, keyframes, tags
     }
 
@@ -450,6 +460,35 @@ public struct Clip: Codable, Equatable, Identifiable, Sendable {
     public func sourceTime(atTimelineTime time: Time) -> Time {
         if freezeFrame { return sourceStart }
         return sourceStart + (time - start).scaled(by: speed)
+    }
+
+    /// The media time of the picture shown at a timeline time: as
+    /// `sourceTime`, except over a held stretch (`holds`), which shows its
+    /// held frame.
+    public func pictureTime(atTimelineTime time: Time) -> Time {
+        let source = sourceTime(atTimelineTime: time)
+        // Up to half a millisecond (a quarter of a very short hold): times
+        // are kept to the sample, and a 29.97 fps frame starts between two.
+        guard !freezeFrame, let hold = holds.first(where: { hold in
+            let slack = min(Time(seconds: 0.0005), hold.source.duration.scaled(by: 0.25))
+            return source >= hold.source.start - slack && source < hold.source.end - slack
+        }) else { return source }
+        return hold.frame
+    }
+}
+
+/// A frame of a clip's file held over a stretch of the file
+/// (`Clip.holds`, made by `holdFrame`): a flash there (a stale frame, the
+/// preview jumping as Mike clicked) shows the frame before it instead.
+public struct HeldFrame: Codable, Equatable, Sendable {
+    /// The stretch of the file, in media time, shown as `frame` instead.
+    public var source: TimeRange
+    /// The media time of the frame shown over it.
+    public var frame: Time
+
+    public init(source: TimeRange, frame: Time) {
+        self.source = source
+        self.frame = frame
     }
 }
 
@@ -1210,6 +1249,8 @@ extension Clip {
         speed = try c.decode(.speed, or: 1)
         freezeFrame = try c.decode(.freezeFrame, or: false)
         holdsEdges = try c.decodeIfPresent(Bool.self, forKey: .holdsEdges) == true ? true : nil
+        let holds = try c.decodeIfPresent([HeldFrame].self, forKey: .heldFrames) ?? []
+        heldFrames = holds.isEmpty ? nil : holds
         enabled = try c.decode(.enabled, or: true)
         linkGroup = try c.decodeIfPresent(String.self, forKey: .linkGroup)
         video = try c.decodeIfPresent(VideoProperties.self, forKey: .video)

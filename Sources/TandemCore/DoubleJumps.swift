@@ -153,8 +153,15 @@ extension QualityCheck {
         var commands: [EditCommand] = []
         let wanted = problems.filter { !$0.kind.isNote }.sorted { $0.start > $1.start }
         let jumps = wanted.filter { $0.kind == .doubleJump }.flatMap { problem in (problem.fix.map { [$0] } ?? []) + (problem.moreFixes ?? []) }
-        let rest = wanted.filter { $0.kind != .doubleJump }.compactMap(\.fix)
-        for fix in jumps + rest where !commands.contains(fix) {
+        // Slips last: a double jump's patch sets a shot's source start
+        // outright (keeping its file where it was on the timeline), so a
+        // slip before one would be undone, and a hold's range is the
+        // timeline time the check saw the flash at, which a slip would move
+        // the flash away from. Held by media time, a hold made first stays
+        // on the flash through the slip.
+        let slips = wanted.filter { $0.kind == .pictureOffVoice }.compactMap(\.fix)
+        let rest = wanted.filter { $0.kind != .doubleJump && $0.kind != .pictureOffVoice }.compactMap(\.fix)
+        for fix in jumps + rest + slips where !commands.contains(fix) {
             commands.append(fix)
         }
         return commands
@@ -178,14 +185,16 @@ extension QualityCheck {
     /// What a batch of `commands(fixing:)` is called in the history.
     public static func fixLabel(for problems: [CheckProblem]) -> String {
         let fixed = problems.filter { !$0.kind.isNote && $0.fix != nil }
-        let jumps = fixed.contains { $0.kind == .doubleJump }
-        let holds = fixed.contains { $0.kind != .doubleJump }
-        switch (holds, jumps) {
-        case (true, true): return "\(holdLabel), and \(doubleJumpLabel.prefix(1).lowercased())\(doubleJumpLabel.dropFirst())"
-        case (false, true): return doubleJumpLabel
-        default: return holdLabel
-        }
+        var parts: [String] = []
+        if fixed.contains(where: { $0.kind == .pictureOffVoice }) { parts.append(pictureOffVoiceLabel) }
+        if fixed.contains(where: { $0.kind != .doubleJump && $0.kind != .pictureOffVoice }) { parts.append(holdLabel) }
+        if fixed.contains(where: { $0.kind == .doubleJump }) { parts.append(doubleJumpLabel) }
+        guard let first = parts.first else { return holdLabel }
+        return ([first] + parts.dropFirst().map { $0.prefix(1).lowercased() + $0.dropFirst() }).joined(separator: ", and ")
     }
+
+    /// The label for a batch of `pictureOffVoice` fixes.
+    public static let pictureOffVoiceLabel = "Put the picture back in step with the voice"
 }
 
 /// A double jump `doubleJumps` found, before it's worded: `clip`'s `edge`

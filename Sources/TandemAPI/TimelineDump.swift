@@ -315,6 +315,17 @@ public enum TimelineDump {
             let held = project.heldStretches(of: clip)
             let holds = [held.head.map { "first frame \($0.duration)" }, held.tail.map { "last frame \($0.duration)" }].compactMap { $0 }
             if !holds.isEmpty { result += " holds its " + holds.joined(separator: ", ") }
+            // Like: holds a frame over 00:10.000 (1 frame)
+            let frame = project.settings.frameRate.frameDuration
+            let shown = clip.holds.compactMap { hold -> String? in
+                let speed = max(clip.speed, 0.0001)
+                let from = clip.start + (hold.source.start - clip.sourceStart).scaled(by: 1 / speed)
+                let to = clip.start + (hold.source.end - clip.sourceStart).scaled(by: 1 / speed)
+                guard let shown = TimeRange(start: from, end: to).intersection(clip.range), !shown.isEmpty else { return nil }
+                let frames = max(1, Int((shown.duration.seconds / frame.seconds).rounded()))
+                return "\(shown.start) (\(frames) frame\(frames == 1 ? "" : "s"))"
+            }
+            if !shown.isEmpty { result += " holds a frame over " + shown.joined(separator: ", ") }
             return result
         case .text(let text):
             var result = "text \"\(shorten(text.text.replacingOccurrences(of: "\n", with: " / "), 48))\""

@@ -185,7 +185,7 @@ public enum ThroughEdits {
 
     /// What a clip plays with: everything but where it is, which part of
     /// its file it plays, and what a join deals with itself (fades,
-    /// keyframes, the name, tags and link group). Effects count by what
+    /// keyframes, the name, tags, link group and held frames). Effects count by what
     /// they are, not their IDs, and a clip without video or audio settings
     /// has the defaults, as it plays.
     static func settings(_ clip: Clip) -> Clip {
@@ -198,6 +198,8 @@ public enum ThroughEdits {
         shape.linkGroup = nil
         shape.keyframes = [:]
         shape.tags = []
+        // Held frames are by media time: a join keeps both sides' holds.
+        shape.holds = []
         var video = clip.video ?? VideoProperties()
         video.effects = video.effects.map { var effect = $0; effect.id = ""; return effect }
         shape.video = video
@@ -605,6 +607,15 @@ public enum ThroughEdits {
             joined.duration = left.duration + right.duration
             joined.keyframes = keyframes
             for tag in right.tags where !joined.tags.contains(tag) { joined.tags.append(tag) }
+            // Held frames are by media time: each side keeps the holds over
+            // what it showed, so one trimmed out of sight doesn't come back.
+            func shown(_ clip: Clip) -> [HeldFrame] {
+                let played = TimeRange(start: clip.sourceStart, end: clip.sourceEnd)
+                return clip.holds.compactMap { hold in
+                    hold.source.intersection(played).flatMap { $0.isEmpty ? nil : HeldFrame(source: $0, frame: hold.frame) }
+                }
+            }
+            joined.holds = (shown(left) + shown(right)).sorted { $0.source.start < $1.source.start }
             if joined.audio != nil || b.fadeOut > .zero {
                 var sound = joined.audio ?? AudioProperties()
                 sound.fadeOut = b.fadeOut

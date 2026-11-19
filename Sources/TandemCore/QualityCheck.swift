@@ -119,6 +119,10 @@ public struct CheckProblem: Codable, Equatable, Sendable {
         /// in the minute before it (`outroWipe`): nothing takes the viewer
         /// into the outro.
         case outroWipe
+        /// A camera clip and a clip of its take's sound playing the same
+        /// file at different moments, so the lips are out of step with the
+        /// words (`pictureOffVoice`). The fix slips the picture back.
+        case pictureOffVoice
 
         /// Worth knowing rather than wrong: Mike signed off softer zooms on
         /// cartoon B-roll than on screen recordings, a pause can let a point
@@ -352,6 +356,7 @@ public enum QualityCheck {
         let gapProblems = gaps(in: project, ranges: ranges)
         let jumps = doubleJumps(in: project, ranges: ranges)
         var found = gapProblems + softPictures(in: project, ranges: ranges) + slivers(in: project, ranges: ranges) + jumps + sameShotTwice(in: project, ranges: ranges)
+            + pictureOffVoice(in: project, ranges: ranges)
             + swellsOffCards(in: project, ranges: ranges) + offStylePip(in: project, ranges: ranges)
         if let waits {
             // Heard in the take's sound, so in a quick check too.

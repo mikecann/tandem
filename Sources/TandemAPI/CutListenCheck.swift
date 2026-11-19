@@ -494,7 +494,13 @@ extension CutCheck {
                 return "\(finding.summary) (\(verdict.explained[index] ?? finding.why))"
             }
             let standing = join.findings.indices.filter { verdict.explained[$0] == nil && (!join.findings[$0].slip || verdict.confirming.contains($0)) }
-            if let first = kept.first, !verdict.confirming.isEmpty {
+            // The flag on the side the confirming findings are on, when
+            // they're all on one side.
+            let confirmedSides = Set(verdict.confirming.map { join.findings[$0].time <= join.time.seconds ? CutAudit.Side.before : .after })
+            let onSide = confirmedSides.count == 1 ? kept.first { index in
+                levels[index].cut.map { ($0.edge == .end ? CutAudit.Side.before : .after) == confirmedSides.first } ?? false
+            } : nil
+            if let first = onSide ?? kept.first, !verdict.confirming.isEmpty {
                 // Both say so: one problem, with the fix the levels found.
                 folded[first] = verdict.confirming.map(said).joined(separator: "; ")
                 let rest = join.findings.indices.filter { !verdict.confirming.contains($0) }
@@ -536,9 +542,7 @@ extension CutCheck {
         let standing = levels.indices.filter { !dismissed.contains($0) }.map { levels[$0] }
         result.problems = (standing + result.problems).sorted { $0.start < $1.start }
         result.notes = (notes + result.notes).sorted { $0.start < $1.start }
-        for fix in standing.reversed().compactMap(\.cut?.fix) where !result.commands.contains(fix) {
-            result.commands.append(fix)
-        }
+        result.commands = CutCheck.defaultFixes(standing)
         return result
     }
 }

@@ -378,6 +378,10 @@ extension CommandSchema {
         "sourceStart": S.time("Where playback starts in the media (media time)."),
         "speed": S.number(),
         "freezeFrame": S.boolean(),
+        "holds": S.array(S.object([
+            "source": S.ref("TimeRange"),
+            "frame": S.time("The media time of the frame shown over source.")
+        ], required: ["source", "frame"]), "Frames held over stretches of the media (holdFrame), by media time: source shows frame instead. The clip isn't cut, so they follow it through any edit."),
         "holdEdges": S.boolean("Lets the clip run past its media's ends, holding the first frame before the file starts (a negative sourceStart) and the last after it ends."),
         "enabled": S.boolean(),
         "linkGroup": S.string(),
@@ -737,7 +741,7 @@ extension CommandSchema {
         ),
         Entry(
             command: .holdFrame,
-            summary: "Holds the frame a clip shows a frame before range over range, to cover a flash: a stale frame, or the preview jumping for a frame in a screen recording. Picture only: just this clip is cut, the held piece is a freeze frame, and every piece stays linked to the take, whose sound plays on uncut, so nothing moves. tandem check gives one for each flicker it can fix. The held piece is the clip's own ID when range starts at the clip's start, otherwise the first ID the batch makes. Several in one clip go latest first, as a cut keeps the clip's ID on the piece before it.",
+            summary: "Holds the frame a clip shows a frame before range over range, to cover a flash: a stale frame, or the preview jumping for a frame in a screen recording. Picture only, and nothing is cut: the hold goes in the clip's holds, by media time, so it stays on those frames whatever the clip goes through, and the clip's sound and linked clips play on as they were. Holds that meet become one. tandem check gives one for each flicker it can fix.",
             arguments: S.object([
                 "clipID": S.string("A clip of a video file on a video track."),
                 "range": S.ref("TimeRange")
