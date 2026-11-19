@@ -362,6 +362,16 @@ final class RedactTests: XCTestCase {
         XCTAssertEqual(c.project.clip(copy.id)?.video?.transform, c.project.clip(pip.id)?.video?.transform)
         try c.run("Back", .applyLayout(clipIDs: [copy.id], preset: .full))
         XCTAssertEqual(c.project.clip(copy.id)?.video?.transform, c.project.clip(pip.id)?.video?.transform, "still the PiP's place, not the full frame")
+
+        // The full-frame one redacted too, its privacy track then dragged
+        // above the PiP's: it still follows its own picture, by its link.
+        try c.run("Hide", .redact(range: TimeRange(start: t(10), end: t(15)), rect: email, trackID: c.project.track(named: "Screen")!.id))
+        let full = try XCTUnwrap(c.clips("Screen").first { $0.range.start == t(10) })
+        let fullCopy = try XCTUnwrap(c.clips("Privacy (Screen)").first)
+        try c.run("Drag", .moveTrack(trackID: c.project.track(named: "Privacy (Screen)")!.id, index: c.project.videoTracks.count - 1))
+        try c.run("Split", .applyLayout(clipIDs: [full.id], preset: .split))
+        XCTAssertEqual(c.project.clip(fullCopy.id)?.video?.transform, c.project.clip(full.id)?.video?.transform)
+        XCTAssertEqual(c.project.clip(copy.id)?.video?.transform, c.project.clip(pip.id)?.video?.transform, "the PiP's blur stays on the PiP")
     }
 
     func testABlurOverTwoPicturesLaidOutApartStopsTheLayout() throws {
@@ -382,12 +392,21 @@ final class RedactTests: XCTestCase {
         try c.run("Hold", .setKeyframes(clipID: first.id, parameter: "video.crop.left", keyframes: [Keyframe(time: .zero, value: .number(0), interpolation: .hold)]))
         try c.run("Hide", .redact(range: TimeRange(start: t(10), end: t(15)), rect: Rect(x: 0.2, y: 0.2, width: 0.2, height: 0.1), mediaID: "med_screen"))
         let copy = try XCTUnwrap(c.clips("Privacy (Screen)").first)
-        XCTAssertEqual(copy.keyframes["video.crop.left"]?.map(\.value), [.number(0.2)])
+        XCTAssertNil(copy.keyframes["video.crop.left"], "a still crop, covering all the animation shows")
+        XCTAssertEqual(copy.video?.crop.left ?? 0, 0.2, accuracy: 1e-9)
         let screen = try XCTUnwrap(c.clips("Screen").first { $0.range.start == t(10) })
         try c.run("Split", .applyLayout(clipIDs: [screen.id], preset: .split))
         let moved = try XCTUnwrap(c.project.clip(copy.id))
-        XCTAssertEqual(moved.keyframes["video.crop.left"]?.map(\.value), [.number(0.2)], "the picture still shows from 0.2 by its keyframe")
+        XCTAssertEqual(moved.video?.crop.left ?? 0, 0.2, accuracy: 1e-9, "the picture still shows from 0.2 by its keyframe")
         XCTAssertEqual(moved.video?.crop.right ?? 0, 0.6, accuracy: 1e-9)
+
+        // Animated from nothing to 0.4 over the clip: covered from 0.2 all along.
+        try c.run("Animate", .setKeyframes(clipID: screen.id, parameter: "video.crop.left", keyframes: [
+            Keyframe(time: .zero, value: .number(0), interpolation: .linear), Keyframe(time: t(5), value: .number(0.4))
+        ]))
+        try c.run("Full", .applyLayout(clipIDs: [screen.id], preset: .full))
+        XCTAssertEqual(c.project.clip(copy.id)?.video?.crop.left ?? 0, 0.2, accuracy: 1e-9)
+        XCTAssertNil(c.project.clip(copy.id)?.keyframes["video.crop.left"])
     }
 
     func testASwitchBackToTheCameraTurnsOffOnlyTheRedactionsInIt() throws {
