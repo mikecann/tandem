@@ -176,6 +176,7 @@ extension Editing {
         // Where a layout already crops the region out, the copy draws
         // nothing there (an empty crop), rather than hiding the whole shot.
         video.crop = redactedCrop(mainCrop, rect) ?? nothingShown
+        video.redaction = rect
         video.cutout = nil
         let drawnRound = Set(["border", "dropShadow", "roundedCorners"])
         video.effects = video.effects.filter { !drawnRound.contains($0.type) }.map { effect in
@@ -220,6 +221,101 @@ extension Editing {
         )
         guard narrowed.left + narrowed.right < 1, narrowed.top + narrowed.bottom < 1 else { return nil }
         return narrowed
+    }
+
+    /// The region a `redact` copy hides, or nil when `clip` isn't one.
+    /// Copies made before `redaction` was kept have only their crops: each
+    /// is the region narrowed by what the picture's crop hid there, so the
+    /// least cropped is the closest to it, and never outside it. A whole
+    /// frame crop is a layout that once lost the region (the short did
+    /// that), not the region, so it's left out unless it's all there is.
+    static func redactionRegion(of clip: Clip, on track: Track) -> Rect? {
+        guard track.isPrivacy, case .media = clip.content, let video = clip.video,
+              clip.isObscured || track.isSwitchedOffRedaction(clip) else { return nil }
+        if let region = video.redaction { return region }
+        let crops = ([video.crop] + video.formatOverrides.values.filter { !$0.hidden }.compactMap(\.crop))
+            .filter { $0.left + $0.right < 1 && $0.top + $0.bottom < 1 }
+        let narrowed = crops.filter { $0 != Crop() }
+        guard let first = narrowed.first ?? crops.first else { return nil }
+        let crop = narrowed.dropFirst().reduce(first) { a, b in
+            Crop(left: min(a.left, b.left), top: min(a.top, b.top), right: min(a.right, b.right), bottom: min(a.bottom, b.bottom))
+        }
+        return Rect(x: crop.left, y: crop.top, width: 1 - crop.left - crop.right, height: 1 - crop.top - crop.bottom)
+    }
+
+    /// The picture a `redact` copy hides: the clip of the same file, linked
+    /// to it, under it on a track that isn't a privacy track, at the same time.
+    static func redactedPicture(of copy: Clip, in p: Project) -> (TrackLocation, Int)? {
+        guard let group = copy.linkGroup else { return nil }
+        for (trackIndex, track) in p.videoTracks.enumerated() where !isPrivacyTrack(track) {
+            if let index = track.clips.firstIndex(where: {
+                $0.linkGroup == group && $0.mediaID == copy.mediaID && $0.range.overlaps(copy.range) && !$0.isObscured
+            }) {
+                return (TrackLocation(kind: .video, index: trackIndex), index)
+            }
+        }
+        return nil
+    }
+
+    /// Puts `redact` copies back over the pictures they hide, in `format`
+    /// (nil for the main layout): the same place and size, cut to their
+    /// region within what the picture shows there. Layouts (`applyLayout`,
+    /// `setFormatLayout`, `tandem short`) move and uncrop the picture; a
+    /// copy laid out like a plain clip would blur the whole picture, and
+    /// one left behind would leave the region showing beside it.
+    ///
+    /// `follows` picks which (copy, picture) pairs to line up. A copy on a
+    /// locked track that needs to move stops the edit when `respectLocks`,
+    /// rather than leaving private content in view.
+    static func alignRedactions(
+        _ p: inout Project, format: String?, respectLocks: Bool = true,
+        where follows: (_ copy: Clip, _ picture: Clip) -> Bool
+    ) throws {
+        for trackIndex in p.videoTracks.indices where isPrivacyTrack(p.videoTracks[trackIndex]) {
+            let location = TrackLocation(kind: .video, index: trackIndex)
+            for index in p[location].clips.indices {
+                let copy = p[location].clips[index]
+                guard let region = redactionRegion(of: copy, on: p[location]),
+                      let (pictureLocation, pictureIndex) = redactedPicture(of: copy, in: p) else { continue }
+                let picture = p[pictureLocation].clips[pictureIndex]
+                guard follows(copy, picture) else { continue }
+                let aligned = aligned(copy, over: picture, region: region, format: format)
+                guard aligned != copy else { continue }
+                if respectLocks, p[location].locked {
+                    throw EditError.invalid("\"\(p[location].name)\" is locked, and its blur \(copy.name ?? copy.id) has to move with the picture it hides, or that part would show. Unlock the track first.")
+                }
+                p[location].clips[index] = aligned
+            }
+        }
+    }
+
+    /// `copy` placed like `picture` in `format` (nil: the main layout).
+    static func aligned(_ copy: Clip, over picture: Clip, region: Rect, format: String?) -> Clip {
+        var copy = copy
+        var video = copy.video ?? VideoProperties()
+        let source = picture.video ?? VideoProperties()
+        video.redaction = region
+        if let format {
+            if var override = source.formatOverrides[format] {
+                if !override.hidden {
+                    if let crop = redactedCrop(override.crop ?? source.crop, region) { override.crop = crop } else { override.hidden = true }
+                }
+                override.cutout = nil
+                video.formatOverrides[format] = override
+            } else {
+                // The picture shows there as in the main layout, so the copy does too.
+                video.formatOverrides.removeValue(forKey: format)
+            }
+        } else {
+            video.transform = source.transform
+            video.layoutPreset = source.layoutPreset
+            video.crop = redactedCrop(source.crop, region) ?? nothingShown
+            for key in ["video.transform.position", "video.transform.scale", "video.transform.rotation"] {
+                copy.keyframes[key] = picture.keyframes[key]
+            }
+        }
+        copy.video = video
+        return copy
     }
 
     /// Where the copies of `sourceID`'s clips go: the first privacy track in

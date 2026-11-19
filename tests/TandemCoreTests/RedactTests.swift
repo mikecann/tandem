@@ -224,6 +224,121 @@ final class RedactTests: XCTestCase {
         XCTAssertEqual(copy.video?.formatOverrides["square"]?.hidden, true, "not the whole square shot pixelated")
     }
 
+    func testLayingOutAShortKeepsEachRedactionOverItsOwnRegion() throws {
+        // The Coordinators Short: `tandem short` put the screen's blurred
+        // sidebar lines in the top half like ordinary screen clips, with the
+        // full frame showing, so the whole top window came out blurred.
+        let (_, c) = try Fixture.edited()
+        try c.run("Hide", .redact(range: TimeRange(start: t(10), end: t(15)), rect: email, mediaID: "med_screen", style: .blur))
+        try c.run("Format", .updateSettings(patch: .object(["alternateFormats": .array([try JSONValue.from(OutputFormat.portrait)])])))
+        let screen = try XCTUnwrap(c.clips("Screen").first { $0.range.start == t(10) })
+        let copy = try XCTUnwrap(c.clips("Privacy (Screen)").first)
+        func clip(_ id: String) throws -> Clip { try XCTUnwrap(c.project.clip(id)) }
+
+        func assertOverItsRegion(_ copy: Clip, _ screen: Clip, file: StaticString = #filePath, line: UInt = #line) throws {
+            let shown = try XCTUnwrap(copy.video?.formatOverrides["portrait"], file: file, line: line)
+            XCTAssertEqual(shown.transform, screen.video?.formatOverrides["portrait"]?.transform, "the same place as the picture it hides", file: file, line: line)
+            let crop = try XCTUnwrap(shown.crop, file: file, line: line)
+            XCTAssertEqual(crop.left, 0.1, accuracy: 1e-9, file: file, line: line)
+            XCTAssertEqual(crop.top, 0.2, accuracy: 1e-9, file: file, line: line)
+            XCTAssertEqual(crop.right, 0.6, accuracy: 1e-9, file: file, line: line)
+            XCTAssertEqual(crop.bottom, 0.7, accuracy: 1e-9, file: file, line: line)
+            XCTAssertNotEqual(shown.hidden, true, file: file, line: line)
+            XCTAssertNotEqual(shown.cutout, true, file: file, line: line)
+        }
+
+        // Both in one go, as `tandem short` does.
+        try c.run("Short", .setFormatLayout(clipIDs: [screen.id, copy.id], format: "portrait", slot: .top))
+        try assertOverItsRegion(clip(copy.id), clip(screen.id))
+
+        // Only the screen moved: its redactions go with it.
+        try c.run("Lower", .setFormatLayout(clipIDs: [screen.id], format: "portrait", slot: .bottom))
+        try assertOverItsRegion(clip(copy.id), clip(screen.id))
+
+        // Made the canvas (`tandem short --copy`): still just the email column.
+        try c.run("Adopt", .adoptFormat(format: "portrait"))
+        let adopted = try XCTUnwrap(clip(copy.id).video)
+        XCTAssertEqual(adopted.transform, try clip(screen.id).video?.transform)
+        XCTAssertEqual(adopted.crop.left, 0.1, accuracy: 1e-9)
+        XCTAssertEqual(adopted.crop.right, 0.6, accuracy: 1e-9)
+        assertCovered(c)
+        assertValid(c.project)
+    }
+
+    /// A screen with a redaction, and a portrait format to lay it out in.
+    func shortReady(rect: Rect? = nil, mainCrop: Double = 0) throws -> (ProjectCoordinator, screen: Clip, copy: Clip) {
+        let (_, c) = try Fixture.edited()
+        if mainCrop > 0 {
+            let first = c.clips("Screen")[0]
+            try c.run("Crop", .updateClip(clipID: first.id, patch: .object(["video": .object(["crop": .object(["left": .number(mainCrop)])])])))
+        }
+        try c.run("Hide", .redact(range: TimeRange(start: t(10), end: t(15)), rect: rect ?? email, mediaID: "med_screen", style: .blur))
+        try c.run("Format", .updateSettings(patch: .object(["alternateFormats": .array([try JSONValue.from(OutputFormat.portrait)])])))
+        let screen = try XCTUnwrap(c.clips("Screen").first { $0.range.start == t(10) })
+        return (c, screen, try XCTUnwrap(c.clips("Privacy (Screen)").first))
+    }
+
+    func testARegionTheLandscapeCropNarrowedIsHiddenWholeOnceTheShortShowsMore() throws {
+        // The landscape crop hid the left half, so the copy only had to
+        // cover 0.5 to 0.7. The short shows the whole frame, 0.3 to 0.5 too.
+        let (c, screen, copy) = try shortReady(rect: Rect(x: 0.3, y: 0.2, width: 0.4, height: 0.1), mainCrop: 0.5)
+        XCTAssertEqual(copy.video?.crop.left ?? 0, 0.5, accuracy: 1e-9)
+        try c.run("Short", .setFormatLayout(clipIDs: [screen.id], format: "portrait", slot: .top))
+        let crop = try XCTUnwrap(c.project.clip(copy.id)?.video?.formatOverrides["portrait"]?.crop)
+        XCTAssertEqual(crop.left, 0.3, accuracy: 1e-9)
+        XCTAssertEqual(crop.right, 0.3, accuracy: 1e-9)
+    }
+
+    func testACopyAskedIntoAnotherSlotStillGoesWhereItsPictureIs() throws {
+        // A camera at full scale with its cutout on goes in the bottom half;
+        // its copy has no cutout, so `tandem short` asked for the full frame.
+        let (c, screen, copy) = try shortReady()
+        try c.run("Bottom", .setFormatLayout(clipIDs: [screen.id], format: "portrait", slot: .bottom))
+        try c.run("Full", .setFormatLayout(clipIDs: [copy.id], format: "portrait", slot: .full))
+        let picture = try XCTUnwrap(c.project.clip(screen.id)?.video?.formatOverrides["portrait"]?.transform)
+        XCTAssertEqual(c.project.clip(copy.id)?.video?.formatOverrides["portrait"]?.transform, picture)
+    }
+
+    func testALockedPrivacyTrackStopsALayoutThatWouldLeaveItsBlurBehind() throws {
+        let (c, screen, _) = try shortReady()
+        let privacy = try XCTUnwrap(c.project.track(named: "Privacy (Screen)"))
+        try c.run("Lock", .updateTrack(trackID: privacy.id, patch: .object(["locked": .bool(true)])))
+        XCTAssertThrowsError(try c.run("Short", .setFormatLayout(clipIDs: [screen.id], format: "portrait", slot: .top))) { error in
+            XCTAssertTrue("\(error)".contains("locked"), "\(error)")
+        }
+        XCTAssertNil(c.project.clip(screen.id)?.video?.formatOverrides["portrait"], "nothing moved")
+    }
+
+    func testABlurAnOlderShortLeftWholeFrameIsCutBackToItsRegion() throws {
+        // Copies made before the region was kept, laid out by the old short:
+        // a whole-frame crop in the portrait format.
+        let (c, screen, copy) = try shortReady()
+        try c.run("Old short", .updateClip(clipID: copy.id, patch: .object(["video": .object([
+            "redaction": .null,
+            "formatOverrides": .object(["portrait": .object(["crop": .object(["left": .number(0)]), "transform": .object(["position": .object(["x": .number(0.5), "y": .number(0.25)]), "scale": .number(1)])])])
+        ])])))
+        XCTAssertNil(c.project.clip(copy.id)?.video?.redaction)
+        try c.run("Short", .setFormatLayout(clipIDs: [screen.id], format: "portrait", slot: .top))
+        try c.run("Adopt", .adoptFormat(format: "portrait"))
+        let adopted = try XCTUnwrap(c.project.clip(copy.id)?.video)
+        XCTAssertEqual(adopted.crop.left, 0.1, accuracy: 1e-9)
+        XCTAssertEqual(adopted.crop.bottom, 0.7, accuracy: 1e-9)
+        XCTAssertEqual(adopted.transform, c.project.clip(screen.id)?.video?.transform)
+    }
+
+    func testLayoutPresetsMoveTheBlurWithThePictureAndNeverFillTheFrameWithIt() throws {
+        let (c, screen, copy) = try shortReady()
+        try c.run("PiP", .applyLayout(clipIDs: [screen.id], preset: .pipRight))
+        var moved = try XCTUnwrap(c.project.clip(copy.id)?.video)
+        XCTAssertEqual(moved.transform, c.project.clip(screen.id)?.video?.transform)
+        XCTAssertEqual(moved.crop.left, 0.1, accuracy: 1e-9)
+        try c.run("Full", .applyLayout(clipIDs: [screen.id, copy.id], preset: .full))
+        moved = try XCTUnwrap(c.project.clip(copy.id)?.video)
+        XCTAssertEqual(moved.transform, c.project.clip(screen.id)?.video?.transform)
+        XCTAssertEqual(moved.crop.left, 0.1, accuracy: 1e-9)
+        XCTAssertEqual(moved.crop.right, 0.6, accuracy: 1e-9)
+    }
+
     func testASwitchBackToTheCameraTurnsOffOnlyTheRedactionsInIt() throws {
         let c = try SyncedPlacementTests.project()
         try c.run("Add the close-up", .placeSynced(mediaID: "med_angle"))
