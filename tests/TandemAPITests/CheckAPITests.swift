@@ -337,6 +337,36 @@ final class CheckAPITests: XCTestCase {
         return h
     }
 
+    func testMikesOwnTrimOfAPauseIsLearnedFromTheHistory() async throws {
+        // The fixture's words, with 1.4 s between "models." and "They".
+        let h = try voicedHarness(words: [(1.0, 3.6), (5.0, 6.3), (7.0, 8.5)])
+        defer { h.close() }
+        let mike = CallContext(author: EditAuthor.person)
+        // An agent's edit isn't his.
+        try h.apply(.rippleDeleteRange(range: TimeRange(start: t(6.35), end: t(6.6))), label: "Ripple delete")
+        // He blades either side of most of the pause, deletes it and closes the gap.
+        try h.service.apply(ApplyRequest(label: "Blade", commands: [.blade(at: t(3.9))]), context: mike)
+        try h.service.apply(ApplyRequest(label: "Blade", commands: [.blade(at: t(4.8))]), context: mike)
+        try h.service.apply(ApplyRequest(label: "Ripple delete", commands: [.rippleDeleteRange(range: TimeRange(start: t(3.9), end: t(4.8)))]), context: mike)
+
+        let learned = try await h.service.learnPauses()
+        XCTAssertEqual(learned.trims.count, 1, "\(learned.trims)")
+        let trim = try XCTUnwrap(learned.trims.first)
+        XCTAssertEqual(trim.kind, .sentence)
+        XCTAssertTrue(trim.before.hasSuffix("decision models."), trim.before)
+        XCTAssertTrue(trim.after.hasPrefix("They"), trim.after)
+        XCTAssertEqual(trim.was, 1.4, accuracy: 0.05)
+        XCTAssertEqual(trim.left, 0.5, accuracy: 0.05)
+
+        // Read into his taste, and read only once.
+        let file = h.folder.file("taste.json")
+        let first = try await h.service.updatePauseTaste(at: file)
+        XCTAssertEqual(first.found.count, 1)
+        let again = try await h.service.updatePauseTaste(at: file)
+        XCTAssertEqual(again.found.count, 0)
+        XCTAssertEqual(again.taste.trims.count, 1)
+    }
+
     func testAWordRunningPastACutIsAProblemWithItsFix() async throws {
         // "section." runs on 0.12 s past file time 30, where the first piece
         // of the take ends; "Now" starts well after the second piece does (32).

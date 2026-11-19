@@ -369,11 +369,18 @@ public struct PausesRequest: ServiceCall {
     public var min: Double?
     public var from: Time?
     public var to: Time?
+    /// Read the pauses Mike trimmed himself in this project's history into
+    /// his pause taste, and say what it is now, instead of listing pauses.
+    public var learn: Bool?
+    /// Say what his pause taste is, instead of listing pauses.
+    public var taste: Bool?
 
-    public init(min: Double? = nil, from: Time? = nil, to: Time? = nil) {
+    public init(min: Double? = nil, from: Time? = nil, to: Time? = nil, learn: Bool? = nil, taste: Bool? = nil) {
         self.min = min
         self.from = from
         self.to = to
+        self.learn = learn
+        self.taste = taste
     }
 
     public init(from decoder: Decoder) throws {
@@ -381,10 +388,58 @@ public struct PausesRequest: ServiceCall {
         min = try c.decodeSeconds(.min)
         from = try c.decodeTime(.from)
         to = try c.decodeTime(.to)
+        learn = try c.decodeIfPresent(Bool.self, forKey: .learn)
+        taste = try c.decodeIfPresent(Bool.self, forKey: .taste)
     }
 
     public func run(on service: TandemService, context: CallContext) async throws -> PausesResult {
-        try await service.listenedPauses(minimum: Time(seconds: min ?? TranscriptTools.defaultMinimum), from: from, to: to)
+        if learn == true || taste == true {
+            let url = PauseTasteStore.url
+            let (taste, found) = learn == true ? try await service.updatePauseTaste(at: url) : (PauseTasteStore.load(from: url), [])
+            let (_, revision) = service.coordinator.snapshot()
+            return PausesResult(
+                revision: revision, minimum: .zero, pauses: [], total: .zero, missing: [],
+                taste: PauseTasteReport(taste, file: url, found: found, learned: learn == true)
+            )
+        }
+        return try await service.listenedPauses(minimum: Time(seconds: min ?? TranscriptTools.defaultMinimum), from: from, to: to)
+    }
+}
+
+/// Mike's pause taste (`PauseTaste`): the rule for each kind of pause, and
+/// the trims it comes from.
+public struct PauseTasteReport: Codable, Sendable {
+    public struct Rule: Codable, Sendable {
+        public var kind: String
+        public var leave: Time
+        public var flag: Time
+        public var trims: Int
+        public var learned: Bool
+    }
+
+    public var file: String
+    public var rules: [Rule]
+    /// Every trim kept, and how many projects they're from.
+    public var trims: Int
+    public var projects: Int
+    /// Pauses he left a beat long (`PauseTaste.beatFrom` or more), and the
+    /// middle of what he left them at.
+    public var beats: Int
+    public var beat: Time?
+    /// With learn, the trims found in this project this time.
+    public var found: [PauseTrim]?
+
+    public init(_ taste: PauseTaste, file: URL, found: [PauseTrim], learned: Bool) {
+        self.file = file.path
+        rules = taste.rules.map {
+            Rule(kind: $0.kind.rawValue, leave: Time(seconds: ($0.leave * 1000).rounded() / 1000), flag: Time(seconds: ($0.flag * 1000).rounded() / 1000), trims: $0.trims, learned: $0.learned)
+        }
+        trims = taste.trims.count
+        projects = Set(taste.trims.map(\.project)).count
+        let beats = taste.beats.map(\.left).sorted()
+        self.beats = beats.count
+        beat = beats.isEmpty ? nil : Time(seconds: (beats[beats.count / 2] * 1000).rounded() / 1000)
+        self.found = learned ? found : nil
     }
 }
 
@@ -421,6 +476,10 @@ public struct PauseSound: Codable, Equatable, Sendable {
     /// The voice runs right through the gap with no real pause: the
     /// transcript's times are off, or the speech there is quiet.
     public var runsThrough: Bool
+    /// The silence as Mike hears it, from where his voice stops to where
+    /// it starts again: a breath, a bump or the room's rumble is part of
+    /// it (`GapSound.silence`). Nil when the voice runs on through.
+    public var silence: TimeRange?
 }
 
 public struct HeardSound: Codable, Equatable, Sendable {
@@ -437,6 +496,8 @@ public struct PausesResult: Codable, Sendable {
     public var total: Time
     public var missing: [String]
     public var warnings: [String]? = nil
+    /// With learn or taste: Mike's pause taste.
+    public var taste: PauseTasteReport? = nil
 }
 
 /// What a pause follows: the end of a sentence (. ? !), a comma (, ; :) or

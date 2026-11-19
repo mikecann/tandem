@@ -244,7 +244,8 @@ public enum SoundTightening {
             duration: time(sound.span.upperBound) - time(sound.span.lowerBound),
             quiet: sound.pauses.map { TimeRange(start: time($0.lowerBound), end: time($0.upperBound)) },
             heard: sound.heard.map { HeardSound(start: time($0.range.lowerBound), end: time($0.range.upperBound), tracks: $0.layers) },
-            runsThrough: sound.runsThrough
+            runsThrough: sound.runsThrough,
+            silence: sound.silence.map { TimeRange(start: time($0.lowerBound), end: time($0.upperBound)) }
         )
     }
 

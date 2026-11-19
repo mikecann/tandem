@@ -168,7 +168,7 @@ public struct GapSound: Equatable, Sendable {
                 frames[layer][index] = FaintSound.Frame(voice: -120, high: -120, highLine: highLine)
                 return -120
             }
-            frames[layer][index] = FaintSound.Frame(voice: energy.voice[frame], high: energy.high[frame], highLine: highLine)
+            frames[layer][index] = FaintSound.Frame(voice: energy.voice[frame], high: energy.high[frame], highLine: highLine, full: energy.full[frame])
             return max(energy.full[frame] - (near.floor + fullOverFloor), energy.high[frame] - (near.highFloor + highOverFloor))
         }
 
@@ -193,7 +193,27 @@ public struct GapSound: Equatable, Sendable {
             }
         }
 
-        let silence = Self.silence(frames: frames, layers: layers, gap: gap, before: before, after: after, low: low)
+        // The silence as Mike hears it. What's in it with no voice and no
+        // breath (a bump, the room's rumble) is no sound to keep whole: it
+        // goes in the pause, as faint sound, so the cut can take it and
+        // the keep is measured as he hears it.
+        let heardSilence = Self.silence(frames: frames, layers: layers, gap: gap, before: before, after: after, low: low)
+        let silence = heardSilence?.range
+        var carved: [Range<Int>] = []
+        if let heardSilence {
+            var run: Int?
+            for index in heardSilence.frames {
+                let quiet = !heardSilence.hiss[index] && excess[index].isFinite
+                if quiet, excess[index] >= -tailUnder {
+                    if run == nil { run = index }
+                    excess[index] = -120
+                } else if let start = run {
+                    carved.append(start..<index)
+                    run = nil
+                }
+            }
+            if let start = run { carved.append(start..<heardSilence.frames.upperBound) }
+        }
 
         // Islands of sound: frames of it with less than a real pause
         // (`CutAudit.minPause`) between them. A group with less than
@@ -267,7 +287,9 @@ public struct GapSound: Equatable, Sendable {
 
         // Other sound between the two words' own is heard: never cut through.
         var heard: [Heard] = []
-        var faint: [ClosedRange<Double>] = []
+        var faint: [ClosedRange<Double>] = carved.map(span).compactMap { range in
+            range.upperBound > from && range.lowerBound < to ? max(from, range.lowerBound)...min(to, range.upperBound) : nil
+        }
         for (number, island) in islands.enumerated() where number != last && number != next {
             let range = span(island)
             guard range.upperBound > from, range.lowerBound < to else { continue }
@@ -294,6 +316,10 @@ public struct GapSound: Equatable, Sendable {
     /// A run of voice shorter than this in a pause is a click or a lip
     /// smack, not a word (`FaintSound.briefest`).
     static var briefestVoice: Double { FaintSound.briefest }
+    /// Low sound this close to the louder word's level, in the full band,
+    /// is the voice's hum. The bumps Mike hears as silence were 30 dB or
+    /// more under the words there, an "m" about 8 under (a guess between).
+    static let humUnder: Float = 15
 
     /// `silence`, from each track's frames (`frames[layer][index]`, nil
     /// where the track doesn't play), the first at `low`: the stretch with
@@ -302,26 +328,30 @@ public struct GapSound: Equatable, Sendable {
     static func silence(
         frames: [[FaintSound.Frame?]], layers: [SoundLayer], gap: ClosedRange<Double>,
         before: ClosedRange<Double>, after: ClosedRange<Double>, low: Double
-    ) -> ClosedRange<Double>? {
+    ) -> (range: ClosedRange<Double>, frames: Range<Int>, hiss: [Bool])? {
         let step = SpeechEnergy.frameSeconds
         let count = frames.first?.count ?? 0
         guard count > 0 else { return nil }
         func time(_ index: Int) -> Double { low + Double(index) * step }
         // Each track's lines for its voice, from the words either side as
         // the transcript has them and the voice round them.
-        let lines: [(voice: Float, high: Float)?] = layers.indices.map { layer in
+        let lines: [(voice: Float, high: Float, hum: Float)?] = layers.indices.map { layer in
             func word(_ range: ClosedRange<Double>) -> [FaintSound.Frame] {
                 (0..<count).filter { range.contains(time($0) + step / 2) }.compactMap { frames[layer][$0] }
             }
+            let words = [word(before), word(after)]
             let speech = FaintSound.Speech.louder([before.upperBound, after.lowerBound].compactMap { t in
                 layers[layer].piece(at: t).map { FaintSound.speech(in: $0.placer.energy, around: $0.media(t)) }
             })
-            return FaintSound.lines(beside: [word(before), word(after)], speech: speech)
+            guard let line = FaintSound.lines(beside: words, speech: speech) else { return nil }
+            let loudest = words.map { FaintSound.power($0.map(\.full)) }.max() ?? -120
+            return (line.voice, line.high, loudest - humUnder)
         }
         guard lines.contains(where: { $0 != nil }) else { return nil }
         var played = [Bool](repeating: false, count: count)
         var voiced = [Bool](repeating: false, count: count)
         var hiss = [Bool](repeating: false, count: count)
+        var hum = [Bool](repeating: false, count: count)
         for index in 0..<count {
             for layer in layers.indices {
                 guard let frame = frames[layer][index] else { continue }
@@ -329,6 +359,7 @@ public struct GapSound: Equatable, Sendable {
                 guard let line = lines[layer] else { continue }
                 if frame.voice >= line.voice { voiced[index] = true }
                 if frame.high >= max(line.high, frame.highLine) { hiss[index] = true }
+                if frame.full >= line.hum { hum[index] = true }
             }
         }
         func runs(_ flags: [Bool], holes: Int = 0) -> [Range<Int>] {
@@ -356,24 +387,31 @@ public struct GapSound: Equatable, Sendable {
             for index in run { speaking[index] = true }
         }
         // Hiss that runs straight on from the voice is the word's "s" or
-        // "t"; hiss with quiet between it and the voice is a breath.
-        for run in runs(hiss, holes: 1) {
-            let reach = max(0, run.lowerBound - 2)..<min(count, run.upperBound + 2)
-            if reach.contains(where: { speaking[$0] }) { for index in run { speaking[index] = true } }
+        // "t"; hiss with quiet between it and the voice is a breath. And a
+        // loud hum under 300 Hz running on from it is an "m" or an "n": the
+        // end of "um" on the Examples Page video was 20 dB over the room
+        // there and under the voice band's line.
+        for flags in [hiss, hum] {
+            for run in runs(flags, holes: 1) {
+                let reach = max(0, run.lowerBound - 2)..<min(count, run.upperBound + 2)
+                if reach.contains(where: { speaking[$0] }) { for index in run { speaking[index] = true } }
+            }
         }
         // Where the track doesn't play (past the timeline's ends) is no
         // silence to hear.
         let quiet = (0..<count).map { played[$0] && !speaking[$0] }
         let window = (gap.lowerBound - slack)...(gap.upperBound + slack)
-        let candidates = runs(quiet).map { time($0.lowerBound)...time($0.upperBound) }.filter { $0.overlaps(window) }
+        func range(_ run: Range<Int>) -> ClosedRange<Double> { time(run.lowerBound)...time(run.upperBound) }
+        let candidates = runs(quiet).filter { range($0).overlaps(window) }
         func overlap(_ range: ClosedRange<Double>, _ other: ClosedRange<Double>) -> Double {
             max(0, min(range.upperBound, other.upperBound) - max(range.lowerBound, other.lowerBound))
         }
         func length(_ range: ClosedRange<Double>) -> Double { range.upperBound - range.lowerBound }
-        return candidates.max { a, b in
-            let (x, y) = (overlap(a, gap), overlap(b, gap))
-            return abs(x - y) > 1e-9 ? x < y : length(a) < length(b)
+        let best = candidates.max { a, b in
+            let (x, y) = (overlap(range(a), gap), overlap(range(b), gap))
+            return abs(x - y) > 1e-9 ? x < y : length(range(a)) < length(range(b))
         }
+        return best.map { (range($0), $0, hiss) }
     }
 
     // MARK: - Placing the cut
@@ -503,7 +541,10 @@ public struct GapSound: Equatable, Sendable {
 
         let cuts = pauses.indices.filter { !whole[$0] }.map { index in
             let pause = pauses[index]
-            let (from, to) = clearOfFaint(from: pause.lowerBound + low[index], to: pause.upperBound - high[index], shortest: shortest)
+            let (from, to) = clearOfFaint(
+                from: pause.lowerBound + low[index], to: pause.upperBound - high[index], shortest: shortest,
+                earliest: pause.lowerBound + lowest[index], latest: pause.upperBound - highest[index]
+            )
             return Placement(
                 pause: pause, from: from, to: to,
                 earliest: pause.lowerBound + lowest[index], latest: pause.upperBound - highest[index]
@@ -515,19 +556,30 @@ public struct GapSound: Equatable, Sendable {
     }
 
     /// A cut's edges moved out of any faint sound they land in, into the
-    /// quiet beside it, keeping more of the pause rather than less: the
-    /// start on past the sound, the end back before it. The join is then in
-    /// the room's quiet rather than halfway through a bump. An edge stays
-    /// put when moving it would leave less than `shortest` to cut.
-    func clearOfFaint(from: Double, to: Double, shortest: Double) -> (Double, Double) {
+    /// quiet beside it, so the join is in the room's quiet rather than
+    /// halfway through a bump: each to whichever side of the sound is
+    /// nearer, keeping the keep as near as it can. On the Threadbear launch
+    /// the bumps were short and either side did; on the Examples Page a
+    /// 0.25 s bump in a 0.8 s pause moved the start on past it every time,
+    /// and 0.6 s was left where Mike wanted 0.35. An edge never goes past
+    /// the least kept beside a word (`earliest`, `latest`), and stays put
+    /// when moving it would leave less than `shortest` to cut.
+    func clearOfFaint(from: Double, to: Double, shortest: Double, earliest: Double = -.infinity, latest: Double = .infinity) -> (Double, Double) {
         var from = from, to = to
-        if let sound = faint.first(where: { $0.lowerBound < from && from < $0.upperBound }),
-           to - (sound.upperBound + Self.edgeGuard) >= shortest - 1e-9 {
-            from = sound.upperBound + Self.edgeGuard
+        // Never into another bump.
+        func nearer(_ edge: Double, _ options: [Double]) -> Double? {
+            options.filter { option in !faint.contains { $0.lowerBound < option && option < $0.upperBound } }
+                .min { abs($0 - edge) < abs($1 - edge) }
         }
-        if let sound = faint.first(where: { $0.lowerBound < to && to < $0.upperBound }),
-           (sound.lowerBound - Self.edgeGuard) - from >= shortest - 1e-9 {
-            to = sound.lowerBound - Self.edgeGuard
+        if let sound = faint.first(where: { $0.lowerBound < from && from < $0.upperBound }) {
+            let options = [sound.upperBound + Self.edgeGuard, sound.lowerBound - Self.edgeGuard]
+                .filter { $0 >= earliest - 1e-9 && to - $0 >= shortest - 1e-9 }
+            if let moved = nearer(from, options) { from = moved }
+        }
+        if let sound = faint.first(where: { $0.lowerBound < to && to < $0.upperBound }) {
+            let options = [sound.lowerBound - Self.edgeGuard, sound.upperBound + Self.edgeGuard]
+                .filter { $0 <= latest + 1e-9 && $0 - from >= shortest - 1e-9 }
+            if let moved = nearer(to, options) { to = moved }
         }
         return (from, to)
     }
