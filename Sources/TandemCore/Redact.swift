@@ -346,6 +346,11 @@ extension Editing {
                 copy.keyframes.removeValue(forKey: key)
             }
             copy.video = video
+            // A format that only moves the picture shows its main crop, so
+            // a new main crop changes what the copy has to cover there too.
+            for format in Set(source.formatOverrides.keys).union(video.formatOverrides.keys).sorted() {
+                copy = aligned(copy, over: picture, region: region, format: format)
+            }
         }
         return copy
     }

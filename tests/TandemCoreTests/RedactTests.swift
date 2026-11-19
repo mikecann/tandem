@@ -374,6 +374,26 @@ final class RedactTests: XCTestCase {
         XCTAssertEqual(c.project.clip(copy.id)?.video?.transform, c.project.clip(pip.id)?.video?.transform, "the PiP's blur stays on the PiP")
     }
 
+    func testALandscapeLayoutRecutsTheBlurInFormatsThatShowTheLandscapeCrop() throws {
+        // The short only moves the picture, so it shows the landscape crop;
+        // a full-frame preset then uncrops it there too.
+        let (_, c) = try Fixture.edited()
+        try c.run("Crop and move", .updateClip(clipID: c.clips("Screen")[0].id, patch: .object(["video": .object([
+            "crop": .object(["left": .number(0.5)]),
+            "formatOverrides": .object([
+                "portrait": .object(["transform": .object(["position": .object(["x": .number(0.5), "y": .number(0.25)]), "scale": .number(1)])])
+            ])
+        ])])))
+        try c.run("Hide", .redact(range: TimeRange(start: t(10), end: t(15)), rect: Rect(x: 0.3, y: 0.2, width: 0.4, height: 0.1), mediaID: "med_screen"))
+        let screen = try XCTUnwrap(c.clips("Screen").first { $0.range.start == t(10) })
+        let copy = try XCTUnwrap(c.clips("Privacy (Screen)").first)
+        XCTAssertEqual(copy.video?.formatOverrides["portrait"]?.crop?.left ?? 0, 0.5, accuracy: 1e-9)
+        try c.run("Full", .applyLayout(clipIDs: [screen.id], preset: .full))
+        let video = try XCTUnwrap(c.project.clip(copy.id)?.video)
+        XCTAssertEqual(video.crop.left, 0.3, accuracy: 1e-9)
+        XCTAssertEqual(video.formatOverrides["portrait"]?.crop?.left ?? 1, 0.3, accuracy: 1e-9)
+    }
+
     func testABlurOverTwoPicturesLaidOutApartStopsTheLayout() throws {
         // Its track locked, the picture was bladed under it without it.
         let (c, _, copy) = try shortReady()
