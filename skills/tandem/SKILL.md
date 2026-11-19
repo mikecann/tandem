@@ -369,6 +369,24 @@ transitions, media or markers.
   and it cost a 13.7 GB re-export. One exception: a celebration line
   ("Congratulations, party time") cuts straight on, even over confetti; he
   doesn't want to sit there silently smiling.
+- **A "beat" is about 0.3 s, and even a pause he asked for is about 1 s.**
+  On the Examples Page (19 Nov 2026) I kept the dead-air notes as comic
+  beats; he cut them himself: a 0.81 s hold after "Savages, right?" down to
+  about 0.28 s, and a 2.7 s eye-shift pause (his own editor's note asked
+  for an "extended pause") down to about 1.2 s. Don't answer a dead-air
+  note with "the pause earns it" unless something moves on screen; trim it
+  to those lengths. Judge gaps by his last word's end to his next word's
+  start in the waveform, not `tandem pauses`' "heard as" figure: it called
+  two 0.8 s gaps (a sentence running on, "...engineering land. | Over the
+  past year or so") "heard as 0.2 s", and he flagged both as "awkward
+  silence" ("I have to keep telling you about these silences"). He also
+  hears a 0.2 s mid-phrase hitch that `pauses` says the voice runs through
+  ("for that | framework"): cut it to the 0.12 s mid gap.
+- **Keep a pause that carries a gesture.** Before cutting a pause, look at
+  his face in it: a shrug, a raised eyebrow, a look to camera. "You can
+  probably get rid of the cut here, because the nuance of my shrug here is
+  what I wanted to show" (Examples Page, the 0.57 s before "good job,
+  Cheffy").
 - **No clips under 2 s,** where all it takes is putting back a pause of a
   second or less between sentences. Never bring back a thinking pause or a
   long silence to do it. `tighten --filmora --min-clip 2` does this,
@@ -461,7 +479,12 @@ list):
 - **A Convex wipe at every section change,** the cold open into the first
   section included, not just into and out of demos and the outro: "Can we
   have a swipe here? ... I want section swipes, particularly the outro,
-  intro, etc."
+  intro, etc." Except where he talks straight across the change, like a
+  question answered in his next line ("do we even need the templates
+  page? ... Well, when I was in San Francisco"): "I don't need like an
+  artificial transition", Examples Page, 19 Nov 2026. And when he
+  tightens a pause at a section change himself, the wipe gets trimmed
+  with it: put it back whole, starting 0.47 s before the cut.
 - **Proof on screen for every claim, including the lines he rewrote or
   ad-libbed,** not only the script's callouts: "v2 is finally here" (the
   docs or announcement), "non-beta forever" (the old beta label), "no per
@@ -1577,6 +1600,11 @@ comments, changed these rules for a conversation like this:
   0.25 s + 1.5 s after they're written; stay on his shot longer rather
   than cutting the title short. Every question gets one, including a
   follow-up asked mid-answer.
+- **On-screen text over his face ends before the B-roll starts** ("This
+  text should not overlap the b-roll here"), its fade done by the cut.
+  Dark handwriting straight on the wall was too hard to read; his pick for
+  a question beside his face (Examples Page) was white handwriting on a
+  dark translucent box: "maybe white or white with black background".
 - **Name tags over each person,** a two-line title above their own head,
   his too ("Mad Scientist at Convex"), not one centred card. No avatar
   circle when the person is on screen ("we can see our face"), and no
