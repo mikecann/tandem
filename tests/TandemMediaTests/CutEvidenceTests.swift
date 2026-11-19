@@ -129,6 +129,34 @@ final class CutEvidenceTests: XCTestCase {
         XCTAssertEqual(verdict.dismissed.count, 1)
     }
 
+    func testARestartCutAtTheJoinIsDroppedAndDismissesTheLevels() {
+        // Coordinators 0:13.712: "is. So I'm just gonna, uh. | so I'm just
+        // gonna", cut at the onset of the first "So", which the transcript
+        // has mostly before the edge.
+        let finding = CutListen.Finding(kind: .notHeard, said: "So", time: 9.95, slip: true, why: "a short or filler word the engine often leaves out")
+        let heard = join(
+            "I'm not entirely sure what my opinion is. So | so i'm just gonna kind of share",
+            "i'm not entirely sure what my opinion is | so i'm just gonna kind of share", [finding]
+        )
+        let verdict = CutEvidence.judge(heard, flags: [.init(keeps: .before, margin: 11.8)], cut: ["So", "I'm", "gonna,", "uh."])
+        XCTAssertEqual(verdict.dropped, [0])
+        XCTAssertEqual(verdict.confirming, [])
+        XCTAssertEqual(verdict.dismissed.count, 1)
+    }
+
+    func testARestartWordHeardTwiceOrNotInTheCutStands() {
+        let finding = CutListen.Finding(kind: .notHeard, said: "So", time: 9.95, slip: true, why: "a short word")
+        // Not in the cut: the take keeps both, and one isn't heard.
+        let kept = join("my opinion is. So | so i'm just", "my opinion is | so i'm just", [finding])
+        XCTAssertEqual(CutEvidence.judge(kept, flags: [.init(keeps: .before, margin: 11.8)], cut: ["uh."]).confirming, [0])
+        // A kept word cut short, with a different word after the join.
+        let cutShort = CutListen.Finding(kind: .notHeard, said: "opinion", time: 9.9, slip: false, why: "nothing heard for it")
+        let clipped = join("sure what my opinion | so i'm just", "sure what my | so i'm just", [cutShort])
+        let verdict = CutEvidence.judge(clipped, flags: [.init(keeps: .before, margin: 11.8)], cut: ["opinion", "is."])
+        XCTAssertTrue(verdict.heardCutOff)
+        XCTAssertEqual(verdict.dismissed, [:])
+    }
+
     func testAFragmentIsntDismissedByHearingIt() {
         // Ian approved-27: "| do, but I wanna", which Mike heard as wrong.
         let heard = join("have been filled out, | do, but I wanna start", "have been filled out, | do, but I wanna start")
