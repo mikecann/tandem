@@ -439,6 +439,14 @@ joins and 4 were real.
   where the take has words (the transcript's, over silence); or the take
   has the word twice there and it's heard once (a retake, or two tracks).
   A piece of a cut word ("extra" for "extract", "pub") is never explained.
+- A restart cut where the voice runs straight on ("is. So I'm just gonna,
+  uh. | so I'm just gonna", cut at the onset of the first "So") isn't a
+  finding at all: the transcript's times can put most of the cut "So"
+  before the edge, so the take reads "is. So | so", but when the words cut
+  past the edge start with the same two words the other side starts with,
+  and that side's word is heard, the missing short word is the cut, as
+  meant. Only a short word: a longer one cut part way can leave a piece
+  the engine misses.
 - A join with both a level flag and a finding (any that isn't explained
   and isn't a slip, or a kept word at the join not heard right) is one
   `clippedWord` problem that says both, "and heard cut off (...)", with the

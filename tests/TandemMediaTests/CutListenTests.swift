@@ -71,6 +71,36 @@ final class CutListenTests: XCTestCase {
         XCTAssertFalse(the.clipped)
     }
 
+    func testARestartTheCutDroppedIsntACutOff() {
+        // Coordinators 0:13.712: "is. So I'm just gonna, uh. | so I'm just
+        // gonna", cut at the onset of the first "So", which the transcript
+        // has mostly before the edge.
+        let said = words("my opinion is. So | so i'm just gonna")
+        let join = CutListen.compare(said: said, heard: words("my opinion is | so i'm just gonna"), at: 10,
+                                     cutPast: ["So", "I'm"], cutBefore: ["gonna,", "uh."])
+        XCTAssertEqual(join.findings, [], "\(join.findings)")
+        // Not heard on the other side either: both are missing, so it stands.
+        let neither = CutListen.compare(said: said, heard: words("my opinion is | i'm just gonna"), at: 10,
+                                        cutPast: ["So", "I'm"], cutBefore: ["gonna,", "uh."])
+        XCTAssertEqual(neither.findings.map(\.said), ["So", "so"])
+    }
+
+    func testAKeptWordSaidAgainAfterTheJoinIsStillCutOff() {
+        // A kept "stop." cut short, with "Stop the recording" after the join:
+        // the cut doesn't start "stop. the", so it isn't a restart.
+        let join = CutListen.compare(said: words("I said stop. | Stop the recording"), heard: words("I said | Stop the recording"), at: 10,
+                                     cutPast: ["stop.", "uh"], cutBefore: ["uh"])
+        XCTAssertTrue(join.clipped, "\(join.findings)")
+        // Nor is a word the cut starts with but the other side doesn't.
+        let other = CutListen.compare(said: words("what my opinion | so i'm just"), heard: words("what my | so i'm just"), at: 10,
+                                      cutPast: ["opinion", "is."])
+        XCTAssertTrue(other.clipped, "\(other.findings)")
+        // A longer word restarted can leave a piece the engine misses.
+        let long = CutListen.compare(said: words("we can extract | extract the data"), heard: words("we can | extract the data"), at: 10,
+                                     cutPast: ["extract", "the"])
+        XCTAssertTrue(long.clipped, "\(long.findings)")
+    }
+
     func testAFragmentOfACutWordIsClipped() throws {
         // "a little bit [okay] that": the cut starts inside "okay", and the
         // start of it is heard as "oh".

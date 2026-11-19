@@ -254,6 +254,11 @@ extension TandemService {
         )
     }
 
+    /// A check from before 18 Nov 2026 counted its problems without keeping
+    /// them, so a reason can't answer one: on the Coordinators video an
+    /// agent tried --reason, then handed back --unchecked.
+    static let olderCheck = "That check only counted its problems, so --reason can't answer them: run it again, and if one is still a false alarm, answer it with --reason \"<kind> <time> <why>\"."
+
     /// Why a hand-back is refused, saying exactly what to run, or nil when
     /// it can go. Mike's comments stopped coming back once Tandem checked
     /// for a thing itself, and kept coming back while the rule to check
@@ -279,11 +284,11 @@ extension TandemService {
                 lines.append("Tandem hasn't checked this round since the last agent edit\(some). Run tandem check --changed, fix every problem it finds, then hand back again.\(since(stale))")
             case .renderProblems(let count, let revision):
                 // Only a check from before checks kept their problems.
-                lines.append("tandem check (revision \(revision)) found \(count == 1 ? "a problem" : "\(count) problems"). Fix \(count == 1 ? "it" : "them"), run tandem check --changed again, then hand back.")
+                lines.append("tandem check (revision \(revision)) found \(count == 1 ? "a problem" : "\(count) problems"). Fix \(count == 1 ? "it" : "them"), run tandem check --changed again, then hand back. \(Self.olderCheck)")
             case .listen(let uncovered, let stale):
                 lines.append("This round cut the take (\(batches(uncovered))), so also run tandem check --changed --cuts --listen and judge each cut it flags by ear.\(since(stale))")
             case .listenProblems(let count, let revision):
-                lines.append("tandem check --cuts --listen (revision \(revision)) found \(count == 1 ? "a problem" : "\(count) problems") at the cuts. Fix \(count == 1 ? "it" : "them") and run it again.")
+                lines.append("tandem check --cuts --listen (revision \(revision)) found \(count == 1 ? "a problem" : "\(count) problems") at the cuts. Fix \(count == 1 ? "it" : "them") and run it again. \(Self.olderCheck)")
             }
         }
         if !verdict.unansweredProblems.isEmpty {
