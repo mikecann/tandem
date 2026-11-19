@@ -46,11 +46,14 @@ public enum FaintSound {
         public var voice: Float
         public var high: Float
         public var highLine: Float
+        /// The full band, for the low hum of an "m" or "n" (`GapSound.silence`).
+        public var full: Float
 
-        public init(voice: Float, high: Float, highLine: Float) {
+        public init(voice: Float, high: Float, highLine: Float, full: Float = -120) {
             self.voice = voice
             self.high = high
             self.highLine = highLine
+            self.full = full
         }
     }
 

@@ -191,6 +191,21 @@ their own beside it, and reports, with the clips on screen there:
     then a note says how many more to check again for. Not in
     conversations. It reads the take's sound, so it's in a quick check
     too.
+  - long pauses (`longPause`): any pause, between sentences too, whose
+    silence is at least the length Mike would trim for its kind. The
+    silence runs from where his voice stops to where it starts again, so
+    a breath, a low bump or the room's rumble in it counts, as he hears
+    it: on the Examples Page video two 0.8 s gaps read as 0.2 s between
+    sounds, nothing flagged them, and he called them "awkward silence".
+    Each kind's length comes from his own trims (`tandem pauses --taste`,
+    `PauseTaste`): what he leaves is the middle of the pauses he cut back,
+    and a pause is long from 1.6 times that (0.15 s over at least). Under
+    5 trims of a kind it's the usual: mid 0.12 s (long from 0.25 s), comma
+    0.2 s (0.4 s), sentence 0.35 s (0.6 s). Every check first reads the
+    trims he's made since the last one into his taste, so it learns as he
+    edits. The fix is `tandem tighten` over the pause with his lengths;
+    keep one only for a beat something on screen needs, with `--reason`.
+    One the mid-sentence note has is left to it, and so is one over 4 s.
   - a face waiting to talk (`faceWaits`): a join between two pieces of
     the take where the camera shows him for more than 0.1 s before his
     first word's sound ("Face waits 0.23 s before \"So, what I ended up

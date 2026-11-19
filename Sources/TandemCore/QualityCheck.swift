@@ -89,6 +89,10 @@ public struct CheckProblem: Codable, Equatable, Sendable {
         /// --filmora` leaves 0.8 s there, and Mike wants no big pause
         /// mid-sentence.
         case midSentencePause
+        /// A pause whose silence is longer than Mike leaves for its kind,
+        /// from his own trims (`longPauses`, `PauseTaste`): he hears it as
+        /// awkward silence.
+        case longPause
         /// A camera clip shown smaller than the frame that isn't `pipRight`
         /// or `pipLeft` with the cutout on (`offStylePip`): a framed face
         /// box, the cutout off, or a size or place of its own.
@@ -123,7 +127,7 @@ public struct CheckProblem: Codable, Equatable, Sendable {
         public var isNote: Bool {
             self == .soft || self == .deadAir || self == .pageChange || self == .sliver || self == .lowFrameRate || self == .marginalJoin
                 || self == .heardDifferently || self == .heardWhole || self == .swellOffCard || self == .readableText || self == .shortOpening
-                || self == .cutTalk || self == .littleBRoll || self == .midSentencePause || self == .offStylePip || self == .faceWaits
+                || self == .cutTalk || self == .littleBRoll || self == .midSentencePause || self == .longPause || self == .offStylePip || self == .faceWaits
                 || self == .bareClaim || self == .outroSting || self == .outroWipe
         }
     }
@@ -344,7 +348,7 @@ public enum QualityCheck {
     /// changes need `screenFrames`, the screen recordings scanned on their
     /// own (`screenOnly`), and low frame rates those and `frameTimes`, the
     /// recordings' own frame times by media ID.
-    public static func problems(in project: Project, ranges: [TimeRange], frames: [FrameStats]?, screenFrames: [FrameStats]? = nil, speech: Speech? = nil, pauses: [HeardPause]? = nil, faceWaits waits: [FaceWait]? = nil, frameTimes: [String: [Time]] = [:]) -> [CheckProblem] {
+    public static func problems(in project: Project, ranges: [TimeRange], frames: [FrameStats]?, screenFrames: [FrameStats]? = nil, speech: Speech? = nil, pauses: [HeardPause]? = nil, taste: PauseTaste? = nil, faceWaits waits: [FaceWait]? = nil, frameTimes: [String: [Time]] = [:]) -> [CheckProblem] {
         let gapProblems = gaps(in: project, ranges: ranges)
         let jumps = doubleJumps(in: project, ranges: ranges)
         var found = gapProblems + softPictures(in: project, ranges: ranges) + slivers(in: project, ranges: ranges) + jumps + sameShotTwice(in: project, ranges: ranges)
@@ -362,6 +366,7 @@ public enum QualityCheck {
             found += outroWipe(in: project, ranges: ranges, speech: speech)
             if let pauses {
                 found += midSentencePauses(pauses, in: project, ranges: ranges, speech: speech)
+                found += longPauses(pauses, taste: taste ?? PauseTaste(), in: project, ranges: ranges, speech: speech)
             }
         }
         if let frames {

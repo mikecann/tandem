@@ -132,6 +132,11 @@ rounds up.
      stops ("using. | The latest" counts). Read it in context, then run the
      `tighten --filmora --kinds` it gives, with the pause's kind set to
      `mid` (see "Pauses by kind").
+   - long pause: a pause whose silence (voice to voice, a breath or a low
+     bump counting as silence) is past what Mike trims for its kind, from
+     his own trims (`tandem pauses --taste`). Run the `tighten` it gives,
+     which takes it to what he leaves; keep one only for a beat something
+     on screen needs, with `--reason`.
    - PiP that isn't his usual: a camera clip shown small that isn't
      `pipRight`/`pipLeft` with the cutout on. Apply the layout it gives; if
      the matte isn't made yet, wait for it rather than framing his face.
@@ -320,6 +325,15 @@ transitions, media or markers.
   "old convex v one. And now with this convex v2,"), so the kind is read
   from the words, never the punctuation. `tandem cut` leaves a sentence's
   0.4 s across a retake's join.
+
+  These are the starting point; his own trims now set them. Tandem reads
+  every pause he trims himself out of each project's history into his
+  pause taste (each `tandem check` does, and `tandem pauses --learn`), and
+  `tandem pauses --taste` says what he leaves for each kind and from how
+  long `check` calls one long. Use those lengths over the ones above when
+  they're learned. Judge a pause by `tandem pauses`' "heard as ... of
+  silence", which runs voice to voice with breaths and low bumps in it,
+  as he hears it (19 Nov 2026: two 0.8 s gaps had read 0.2 s by sound).
 - **The kept pause sits on the clip going out. The clip coming in starts
   a frame or two before he speaks.** Mike, Let's Build It technical, 13 Nov
   2026: "you don't start the next clip soon enough. So you end up with like
@@ -375,13 +389,13 @@ transitions, media or markers.
   about 0.28 s, and a 2.7 s eye-shift pause (his own editor's note asked
   for an "extended pause") down to about 1.2 s. Don't answer a dead-air
   note with "the pause earns it" unless something moves on screen; trim it
-  to those lengths. Judge gaps by his last word's end to his next word's
-  start in the waveform, not `tandem pauses`' "heard as" figure: it called
-  two 0.8 s gaps (a sentence running on, "...engineering land. | Over the
-  past year or so") "heard as 0.2 s", and he flagged both as "awkward
-  silence" ("I have to keep telling you about these silences"). He also
-  hears a 0.2 s mid-phrase hitch that `pauses` says the voice runs through
-  ("for that | framework"): cut it to the 0.12 s mid gap.
+  to those lengths. Judge gaps by `tandem pauses`' "heard as ... of
+  silence" (voice to voice); before 19 Nov 2026 its figure ran sound to
+  sound and called two 0.8 s gaps (a sentence running on, "...engineering
+  land. | Over the past year or so") "heard as 0.2 s" because of a low
+  bump in them, and he flagged both as "awkward silence" ("I have to keep
+  telling you about these silences"). He also hears a 0.2 s mid-phrase
+  hitch ("for that | framework"): cut it to the 0.12 s mid gap.
 - **Keep a pause that carries a gesture.** Before cutting a pause, look at
   his face in it: a shrug, a raised eyebrow, a look to camera. "You can
   probably get rid of the cut here, because the nuance of my shrug here is

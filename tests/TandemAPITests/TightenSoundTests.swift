@@ -217,7 +217,8 @@ final class TightenSoundTests: XCTestCase {
         let early = try XCTUnwrap(result.pauses.first { $0.before.hasSuffix("build.") })
         XCTAssertEqual(try XCTUnwrap(early.sound).end.seconds, 10.4, accuracy: 0.011)
         let text = result.readableText
-        XCTAssertTrue(text.contains("heard as 1.600s, sound at 00:12."), text)
+        // As Mike hears it: the longest silence beside the app's talk.
+        XCTAssertTrue(text.contains("heard as 0.400s of silence, sound at 00:12."), text)
         XCTAssertTrue(text.contains(" on iPad"), text)
     }
 

@@ -337,6 +337,83 @@ final class CheckAPITests: XCTestCase {
         return h
     }
 
+    func testMikesOwnTrimOfAPauseIsLearnedFromTheHistory() async throws {
+        // The fixture's words, with 1.4 s between "models." and "They".
+        let h = try voicedHarness(words: [(1.0, 3.6), (5.0, 6.3), (7.0, 8.5)])
+        defer { h.close() }
+        let mike = CallContext(author: EditAuthor.person)
+        // An agent's edit isn't his.
+        try h.apply(.rippleDeleteRange(range: TimeRange(start: t(6.35), end: t(6.6))), label: "Ripple delete")
+        // He blades either side of most of the pause, deletes it and closes the gap.
+        try h.service.apply(ApplyRequest(label: "Blade", commands: [.blade(at: t(3.9))]), context: mike)
+        try h.service.apply(ApplyRequest(label: "Blade", commands: [.blade(at: t(4.8))]), context: mike)
+        try h.service.apply(ApplyRequest(label: "Ripple delete", commands: [.rippleDeleteRange(range: TimeRange(start: t(3.9), end: t(4.8)))]), context: mike)
+
+        let learned = try await h.service.learnPauses()
+        XCTAssertEqual(learned.trims.count, 1, "\(learned.trims)")
+        let trim = try XCTUnwrap(learned.trims.first)
+        XCTAssertEqual(trim.kind, .sentence)
+        XCTAssertTrue(trim.before.hasSuffix("decision models."), trim.before)
+        XCTAssertTrue(trim.after.hasPrefix("They"), trim.after)
+        XCTAssertEqual(trim.was, 1.4, accuracy: 0.05)
+        XCTAssertEqual(trim.left, 0.5, accuracy: 0.05)
+
+        // Read into his taste, and read only once.
+        let file = h.folder.file("taste.json")
+        let first = try await h.service.updatePauseTaste(at: file)
+        XCTAssertEqual(first.found.count, 1)
+        let again = try await h.service.updatePauseTaste(at: file)
+        XCTAssertEqual(again.found.count, 0)
+        XCTAssertEqual(again.taste.trims.count, 1)
+
+        // He undoes it after it was read: it's taken back out.
+        XCTAssertNotNil(h.service.coordinator.undo())
+        let undone = try await h.service.updatePauseTaste(at: file)
+        XCTAssertEqual(undone.taste.trims.count, 0, "\(undone.taste.trims)")
+    }
+
+    func testTheUndoStackSaysWhichEditsWereUndone() {
+        func record(_ revision: Int, _ kind: HistoryRecord.Kind) -> HistoryRecord {
+            HistoryRecord(revision: revision, kind: kind, label: "x", author: EditAuthor.person)
+        }
+        // Trim at 10, another edit at 11; undo 11 (12), then undo 10 (13).
+        XCTAssertEqual(TandemService.undone([record(10, .edit), record(11, .edit), record(12, .undo), record(13, .undo)]), [10, 11])
+        // Undone and redone isn't undone; a new edit drops what could be redone.
+        XCTAssertEqual(TandemService.undone([record(10, .edit), record(11, .undo), record(12, .redo)]), [])
+        XCTAssertEqual(TandemService.undone([record(10, .edit), record(11, .undo), record(12, .edit), record(13, .redo)]), [10])
+        // Redone, then undone again: both the edit and its redo (which is
+        // learned under its own revision) are out.
+        XCTAssertEqual(TandemService.undone([record(10, .edit), record(11, .undo), record(12, .redo), record(13, .undo)]), [10, 12])
+        // An undo from another process is a reload labelled "Undo ...".
+        var fromCLI = record(11, .reload)
+        fromCLI.label = "Undo Ripple delete"
+        XCTAssertEqual(TandemService.undone([record(10, .edit), fromCLI]), [10])
+        XCTAssertEqual(TandemService.undone([record(10, .edit), record(11, .reload)]), [], "a plain reload clears the stack")
+        // A check in between changes nothing.
+        XCTAssertEqual(TandemService.undone([record(10, .edit), record(10, .check), record(11, .undo)]), [10])
+    }
+
+    func testWhichCommentsSayAPauseIsTooLong() {
+        // Mike's own, from the Examples Page and Convex Auth v2 reviews.
+        for text in [
+            "Again, too much silence at the end here. Again, again, again. I have to keep telling you about these silences. Should we make something in tandem so that you can learn from it so I can make some silence cuts or I can get the silences to how I want.",
+            "There's a micropause mid-sentence here, get rid of that please.",
+            "Again, longer than needed pause here between sentences, I think.",
+            "Again, awkward pause mid-sentence, get rid of it.",
+        ] {
+            XCTAssertTrue(TandemService.isPauseComplaint(text), text)
+        }
+        for text in [
+            "I tighten the pause to how I want it to be, but can you just fix this, this swipe now, this section divider.",
+            "Keep this pause a bit longer, I'm shrugging.",
+            "The pause here is too short, give it a beat.",
+            "Too long on this B-roll shot.",
+            "Can you show some of the other slides as well that I did for this?",
+        ] {
+            XCTAssertFalse(TandemService.isPauseComplaint(text), text)
+        }
+    }
+
     func testAWordRunningPastACutIsAProblemWithItsFix() async throws {
         // "section." runs on 0.12 s past file time 30, where the first piece
         // of the take ends; "Now" starts well after the second piece does (32).

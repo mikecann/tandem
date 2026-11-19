@@ -316,7 +316,10 @@ struct CLI {
             return show(try await client().call(SearchRequest(phrase: phrase, limit: try args.integer("limit"))), json: json)
         case "pauses":
             try args.expectPositionals(atMost: 0, command: name)
-            let request = PausesRequest(min: try seconds(args, "min"), from: try time(args, "from"), to: try time(args, "to"))
+            let request = PausesRequest(
+                min: try seconds(args, "min"), from: try time(args, "from"), to: try time(args, "to"),
+                learn: args.has("learn") ? true : nil, taste: args.has("taste") ? true : nil
+            )
             return show(try await client().call(request), json: json)
         case "tighten":
             try args.expectPositionals(atMost: 0, command: name)

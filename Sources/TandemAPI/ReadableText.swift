@@ -192,6 +192,7 @@ extension SearchResult: ReadableResult {
 
 extension PausesResult: ReadableResult {
     public var readableText: String {
+        if let taste { return taste.readableText }
         var lines: [String] = []
         if pauses.isEmpty {
             lines.append("No pauses of \(TimeText.duration(minimum)) or more.")
@@ -209,13 +210,54 @@ extension PausesResult: ReadableResult {
     }
 }
 
+extension PauseTasteReport {
+    var readableText: String {
+        var lines: [String] = []
+        if let found {
+            if found.isEmpty && (heard ?? []).isEmpty {
+                lines.append("No new pauses Mike trimmed himself or called too long in this project's history.")
+            } else if !found.isEmpty {
+                lines.append("\(found.count) pause\(found.count == 1 ? "" : "s") Mike trimmed himself, the silence as he hears it before and after:")
+                for trim in found {
+                    lines.append("  \(trim.at)  \(trim.kind.rawValue)  \(TimeText.duration(Time(seconds: trim.was))) -> \(TimeText.duration(Time(seconds: trim.left)))  ...\(trim.before) | \(trim.after)...")
+                }
+            }
+            if let heard, !heard.isEmpty {
+                lines.append("\(heard.count) pause\(heard.count == 1 ? "" : "s") Mike called too long in a comment, with the silence he heard:")
+                for complaint in heard {
+                    lines.append("  \(complaint.at)  \(complaint.kind.rawValue)  \(TimeText.duration(Time(seconds: complaint.silence)))  ...\(complaint.before) | \(complaint.after)...  \"\(complaint.text.prefix(80))\"")
+                }
+            }
+        }
+        lines.append("Mike's pauses, from \(trims) trim\(trims == 1 ? "" : "s") and \(complaints) comment\(complaints == 1 ? "" : "s") in \(projects) project\(projects == 1 ? "" : "s") (\(file)):")
+        for rule in rules {
+            var source = rule.learned ? "from \(rule.trims) of his trims" : "the usual, \(rule.trims) trim\(rule.trims == 1 ? "" : "s") so far"
+            if rule.complaints > 0 { source += ", and \(rule.complaints) of his comments" }
+            lines.append("  \(rule.kind): leave \(TimeText.duration(rule.leave)), too long from \(TimeText.duration(rule.flag)) (\(source))")
+        }
+        if let beat {
+            lines.append("  beats he kept on purpose: \(beats), left at \(TimeText.duration(beat)) in the middle")
+        }
+        return lines.joined(separator: "\n")
+    }
+}
+
 extension PauseSound {
     /// What the sound under a pause has, after its line in `pauses`.
     var readableText: String {
+        // What Mike hears is the silence, voice to voice; the gap between
+        // sounds is what a cut can take, and can be much less when a bump
+        // or a breath fills the rest.
+        let silent = silence.map { "heard as \(TimeText.duration($0.duration)) of silence" }
         if runsThrough {
-            return "  no real pause: the voice runs through it" + (heard.first.map { " (\($0.start)-\($0.end))" } ?? "")
+            let sound = heard.first.map { " (\($0.start)-\($0.end))" } ?? ""
+            if let silent { return "  \(silent), but no real pause: sound runs through it\(sound)" }
+            return "  no real pause: the voice runs through it" + sound
         }
-        var parts = ["heard as \(TimeText.duration(duration))"]
+        var parts = [silent ?? "heard as \(TimeText.duration(duration))"]
+        if silent != nil, let silence, silence.duration - duration >= Time(seconds: 0.05) {
+            parts.append("\(TimeText.duration(duration)) between sounds")
+        }
         if !heard.isEmpty { parts.append(heardText) }
         return "  " + parts.joined(separator: ", ")
     }

@@ -227,8 +227,12 @@ final class GapSoundTests: XCTestCase {
             XCTAssertFalse(sound.faint.contains { $0.contains(edge) }, "\(edge) is in a bump: \(sound.faint)")
         }
         let kept = (sound.span.upperBound - sound.span.lowerBound) - (cut.to - cut.from)
-        XCTAssertGreaterThan(kept, 0.4 + 0.1, "both edges moved on out of the bump they'd have been in")
+        // Each edge moved to whichever side of its bump is nearer, so the
+        // keep is off by a bump at most (on the Examples Page a 0.25 s bump
+        // always pushed the start on past it, and 0.6 s was left of 0.35).
+        XCTAssertGreaterThan(kept, 0.4 - 2 * 0.25, "each edge moves past one bump at most")
         XCTAssertLessThan(kept, 0.4 + 2 * 0.25, "each edge moves past one bump at most")
+        XCTAssertGreaterThanOrEqual(cut.from - sound.span.lowerBound, CutPlanner.minimumTail - 1e-9, "never closer to the word than tandem cut keeps")
         let joins = GapSound.judge([layer(take)], from: cut.from, to: cut.to)
         XCTAssertEqual(joins.start.verdict, .clean)
         XCTAssertEqual(joins.end.verdict, .clean)
@@ -242,6 +246,73 @@ final class GapSoundTests: XCTestCase {
         XCTAssertGreaterThan(near.heard.count, 15)
     }
 
+    func testALowBumpInThePauseIsSilenceAsMikeHearsIt() throws {
+        // The Examples Page video: "engineering land. | Over the past year"
+        // with 0.8 s between the words, and a low bump (90 Hz) through most
+        // of it, 20 dB over a quiet room and nothing in the voice band.
+        // The sound's gap read 0.2 s; Mike heard 0.8 s of silence.
+        let take = Take(length: 5, words: [(10.5, 11.0), (11.8, 12.3)], room: 0.1, pulses: [(11.05, 11.75, 0.35, 0.3, -48)])
+        let sound = try listen([layer(take)], gap: 11.0...11.8, before: 10.5...11.0, after: 11.8...12.3)
+        let silence = try XCTUnwrap(sound.silence)
+        XCTAssertEqual(silence.lowerBound, 11.0, accuracy: 0.03)
+        XCTAssertEqual(silence.upperBound, 11.8, accuracy: 0.03)
+    }
+
+    func testABreathIsPartOfTheSilenceButAnSIsPartOfTheWord() throws {
+        // "...that's it. [breath] So the..." with the "s" of "it's" running
+        // straight on from the voice: the breath is pause to Mike, the "s"
+        // is the word.
+        let take = Take(length: 6, words: [(10.5, 11.0), (12.0, 12.5)], esses: [(11.0, 11.1)], breaths: [(11.5, 11.8)])
+        let sound = try listen([layer(take)], gap: 11.0...12.0, before: 10.5...11.0, after: 12.0...12.5)
+        let silence = try XCTUnwrap(sound.silence)
+        XCTAssertEqual(silence.lowerBound, 11.1, accuracy: 0.03, "the s is the word's")
+        XCTAssertEqual(silence.upperBound, 12.0, accuracy: 0.03, "the breath is silence")
+        XCTAssertFalse(sound.heard.isEmpty, "but still sound a cut goes round")
+    }
+
+    func testAHitchWithRoomToneInItIsSilenceThoughNoRealPause() throws {
+        // "for that | framework": 0.2 s between the words with a low bump
+        // filling it, so there's no stretch quiet enough to cut, but
+        // nothing in the voice band either.
+        let take = Take(length: 5, words: [(10.5, 11.0), (11.2, 11.7)], room: 0.1, pulses: [(11.01, 11.19, 1, 0.18, -48)])
+        let sound = try listen([layer(take)], gap: 11.0...11.2, before: 10.5...11.0, after: 11.2...11.7)
+        let silence = try XCTUnwrap(sound.silence)
+        XCTAssertEqual(silence.upperBound - silence.lowerBound, 0.2, accuracy: 0.03)
+    }
+
+    func testATrackTalkingOnlyInTheGapKeepsItsTalk() throws {
+        // A device's recording that plays only inside the gap, someone
+        // talking on it the transcript missed: with no words of its own
+        // either side, everything it has is voice, so no silence covers it
+        // and no cut goes through it.
+        let take = Take(length: 5, words: [(10.5, 11.0), (12.0, 12.5)])
+        let device = Take(start: 11.3, length: 0.4, softWords: [(11.35, 11.65, 10)])
+        let sound = try listen([layer(take), layer(device, name: "Device")], gap: 11.0...12.0, before: 10.5...11.0, after: 12.0...12.5)
+        let silence = try XCTUnwrap(sound.silence)
+        XCTAssertFalse(silence.contains(11.5), "\(silence)")
+        for cut in (try? sound.place(keep: 0.4, minimum: 0.5, frame: frame).get()) ?? [] {
+            XCTAssertFalse(cut.from < 11.6 && 11.4 < cut.to, "\(cut) goes through the device's talk")
+        }
+    }
+
+    func testADigitallySilentTrackDoesntHideTheSilence() throws {
+        // A screen recording's sound that's digital silence plays beside
+        // the mic: it has no voice to hear, so the pause is still heard.
+        let take = Take(length: 5, words: [(10.5, 11.0), (12.0, 12.5)], room: 0.1, pulses: [(11.05, 11.75, 0.35, 0.3, -48)])
+        let screen = Take(length: 5, room: 0)
+        let sound = try listen([layer(take), layer(screen, name: "Screen")], gap: 11.0...12.0, before: 10.5...11.0, after: 12.0...12.5)
+        let silence = try XCTUnwrap(sound.silence)
+        XCTAssertEqual(silence.upperBound - silence.lowerBound, 1.0, accuracy: 0.05)
+    }
+
+    func testASilencePastTheWordAfterIsntThisPauses() throws {
+        // Speech runs through the transcript's gap and on past the word
+        // after; the silence after that is the next pause's, not this one's.
+        let take = Take(length: 5, words: [(10.0, 10.34), (10.6, 11.0)])
+        let sound = try listen([layer(take)], gap: 10.1...10.3, before: 10.0...10.1, after: 10.3...10.34)
+        XCTAssertNil(sound.silence, "\(String(describing: sound.silence))")
+    }
+
     func testSpeechRightThroughTheGapIsNoPause() throws {
         // The transcript has a gap in a word it timed badly: the voice runs
         // on from 10.5 to 12.0 without a break.
@@ -250,6 +321,7 @@ final class GapSoundTests: XCTestCase {
         XCTAssertTrue(sound.runsThrough)
         XCTAssertEqual(sound.place(keep: 0.4, minimum: 0.5, frame: frame).failure, .speech)
         XCTAssertFalse(sound.heard.isEmpty, "says where the sound is")
+        XCTAssertNil(sound.silence, "and no silence")
     }
 
     func testNoTrackPlayingTheGapCantBeHeard() {

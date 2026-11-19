@@ -413,6 +413,7 @@ extension TandemService {
         let claimAnswers = Self.claimAnswers(for: session.fileURL, warnings: &warnings)
         let notices = warnings
         let revision = coordinator.revision
+        let service = self
         return {
             let started = Date()
             var frames: [FrameStats]?
@@ -442,8 +443,12 @@ extension TandemService {
                 }
             }
             var pauses: [QualityCheck.HeardPause]?
+            var taste: PauseTaste?
             if let pauseMap {
-                pauses = await Self.checkPauses(map: pauseMap, project: project, folder: projectFolder, ranges: toCheck)
+                // What Mike trimmed himself since the last check goes into
+                // his taste first, so this check already holds to it.
+                taste = (try? await service.updatePauseTaste())?.taste ?? PauseTasteStore.load()
+                pauses = await Self.checkPauses(map: pauseMap, project: project, folder: projectFolder, ranges: toCheck, taste: taste ?? PauseTaste())
             }
             // How long each join's clip runs before his first word, heard in
             // the take's sound (`LeadRoll`): his face waiting to talk.
@@ -452,7 +457,7 @@ extension TandemService {
                 words: CutCheck.words(in: project, analysis: analysis)
             ).waits
             let found = QualityCheck.problems(
-                in: project, ranges: toCheck, frames: frames, screenFrames: screenFrames, speech: speech, pauses: pauses, faceWaits: waits,
+                in: project, ranges: toCheck, frames: frames, screenFrames: screenFrames, speech: speech, pauses: pauses, taste: taste, faceWaits: waits,
                 frameTimes: frameTimes
             ) + Self.unlevelledProblems(in: project, analysis: analysis, folder: projectFolder, ranges: toCheck)
                 + QualityCheck.bareClaims(in: project, ranges: toCheck, speech: speech, answers: claimAnswers)
@@ -581,24 +586,25 @@ extension TandemService {
         }
     }
 
-    /// The pauses in `ranges` that could be mid-sentence ones to close
-    /// (`QualityCheck.midSentencePauses`), as they're heard: from the end
-    /// of the last word's sound to the start of the next one's, as
-    /// `tandem pauses` and `tighten --mid` measure them, beside the
-    /// transcript's gap (a breath is sound to tighten, but part of the
-    /// pause to Mike). A word the
-    /// transcript has where the sound has only the room is left out, as
-    /// tighten leaves it, and a gap the voice runs through isn't a pause.
-    static func checkPauses(map: TranscriptTools.SpeechMap, project: Project, folder: ProjectFolder, ranges: [TimeRange]) async -> [QualityCheck.HeardPause] {
+    /// The pauses in `ranges` that could be ones to close: mid-sentence
+    /// (`QualityCheck.midSentencePauses`) or longer than Mike leaves for
+    /// their kind (`QualityCheck.longPauses`), as they're heard: the
+    /// silence from where his voice stops to where it starts again (a
+    /// breath or a low bump is silence to him), the longest real quiet in
+    /// it, and the transcript's gap. A word the transcript has where the
+    /// sound has only the room is left out, as tighten leaves it, and a
+    /// gap the voice runs through with no silence isn't a pause.
+    static func checkPauses(map: TranscriptTools.SpeechMap, project: Project, folder: ProjectFolder, ranges: [TimeRange], taste: PauseTaste = PauseTaste()) async -> [QualityCheck.HeardPause] {
         guard let first = ranges.map(\.start).min(), let last = ranges.map(\.end).max() else { return [] }
         // Wide enough to take in a pause that only overlaps the stretches:
         // `pauses` keeps only the gaps wholly between from and to.
-        let reach = QualityCheck.midSentencePauseLongest
+        let reach = max(QualityCheck.midSentencePauseLongest, QualityCheck.longPauseLongest)
         let from = max(.zero, first - reach), to = last + reach
         let cleaned = await SoundTightening.withoutPhantoms(map, from: from, to: to, project: project, folder: folder)
-        let shortest = SoundTightening.shortestToListen(for: QualityCheck.midSentencePauseMinimum)
+        let lowest = taste.rules.map(\.flag).min() ?? QualityCheck.midSentencePauseMinimum.seconds
+        let shortest = SoundTightening.shortestToListen(for: min(QualityCheck.midSentencePauseMinimum, Time(seconds: lowest)))
         let candidates = TranscriptTools.pauses(in: cleaned.map, minimum: shortest, from: from, to: to).filter { pause in
-            SpokenPause.kind(before: pause.before, next: pause.after) != .sentence && ranges.contains { $0.overlaps(TimeRange(start: pause.start, end: pause.end)) }
+            ranges.contains { $0.overlaps(TimeRange(start: pause.start, end: pause.end)) }
         }
         guard !candidates.isEmpty else { return [] }
         let heard = await SoundTightening.listened(candidates, map: cleaned.map, project: project, folder: folder)
@@ -607,12 +613,13 @@ extension TandemService {
             guard let sound = pause.sound else {
                 return QualityCheck.HeardPause(start: pause.start, end: pause.end, before: pause.before, after: pause.after, clipIDs: pause.clipIDs)
             }
-            if sound.runsThrough { return nil }
+            if sound.runsThrough && sound.silence == nil { return nil }
             // The longest real pause in it: the span can hold a breath or a
             // click, which `tandem pauses` hears as sound.
             let quiet = sound.quiet.max { $0.duration < $1.duration } ?? TimeRange(start: sound.start, end: sound.start)
             return QualityCheck.HeardPause(
-                start: quiet.start, end: quiet.end, gap: gap, before: pause.before, after: pause.after, clipIDs: pause.clipIDs, quiets: sound.quiet
+                start: quiet.start, end: quiet.end, gap: gap, before: pause.before, after: pause.after, clipIDs: pause.clipIDs, quiets: sound.quiet,
+                silence: sound.silence
             )
         }
     }
