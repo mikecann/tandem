@@ -77,7 +77,7 @@ final class PauseTasteTests: XCTestCase {
         // The Examples Page video's two gaps: 0.8 s of silence each, a low
         // bump in them, which "heard as" had called 0.2 s.
         let found = notes([
-            pause("software engineering land.", "Over the past year", at: 67.7, silence: 0.835),
+            pause("software engineering land.", "Over the past year", at: 67.7, silence: 0.84),
             pause("past year or so.", "So if I want", at: 70.0, silence: 0.77),
             // A sentence pause he'd leave, and a mid one under the line.
             pause("for a while now.", "And then", at: 80, silence: 0.4),
@@ -86,17 +86,20 @@ final class PauseTasteTests: XCTestCase {
         XCTAssertEqual(found.map(\.kind), [.longPause, .longPause])
         XCTAssertEqual(found.map(\.start), [t(67.7), t(70.0)])
         XCTAssertTrue(CheckProblem.Kind.longPause.isNote)
-        let message = found[0].message
+        guard let message = found.first?.message else { return }
         XCTAssertTrue(message.hasPrefix("Long pause: \"...software engineering land. [0.84 s of silence] Over the past year...\", after a sentence. Mike leaves 0.35 s there"), message)
-        XCTAssertTrue(message.contains("tandem tighten --from 01:07.200 --to 01:09.035 --sentence 0.35 --comma 0.20 --mid 0.12 --min 0.2 --mid-min 0.15"), message)
+        XCTAssertTrue(message.contains("tandem tighten --from 01:07.200 --to 01:09.040 --sentence 0.35 --comma 0.20 --mid 0.12 --min 0.2 --mid-min 0.15"), message)
     }
 
     func testTheLinesComeFromHisTrims() {
-        // He leaves 0.15 s mid-sentence, so a 0.27 s hitch is long.
+        // He leaves 0.15 s mid-sentence, so a 0.32 s hitch is long (from
+        // 0.15 s over what he leaves).
         let taste = PauseTaste(trims: (0..<5).map { trim(.mid, was: 0.3, left: 0.15, revision: $0) })
-        let found = notes([pause("whatnot for that", "framework right", at: 38, silence: 0.27)], taste: taste)
+        XCTAssertTrue(notes([pause("whatnot for that", "framework right", at: 38, silence: 0.28)], taste: taste).isEmpty)
+        let found = notes([pause("whatnot for that", "framework right", at: 38, silence: 0.32)], taste: taste)
         XCTAssertEqual(found.map(\.kind), [.longPause])
-        XCTAssertTrue(found[0].message.contains("Mike leaves 0.15 s there (the middle of 5 of his own trims)"), found[0].message)
+        guard let note = found.first else { return }
+        XCTAssertTrue(note.message.contains("Mike leaves 0.15 s there (the middle of 5 of his own trims)"), note.message)
     }
 
     func testAPauseTheMidSentenceNoteHasIsLeftToIt() {

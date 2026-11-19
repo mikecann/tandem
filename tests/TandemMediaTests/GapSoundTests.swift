@@ -227,8 +227,12 @@ final class GapSoundTests: XCTestCase {
             XCTAssertFalse(sound.faint.contains { $0.contains(edge) }, "\(edge) is in a bump: \(sound.faint)")
         }
         let kept = (sound.span.upperBound - sound.span.lowerBound) - (cut.to - cut.from)
-        XCTAssertGreaterThan(kept, 0.4 + 0.1, "both edges moved on out of the bump they'd have been in")
+        // Each edge moved to whichever side of its bump is nearer, so the
+        // keep is off by a bump at most (on the Examples Page a 0.25 s bump
+        // always pushed the start on past it, and 0.6 s was left of 0.35).
+        XCTAssertGreaterThan(kept, 0.4 - 2 * 0.25, "each edge moves past one bump at most")
         XCTAssertLessThan(kept, 0.4 + 2 * 0.25, "each edge moves past one bump at most")
+        XCTAssertGreaterThanOrEqual(cut.from - sound.span.lowerBound, CutPlanner.minimumTail - 1e-9, "never closer to the word than tandem cut keeps")
         let joins = GapSound.judge([layer(take)], from: cut.from, to: cut.to)
         XCTAssertEqual(joins.start.verdict, .clean)
         XCTAssertEqual(joins.end.verdict, .clean)

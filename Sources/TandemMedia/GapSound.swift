@@ -199,20 +199,29 @@ public struct GapSound: Equatable, Sendable {
         // the keep is measured as he hears it.
         let heardSilence = Self.silence(frames: frames, layers: layers, gap: gap, before: before, after: after, low: low)
         let silence = heardSilence?.range
+        // Only a bump that would have been sound (`CutPlanner.soundFrames`
+        // of it over the line) is faint sound to keep the cut's edges out
+        // of; a blip of the room's noise was always pause.
         var carved: [Range<Int>] = []
         if let heardSilence {
             var run: Int?
+            var loud = 0
+            func close(at end: Int) {
+                if let start = run, loud >= CutPlanner.soundFrames { carved.append(start..<end) }
+                run = nil
+                loud = 0
+            }
             for index in heardSilence.frames {
                 let quiet = !heardSilence.hiss[index] && excess[index].isFinite
                 if quiet, excess[index] >= -tailUnder {
                     if run == nil { run = index }
+                    if excess[index] >= 0 { loud += 1 }
                     excess[index] = -120
-                } else if let start = run {
-                    carved.append(start..<index)
-                    run = nil
+                } else {
+                    close(at: index)
                 }
             }
-            if let start = run { carved.append(start..<heardSilence.frames.upperBound) }
+            close(at: heardSilence.frames.upperBound)
         }
 
         // Islands of sound: frames of it with less than a real pause
