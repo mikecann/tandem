@@ -267,10 +267,10 @@ final class GapSoundTests: XCTestCase {
     }
 
     func testAHitchWithRoomToneInItIsSilenceThoughNoRealPause() throws {
-        // "for that | framework": 0.2 s between the words with the room's
-        // rumble loud in it, so there's no stretch quiet enough to cut, but
+        // "for that | framework": 0.2 s between the words with a low bump
+        // filling it, so there's no stretch quiet enough to cut, but
         // nothing in the voice band either.
-        let take = Take(length: 5, words: [(10.5, 11.0), (11.2, 11.7)], room: 6)
+        let take = Take(length: 5, words: [(10.5, 11.0), (11.2, 11.7)], room: 0.1, pulses: [(11.01, 11.19, 1, 0.18, -48)])
         let sound = try listen([layer(take)], gap: 11.0...11.2, before: 10.5...11.0, after: 11.2...11.7)
         let silence = try XCTUnwrap(sound.silence)
         XCTAssertEqual(silence.upperBound - silence.lowerBound, 0.2, accuracy: 0.03)
