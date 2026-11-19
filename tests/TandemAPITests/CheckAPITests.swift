@@ -372,6 +372,19 @@ final class CheckAPITests: XCTestCase {
         XCTAssertEqual(undone.taste.trims.count, 0, "\(undone.taste.trims)")
     }
 
+    func testTheUndoStackSaysWhichEditsWereUndone() {
+        func record(_ revision: Int, _ kind: HistoryRecord.Kind) -> HistoryRecord {
+            HistoryRecord(revision: revision, kind: kind, label: "x", author: EditAuthor.person)
+        }
+        // Trim at 10, another edit at 11; undo 11 (12), then undo 10 (13).
+        XCTAssertEqual(TandemService.undone([record(10, .edit), record(11, .edit), record(12, .undo), record(13, .undo)]), [10, 11])
+        // Undone and redone isn't undone; a new edit drops what could be redone.
+        XCTAssertEqual(TandemService.undone([record(10, .edit), record(11, .undo), record(12, .redo)]), [])
+        XCTAssertEqual(TandemService.undone([record(10, .edit), record(11, .undo), record(12, .edit), record(13, .redo)]), [10])
+        // A check in between changes nothing.
+        XCTAssertEqual(TandemService.undone([record(10, .edit), record(10, .check), record(11, .undo)]), [10])
+    }
+
     func testWhichCommentsSayAPauseIsTooLong() {
         // Mike's own, from the Examples Page and Convex Auth v2 reviews.
         for text in [
@@ -386,6 +399,7 @@ final class CheckAPITests: XCTestCase {
             "I tighten the pause to how I want it to be, but can you just fix this, this swipe now, this section divider.",
             "Keep this pause a bit longer, I'm shrugging.",
             "The pause here is too short, give it a beat.",
+            "Too long on this B-roll shot.",
             "Can you show some of the other slides as well that I did for this?",
         ] {
             XCTAssertFalse(TandemService.isPauseComplaint(text), text)

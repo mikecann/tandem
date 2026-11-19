@@ -81,10 +81,10 @@ extension TandemService {
         }
         func blade(_ record: HistoryRecord) -> Bool { record.label.lowercased().hasPrefix("blade") }
 
-        // Undos at the start of what's read take back edits read before:
-        // a trim learned then undone isn't how he wants it.
-        let undos = walk.records.prefix { $0.kind == .undo && person($0) }.count
-        let undone = undos > 0 ? Set((earliest - undos + 1)...earliest) : []
+        // The edits undone and not redone, over the whole history (it's
+        // only the records, no sound): a trim he undid isn't how he wants
+        // it, however long after, and one learned before is taken out.
+        let undone = Self.undone(records)
 
         var found: [PauseTrim] = []
         var unread: Int?
@@ -113,8 +113,7 @@ extension TandemService {
                 last += 1
             }
             index = last + 1
-            // One he undid straight after isn't how he wants it.
-            if last + 1 < chain.count, chain[last + 1].kind == .undo, person(chain[last + 1]) { continue }
+            if chain[first...last].contains(where: { undone.contains($0.revision) }) { continue }
             let before = Self.project(project, with: walk.states[first])
             let after = Self.project(project, with: walk.states[last + 1])
             // Where each of his cuts was (a close gap's place says nothing),
@@ -171,7 +170,10 @@ extension TandemService {
     static func isPauseComplaint(_ text: String) -> Bool {
         let range = NSRange(text.startIndex..., in: text)
         let micro = try! NSRegularExpression(pattern: #"\bmicro ?pauses?\b"#, options: .caseInsensitive)
-        guard CommentTheme.classify(text) == .pauses || micro.firstMatch(in: text, range: range) != nil else { return false }
+        // It has to name a pause: "too long on this B-roll shot" is the
+        // pauses theme by its words, but about a shot.
+        let named = try! NSRegularExpression(pattern: #"\b(micro ?)?(pauses?|silences?|silent|gaps?|dead air|beats?)\b"#, options: .caseInsensitive)
+        guard named.firstMatch(in: text, range: range) != nil, CommentTheme.classify(text) == .pauses || micro.firstMatch(in: text, range: range) != nil else { return false }
         // Not an ask for more pause, or one he's already made how he wants
         // ("I tighten the pause to how I want it to be, but can you just
         // fix this swipe").
@@ -232,7 +234,10 @@ extension TandemService {
     func pauseTrim(
         _ pauseAfter: Pause, mapAfter: TranscriptTools.SpeechMap, before: Project, after: Project, window: (from: Time, to: Time)
     ) async -> (at: Time, before: String, after: String, kind: SpokenPause.Kind, was: Double, left: Double)? {
-        guard let last = mapAfter.words.lastIndex(where: { $0.end == pauseAfter.start }), last + 1 < mapAfter.words.count else { return nil }
+        // Words on two tracks can overlap: only a word that starts after the
+        // one before ends is the next one.
+        guard let last = mapAfter.words.lastIndex(where: { $0.end == pauseAfter.start }), last + 1 < mapAfter.words.count,
+              mapAfter.words[last + 1].start >= mapAfter.words[last].end else { return nil }
         // The two words, by where they are in their files.
         func place(_ word: TranscriptTools.SpokenWord, in project: Project) -> (media: String, time: Double)? {
             guard let clip = project.clip(word.clipID) else { return nil }
@@ -252,6 +257,7 @@ extension TandemService {
         let between = mapBefore.words[(first + 1)..<next]
         guard between.count <= Self.strays, between.allSatisfy(Self.isStray) else { return nil }
         mapBefore.words.removeSubrange((first + 1)..<next)
+        guard mapBefore.words[first + 1].start > mapBefore.words[first].end else { return nil }
         let gap = TimeRange(start: mapBefore.words[first].end, end: mapBefore.words[first + 1].start)
         let pauseBefore = Pause(start: gap.start, end: gap.end, duration: gap.duration, before: pauseAfter.before, after: pauseAfter.after, clipIDs: [])
         let heardAfter = await SoundTightening.listened([pauseAfter], map: mapAfter, project: after, folder: folder).pauses.first
@@ -266,6 +272,38 @@ extension TandemService {
         let was = between.isEmpty ? silence(heardBefore) : gap.duration.seconds
         guard let was, let left = silence(heardAfter), abs(was - left) >= 0.02 else { return nil }
         return (pauseAfter.start, pauseAfter.before, pauseAfter.after, SpokenPause.heldKind(before: pauseAfter.before, next: pauseAfter.after), was, left)
+    }
+
+    /// The revisions of edits undone and not redone, replaying the undo
+    /// stack through the history: an edit pushes its revision, an undo pops
+    /// the top, a redo pushes back the last popped. Opening or reloading
+    /// the project clears it.
+    static func undone(_ records: [HistoryRecord]) -> Set<Int> {
+        var stack: [Int] = [], popped: [Int] = []
+        var undone = Set<Int>()
+        for record in records where record.kind.changesProject {
+            switch record.kind {
+            case .edit:
+                stack.append(record.revision)
+                popped.removeAll()
+            case .undo:
+                if let top = stack.popLast() {
+                    popped.append(top)
+                    undone.insert(top)
+                }
+            case .redo:
+                if let back = popped.popLast() {
+                    stack.append(back)
+                    undone.remove(back)
+                }
+            case .opened, .reload:
+                stack.removeAll()
+                popped.removeAll()
+            case .check, .handback:
+                break
+            }
+        }
+        return undone
     }
 
     /// How far a trim's place can have moved back by the time the trim is

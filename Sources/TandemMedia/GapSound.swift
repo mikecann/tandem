@@ -394,11 +394,13 @@ public struct GapSound: Equatable, Sendable {
         var voiced = [Bool](repeating: false, count: count)
         var hiss = [Bool](repeating: false, count: count)
         var hum = [Bool](repeating: false, count: count)
+        // Sound on a track with no line: voice however short it is.
+        var kept = [Bool](repeating: false, count: count)
         for index in 0..<count {
             for layer in layers.indices {
                 guard let frame = frames[layer][index] else { continue }
                 played[index] = true
-                if unread.contains(layer), sounding[layer][index] { voiced[index] = true }
+                if unread.contains(layer), sounding[layer][index] { kept[index] = true }
                 guard let line = lines[layer] else { continue }
                 if frame.voice >= line.voice { voiced[index] = true }
                 if frame.high >= max(line.high, frame.highLine) { hiss[index] = true }
@@ -433,6 +435,7 @@ public struct GapSound: Equatable, Sendable {
         for run in runs(voiced, holes: dip) where run.filter({ voiced[$0] }).count >= shortest {
             for index in run { speaking[index] = true }
         }
+        for index in 0..<count where kept[index] { speaking[index] = true }
         // Hiss that runs straight on from the voice is the word's "s" or
         // "t"; hiss with quiet between it and the voice is a breath. And a
         // loud hum under 300 Hz running on from it is an "m" or an "n": the
