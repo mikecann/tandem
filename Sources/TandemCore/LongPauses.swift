@@ -70,7 +70,8 @@ extension QualityCheck {
             let kind = flagKind(pause)
             let rule = rules[kind]!
             let silence = pause.silence!
-            let from = max(.zero, pause.range.start - Time(seconds: 0.5)), to = pause.range.end + Time(seconds: 0.5)
+            // Just past the pause, so the pauses beside it stay as they are.
+            let from = max(.zero, pause.range.start - Time(seconds: 0.1)), to = pause.range.end + Time(seconds: 0.1)
             let what: String
             switch kind {
             case .sentence: what = "after a sentence"
@@ -78,7 +79,10 @@ extension QualityCheck {
             case .mid: what = "mid-sentence"
             }
             let source = rule.learned ? "the middle of \(rule.trims) of his own trims" : "his usual, until he's trimmed \(PauseTaste.fewest) of these"
-            let tighten = "tandem tighten --from \(from) --to \(to) --sentence \(keep(.sentence)) --comma \(keep(.comma)) --mid \(keep(.mid)) --min 0.2 --mid-min 0.15"
+            // Every pause in the stretch to what he leaves for this one's
+            // kind: tighten's own reading of the kind goes by punctuation
+            // alone, and a different reading would leave it as it is.
+            let tighten = "tandem tighten --from \(from) --to \(to) --keep \(keep(kind)) --min \(String(format: "%.2f", rule.leave + 0.05))"
             let message = "Long pause: \"...\(pause.before) [\(seconds(silence.duration)) of silence] \(pause.after)...\", \(what). "
                 + "Mike leaves \(seconds(Time(seconds: rule.leave))) there (\(source)) and hears \(seconds(Time(seconds: rule.flag))) or more as too long: "
                 + "\"I have to keep telling you about these silences.\" Tighten it: \(tighten) (a dry run, then --apply), then check --cuts. "

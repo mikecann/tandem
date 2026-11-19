@@ -329,9 +329,12 @@ public struct GapSound: Equatable, Sendable {
     /// is the voice's hum. The bumps Mike hears as silence were 30 dB or
     /// more under the words there, an "m" about 8 under (a guess between).
     static let humUnder: Float = 15
-    /// A dip under the voice's line this short inside a word is still the
-    /// word: shorter than the closure of a stop, which is 50 ms or more.
-    static let voiceDip = 0.02
+    /// Voice with dips under the line shorter than a real pause between
+    /// them is one run of it, and counts as voice when there's
+    /// `briefestVoice` in it all told, as `FaintSound.near` counts voice
+    /// across a whole stretch of sound: a quiet word can dip under the line
+    /// again and again.
+    static var voiceDip: Double { CutAudit.minPause - SpeechEnergy.frameSeconds }
     /// A track whose loudest frame beside the words is this far or more
     /// under the loudest track's isn't the one they're said on.
     static let speakerUnder: Float = 10
@@ -446,7 +449,11 @@ public struct GapSound: Equatable, Sendable {
         let quiet = (0..<count).map { played[$0] && !speaking[$0] }
         let window = (gap.lowerBound - slack)...(gap.upperBound + slack)
         func range(_ run: Range<Int>) -> ClosedRange<Double> { time(run.lowerBound)...time(run.upperBound) }
-        let candidates = runs(quiet).filter { range($0).overlaps(window) }
+        // Between the two words, not past either: silence after the word
+        // after is another pause.
+        let candidates = runs(quiet).filter {
+            range($0).overlaps(window) && range($0).lowerBound < after.upperBound && range($0).upperBound > before.lowerBound
+        }
         func overlap(_ range: ClosedRange<Double>, _ other: ClosedRange<Double>) -> Double {
             max(0, min(range.upperBound, other.upperBound) - max(range.lowerBound, other.lowerBound))
         }

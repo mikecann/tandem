@@ -109,7 +109,7 @@ final class PauseTasteTests: XCTestCase {
         XCTAssertTrue(CheckProblem.Kind.longPause.isNote)
         guard let message = found.first?.message else { return }
         XCTAssertTrue(message.hasPrefix("Long pause: \"...software engineering land. [0.84 s of silence] Over the past year...\", after a sentence. Mike leaves 0.35 s there"), message)
-        XCTAssertTrue(message.contains("tandem tighten --from 01:07.200 --to 01:09.040 --sentence 0.35 --comma 0.20 --mid 0.12 --min 0.2 --mid-min 0.15"), message)
+        XCTAssertTrue(message.contains("tandem tighten --from 01:07.600 --to 01:08.640 --keep 0.35 --min 0.40"), message)
     }
 
     func testTheLinesComeFromHisTrims() {

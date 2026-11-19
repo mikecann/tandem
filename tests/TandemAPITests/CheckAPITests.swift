@@ -365,6 +365,11 @@ final class CheckAPITests: XCTestCase {
         let again = try await h.service.updatePauseTaste(at: file)
         XCTAssertEqual(again.found.count, 0)
         XCTAssertEqual(again.taste.trims.count, 1)
+
+        // He undoes it after it was read: it's taken back out.
+        XCTAssertNotNil(h.service.coordinator.undo())
+        let undone = try await h.service.updatePauseTaste(at: file)
+        XCTAssertEqual(undone.taste.trims.count, 0, "\(undone.taste.trims)")
     }
 
     func testWhichCommentsSayAPauseIsTooLong() {
@@ -380,6 +385,7 @@ final class CheckAPITests: XCTestCase {
         for text in [
             "I tighten the pause to how I want it to be, but can you just fix this, this swipe now, this section divider.",
             "Keep this pause a bit longer, I'm shrugging.",
+            "The pause here is too short, give it a beat.",
             "Can you show some of the other slides as well that I did for this?",
         ] {
             XCTAssertFalse(TandemService.isPauseComplaint(text), text)

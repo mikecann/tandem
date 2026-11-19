@@ -305,6 +305,14 @@ final class GapSoundTests: XCTestCase {
         XCTAssertEqual(silence.upperBound - silence.lowerBound, 1.0, accuracy: 0.05)
     }
 
+    func testASilencePastTheWordAfterIsntThisPauses() throws {
+        // Speech runs through the transcript's gap and on past the word
+        // after; the silence after that is the next pause's, not this one's.
+        let take = Take(length: 5, words: [(10.0, 10.34), (10.6, 11.0)])
+        let sound = try listen([layer(take)], gap: 10.1...10.3, before: 10.0...10.1, after: 10.3...10.34)
+        XCTAssertNil(sound.silence, "\(String(describing: sound.silence))")
+    }
+
     func testSpeechRightThroughTheGapIsNoPause() throws {
         // The transcript has a gap in a word it timed badly: the voice runs
         // on from 10.5 to 12.0 without a break.
