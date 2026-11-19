@@ -684,6 +684,13 @@ From his review comments on the Daytona and Build Your Own Convex videos
   your cue list: one built from cues missed 10 on Build Your Own Convex,
   and Mike pushed them by hand. `tandem check` lists the ones with no
   transition as page change notes.
+  Not in an off-the-cuff app demo: on the coordinators video (19 Nov 2026,
+  him clicking between Threadbear, Capy and Codex) he had all 19 pushes
+  taken out, "I don't think we need them in this video". There, app and
+  thread switches cut straight; answer the page change notes with that.
+  If you take pushes out after freezing either side of a flip, put the
+  screen back in step with the camera clip under it, and redo any
+  `holdFrame` the unfreeze undid.
 - **Picture-in-picture only when he's driving the screen.** When Mike clicks
   and moves the mouse on a recording, he sits in the corner (pipRight) over
   it. When he's reading a script to camera, B-roll goes full screen on the
