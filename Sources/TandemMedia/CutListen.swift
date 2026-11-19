@@ -285,8 +285,11 @@ public enum CutListen {
         // a cut-off however the join was cut, and the agent had to hand back
         // unchecked. A kept word cut short ("I said stop. | Stop the
         // recording", with "uh" cut) doesn't repeat the cut's two words.
+        // Only a short word: a longer one cut part way ("extract | extract
+        // the data") leaves a piece the engine can miss, so its not being
+        // heard still says cut off.
         func restartCut(_ s: Int) -> Bool {
-            guard let after = afterIndex, after + 1 < said.count, cutPast.count >= 2,
+            guard isFunctionWord(said[s].text) || canonical(said[s].text).count <= 2, let after = afterIndex, after + 1 < said.count, cutPast.count >= 2,
                   let index = stepOfSaid[after], case .match = steps[index] else { return false }
             let word = canonical(said[s].text)
             return !word.isEmpty && canonical(cutPast[0]) == word && canonical(said[after].text) == word

@@ -95,6 +95,10 @@ final class CutListenTests: XCTestCase {
         let other = CutListen.compare(said: words("what my opinion | so i'm just"), heard: words("what my | so i'm just"), at: 10,
                                       cutPast: ["opinion", "is."])
         XCTAssertTrue(other.clipped, "\(other.findings)")
+        // A longer word restarted can leave a piece the engine misses.
+        let long = CutListen.compare(said: words("we can extract | extract the data"), heard: words("we can | extract the data"), at: 10,
+                                     cutPast: ["extract", "the"])
+        XCTAssertTrue(long.clipped, "\(long.findings)")
     }
 
     func testAFragmentOfACutWordIsClipped() throws {
