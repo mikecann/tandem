@@ -1348,11 +1348,19 @@ public enum Editing {
 
     static func applyLayout(_ p: inout Project, _ clipIDs: [String], _ preset: LayoutPreset, _ context: inout EditContext) throws {
         var changed = 0
+        var laidOut = Set<String>()
         for id in clipIDs {
             let (location, index) = try requireClip(p, id)
             guard p[location].kind == .video else { continue }
             try requireUnlocked(p[location])
             var clip = p[location].clips[index]
+            // A `redact` copy follows its picture (below), rather than
+            // filling the frame or a corner with its blur.
+            if redactionRegion(of: clip, on: p[location]) != nil {
+                changed += 1
+                continue
+            }
+            laidOut.insert(clip.id)
             let item = clip.mediaID.flatMap { p.media($0) }
             clip.video = preset.apply(
                 to: clip.video, role: item?.role, shadowID: context.makeID("fx"),
@@ -1366,6 +1374,8 @@ public enum Editing {
             changed += 1
         }
         if changed == 0 { throw EditError.invalid("none of those clips are on a video track") }
+        let asked = Set(clipIDs)
+        try alignRedactions(&p, format: nil) { copy, picture in laidOut.contains(picture.id) || asked.contains(copy.id) }
     }
 
     /// The pixel size a clip shows: its media's, or the canvas for text,
@@ -1464,11 +1474,16 @@ public enum Editing {
         guard let output = p.settings.alternateFormats.first(where: { $0.id == format }) else {
             throw EditError.notFound("output format \(format); add it to settings.alternateFormats first")
         }
+        var laidOut = Set<String>()
         for id in clipIDs {
             let (location, index) = try requireClip(p, id)
             guard p[location].kind == .video else { continue }
             try requireUnlocked(p[location])
             var clip = p[location].clips[index]
+            // A `redact` copy goes wherever its picture is, cut to its
+            // region, not in a slot of its own with the whole frame showing.
+            if redactionRegion(of: clip, on: p[location]) != nil { continue }
+            laidOut.insert(clip.id)
             // Stills, text and solids without a known size fill as 16:9.
             var width = Double(p.settings.width)
             var height = Double(p.settings.height)
@@ -1486,12 +1501,17 @@ public enum Editing {
             clip.video = video
             p[location].clips[index] = clip
         }
+        let asked = Set(clipIDs)
+        try alignRedactions(&p, format: format) { copy, picture in laidOut.contains(picture.id) || asked.contains(copy.id) }
     }
 
     static func adoptFormat(_ p: inout Project, format: String, _ context: inout EditContext) throws {
         guard let output = p.settings.alternateFormats.first(where: { $0.id == format }) else {
             throw EditError.notFound("output format \(format) in settings.alternateFormats")
         }
+        // Every blur over the picture it hides as the format shows it,
+        // including ones an older layout left whole-frame or behind.
+        try alignRedactions(&p, format: format, respectLocks: false) { _, _ in true }
         let transformPaths = ["video.transform.position", "video.transform.scale", "video.transform.rotation"]
         let cropPaths = ["video.crop.left", "video.crop.top", "video.crop.right", "video.crop.bottom"]
         var droppedZooms: [String] = []

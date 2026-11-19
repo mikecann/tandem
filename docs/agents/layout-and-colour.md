@@ -83,6 +83,14 @@ part of whatever's on a track. Two regions at once stack on "Privacy
 linked to the take, so the default takes the screen, camera and voice
 with them.
 
+Layouts move the copies with their picture: `applyLayout`,
+`setFormatLayout`, `tandem short` (in place or `--copy`) and `adoptFormat`
+put each copy where the clip it hides goes, cut to its region within what
+that clip shows there, whichever clips you name. A layout preset or slot
+asked for a copy itself does the same, so a blur never fills the frame or
+the top half of a short. A locked privacy track stops a layout that would
+leave its copies behind: unlock it first.
+
 Turning a copy's blur off (Mike's "Turn off blur" in the inspector), or
 removing it, leaves the copy hiding nothing, so it isn't drawn: drawn,
 it's the same footage over itself with a faint seam along its crop. Turn

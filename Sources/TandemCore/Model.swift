@@ -469,6 +469,11 @@ public struct VideoProperties: Codable, Equatable, Sendable {
     /// `"portrait"` for the 9:16 short). Formats without an entry use the
     /// main transform.
     public var formatOverrides: [String: FormatOverride]
+    /// On a `redact` copy, the part of the source it hides, as asked
+    /// (fractions of the source frame). Its crops are this narrowed by
+    /// what its picture's crop hid at the time, so this is what it's cut
+    /// to again when the picture is laid out afresh and shows more.
+    public var redaction: Rect?
 
     public init(
         transform: Transform = Transform(),
@@ -477,7 +482,8 @@ public struct VideoProperties: Codable, Equatable, Sendable {
         cutout: Cutout? = nil,
         effects: [Effect] = [],
         layoutPreset: String? = nil,
-        formatOverrides: [String: FormatOverride] = [:]
+        formatOverrides: [String: FormatOverride] = [:],
+        redaction: Rect? = nil
     ) {
         self.transform = transform
         self.crop = crop
@@ -486,6 +492,7 @@ public struct VideoProperties: Codable, Equatable, Sendable {
         self.effects = effects
         self.layoutPreset = layoutPreset
         self.formatOverrides = formatOverrides
+        self.redaction = redaction
     }
 }
 
@@ -1222,6 +1229,7 @@ extension VideoProperties {
         effects = try c.decode(.effects, or: [])
         layoutPreset = try c.decodeIfPresent(String.self, forKey: .layoutPreset)
         formatOverrides = try c.decode(.formatOverrides, or: [:])
+        redaction = try c.decodeIfPresent(Rect.self, forKey: .redaction)
     }
 }
 
