@@ -21,6 +21,8 @@ struct LoadedSource: @unchecked Sendable {
     /// track (QuickTime Animation, PNG in a MOV): the codec's four
     /// characters. One such track would fail the whole composition.
     var undecodableCodec: String?
+    /// The video is tagged HLG or PQ.
+    var hdr = false
 }
 
 /// Loaded sources by file, reused across builds (the viewer rebuilds the
@@ -48,6 +50,11 @@ final class SourceCache: @unchecked Sendable {
                 source.video = video
             } else {
                 source.undecodableCodec = formats.first.map { MediaItem.fourCharacterCode(CMFormatDescriptionGetMediaSubType($0)) } ?? "????"
+            }
+            source.hdr = formats.contains { format in
+                let transfer = CMFormatDescriptionGetExtension(format, extensionKey: kCMFormatDescriptionExtension_TransferFunction) as? String
+                return transfer == kCMFormatDescriptionTransferFunction_ITU_R_2100_HLG as String
+                    || transfer == kCMFormatDescriptionTransferFunction_SMPTE_ST_2084_PQ as String
             }
             source.naturalSize = size
             source.preferredTransform = transform
@@ -228,11 +235,19 @@ enum CompositionAssembler {
             }
             do {
                 let leading = LeadingFrameCache.shared.map(for: u)
-                let bad = leading.flatMap { Self.undecodableStart(of: segment, in: $0) }
+                // A freeze frame isn't on the track at all: the compositor
+                // decodes its picture once and draws it on every frame. As
+                // one source frame stretched, a reader or player starting
+                // partway through it could stall before asking for a frame,
+                // and a run of them of one proxy P-frame played black (the
+                // coordinators Schedules Short, 20 Nov 2026).
                 // A segment that starts on leading frames AVFoundation can't
                 // decode from a seek (it shows a stale frame, or a reader
                 // stalls) goes in from their keyframe; the compositor decodes
                 // the frames before it directly.
+                let bad: (timeline: TimeRange, rest: PlannedSegment?)? = segment.freeze
+                    ? (segment.timeline, nil)
+                    : leading.flatMap { Self.undecodableStart(of: segment, in: $0) }
                 if let bad {
                     if let rest = bad.rest {
                         try insert(rest, into: videoTracks[segment.track], from: assetTrack, available: source.videoRange,
@@ -242,7 +257,7 @@ enum CompositionAssembler {
                     try insert(segment, into: videoTracks[segment.track], from: assetTrack, available: source.videoRange,
                                end: &videoEnds[segment.track], holdLastFrame: true, frameDuration: frameDuration)
                 }
-                let direct = SourceTrack(url: u, asset: source.asset, track: assetTrack, timeRange: source.videoRange, leading: leading)
+                let direct = SourceTrack(url: u, asset: source.asset, track: assetTrack, timeRange: source.videoRange, leading: leading, alpha: segment.alpha, hdr: source.hdr)
                 if segment.role == .picture {
                     pictureTransforms[segment.clipID] = source.preferredTransform
                     pictureSources[segment.clipID] = direct
@@ -459,7 +474,8 @@ enum CompositionAssembler {
     }
 
     /// Places one segment on its composition track: speed through
-    /// `scaleTimeRange`, freeze frames as one frame stretched, and media
+    /// `scaleTimeRange`, frozen sound as one frame stretched (frozen
+    /// pictures stay off the tracks, see `build`), and media
     /// that runs out holding its first or last frame (video, for a
     /// transition past the file's ends) or going quiet (audio).
     static func insert(
@@ -514,22 +530,6 @@ enum CompositionAssembler {
 
         if segment.freeze {
             let at = min(max(segment.sourceStart, first), last - frame)
-            // Pictures only (sound's gain taps time each edit by its own
-            // speed): straight on from a freeze of the same frame (cuts in the talk
-            // over a held screen), the edit already there stretches over
-            // this one too. A run of separate edits of one frame between
-            // keyframes (a proxy's P-frame) never played: the player showed
-            // black from the first of them on (the coordinators Schedules
-            // Short, 23 cuts over a frame at 7:45, 20 Nov 2026).
-            if holdLastFrame, trackEnd == start, let previous = track.segments.last, !previous.isEmpty,
-               previous.timeMapping.source == TimeRange(start: at, duration: frame).cmTimeRange,
-               previous.timeMapping.target.end == start.cmTime,
-               let url = (source.asset as? AVURLAsset)?.url, previous.sourceURL == url,
-               previous.sourceTrackID == source.trackID {
-                track.scaleTimeRange(previous.timeMapping.target, toDuration: (end.cmTime - previous.timeMapping.target.start))
-                trackEnd = end
-                return
-            }
             try track.insertTimeRange(TimeRange(start: at, duration: frame).cmTimeRange, of: source, at: start.cmTime)
             track.scaleTimeRange(TimeRange(start: start, duration: frame).cmTimeRange, toDuration: (end - start).cmTime)
             trackEnd = end

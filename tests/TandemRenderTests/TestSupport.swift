@@ -1,3 +1,4 @@
+import AVFoundation
 import CoreGraphics
 import CoreImage
 import XCTest
@@ -144,3 +145,54 @@ func smallProject(video: [Track], audio: [Track] = [], media: [MediaItem]) -> Pr
 let redMedia = MediaItem(id: "med_red", path: "red.mov", kind: .video, role: .screen, duration: Time(seconds: 60), width: 320, height: 180, hasVideo: true)
 let blueMedia = MediaItem(id: "med_blue", path: "blue.mov", kind: .video, role: .camera, duration: Time(seconds: 60), width: 320, height: 180, hasVideo: true)
 let greenMedia = MediaItem(id: "med_green", path: "green.mov", kind: .video, role: .broll, duration: Time(seconds: 60), width: 320, height: 180, hasVideo: true)
+
+/// `body`'s result, or a failure once `seconds` have gone: a stalled
+/// reader blocks its thread for good, so a task group would wait on it.
+func withDeadline<T: Sendable>(seconds: Double, _ what: String, _ body: @escaping @Sendable () async throws -> T) async throws -> T {
+    let once = LockedCount()
+    return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<T, Error>) in
+        Task.detached {
+            do {
+                let value = try await body()
+                if once.add() == 1 { continuation.resume(returning: value) }
+            } catch {
+                if once.add() == 1 { continuation.resume(throwing: error) }
+            }
+        }
+        DispatchQueue.global().asyncAfter(deadline: .now() + seconds) {
+            if once.add() == 1 { continuation.resume(throwing: DeadlineError(what: what)) }
+        }
+    }
+}
+
+struct DeadlineError: Error, CustomStringConvertible {
+    var what: String
+    var description: String { "\(what) never finished" }
+}
+
+final class LockedCount: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = 0
+    var count: Int { lock.withLock { value } }
+    @discardableResult func add() -> Int { lock.withLock { value += 1; return value } }
+}
+
+/// The frame the viewer's player shows at `time`, paused there.
+func playerFrame(_ context: RenderContext, at time: Time) async throws -> Bitmap {
+    let built = try await CompositionBuilder.build(context)
+    let item = built.makePlayerItem()
+    let output = AVPlayerItemVideoOutput(pixelBufferAttributes: [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA])
+    item.add(output)
+    let player = AVPlayer(playerItem: item)
+    player.isMuted = true
+    defer { player.replaceCurrentItem(with: nil) }
+    await player.seek(to: time.cmTime, toleranceBefore: .zero, toleranceAfter: .zero)
+    let deadline = Date().addingTimeInterval(5)
+    while Date() < deadline {
+        if output.hasNewPixelBuffer(forItemTime: time.cmTime), let pixels = output.copyPixelBuffer(forItemTime: time.cmTime, itemTimeForDisplay: nil) {
+            return Bitmap(CIImage(cvPixelBuffer: pixels), size: built.renderSize)
+        }
+        try await Task.sleep(nanoseconds: 1_000_000)
+    }
+    return try XCTUnwrap(nil, "the player showed nothing at \(time.seconds) s")
+}

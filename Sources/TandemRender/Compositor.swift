@@ -23,10 +23,23 @@ final class TandemInstruction: NSObject, AVVideoCompositionInstructionProtocol, 
         self.stack = stack
         self.scene = scene
         self.trackIDs = trackIDs
+        // Not the tracks of layers the compositor decodes itself here (a
+        // freeze frame): those tracks are empty, and a reader waiting on
+        // them could stall before the compositor is asked for a frame.
+        let range = range
+        func decodedDirectly(_ recovery: TimeRange?) -> Bool {
+            guard let recovery else { return false }
+            return recovery.start <= range.start && range.end <= recovery.end
+        }
         var needed = Set<CMPersistentTrackID>()
         for node in stack {
             for layer in node.layers {
-                for pool in [layer.pictureTrack, layer.matteTrack].compactMap({ $0 }) where trackIDs.indices.contains(pool) {
+                let clip = scene.clips[layer.clipID]
+                let used = [
+                    decodedDirectly(clip?.pictureRecovery) ? nil : layer.pictureTrack,
+                    decodedDirectly(clip?.matteRecovery) ? nil : layer.matteTrack
+                ]
+                for pool in used.compactMap({ $0 }) where trackIDs.indices.contains(pool) {
                     needed.insert(trackIDs[pool])
                 }
             }
@@ -43,6 +56,10 @@ class TandemCompositor: NSObject, AVVideoCompositing {
     class var outputPixelFormat: OSType { kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange }
     /// True for frame grabs, where every frame is a seek.
     class var rendersStills: Bool { false }
+    /// True when an AVAssetReader reads through it (exports and scans),
+    /// which converts HDR sources to SDR before the compositor sees them
+    /// (see `FrameRecovery.frame`). The player and frame grabs don't.
+    class var reads: Bool { false }
     /// How urgently frames are rendered: someone's watching the viewer or
     /// waiting on an export, but not on a check's scan.
     class var renderQoS: DispatchQoS { .userInitiated }
@@ -128,7 +145,7 @@ class TandemCompositor: NSObject, AVVideoCompositing {
         }
         let time = Time(cmTime: request.compositionTime)
         let sources = RequestSources(request: request, trackIDs: instruction.trackIDs)
-        var image = FrameComposer(scene: instruction.scene, stills: type(of: self).rendersStills).compose(instruction.stack, at: time, sources: sources)
+        var image = FrameComposer(scene: instruction.scene, stills: type(of: self).rendersStills, reading: type(of: self).reads).compose(instruction.stack, at: time, sources: sources)
 
         // A player or frame grab may ask for a smaller frame than the canvas.
         let canvas = instruction.scene.canvas
@@ -180,6 +197,23 @@ final class TandemRGBCompositor: TandemCompositor {
 /// check would feel.
 final class TandemUtilityCompositor: TandemCompositor {
     override class var renderQoS: DispatchQoS { .utility }
+    override class var reads: Bool { true }
+}
+
+/// The compositor for an AVAssetReader at the viewer's priority: an export
+/// someone's waiting on, the privacy scan.
+final class TandemReaderCompositor: TandemCompositor {
+    override class var reads: Bool { true }
+}
+
+extension AVVideoComposition {
+    /// This composition drawn by `compositor` instead, as a reader of it
+    /// has to (`TandemCompositor.reads`).
+    func drawn(by compositor: TandemCompositor.Type) -> AVVideoComposition {
+        let composition = mutableCopy() as! AVMutableVideoComposition
+        composition.customVideoCompositorClass = compositor
+        return composition
+    }
 }
 
 /// Source frames from an AVFoundation request.

@@ -41,6 +41,18 @@ final class AlphaVideoTests: XCTestCase {
         let frame = Bitmap(try await FrameRenderer(context: RenderContext(project: project, folder: media.projectFolder)).image(at: t(0.5)))
         assertColor(frame[80, 90], [0, 0, 255], tolerance: 16)
         assertColor(frame[240, 90], [255, 0, 0], tolerance: 8)
+
+        // Frozen, the compositor decodes the sticker itself, alpha and all:
+        // in a still, and read through as an export or check reads it.
+        var frozen = project
+        frozen.videoTracks[1].clips[0].freezeFrame = true
+        frozen.videoTracks[1].clips[0].sourceStart = t(0.5)
+        let still = Bitmap(try await FrameRenderer(context: RenderContext(project: frozen, folder: media.projectFolder)).image(at: t(0.5)))
+        assertColor(still[80, 90], [0, 0, 255], tolerance: 16, "frozen")
+        assertColor(still[240, 90], [255, 0, 0], tolerance: 8, "frozen, the track below shows through")
+        let playing = try await playerFrame(RenderContext(project: frozen, folder: media.projectFolder), at: t(0.5))
+        assertColor(playing[80, 90], [0, 0, 255], tolerance: 16, "frozen, playing")
+        assertColor(playing[240, 90], [255, 0, 0], tolerance: 12, "frozen, playing, the track below shows through")
     }
 
     /// An overlay bigger than 1080p on the timeline gets a scrub proxy, and
@@ -151,24 +163,6 @@ final class AlphaVideoTests: XCTestCase {
 
     /// The frame a paused player shows at `time`, built as the viewer
     /// builds it.
-    func playerFrame(_ context: RenderContext, at time: Time) async throws -> Bitmap {
-        let built = try await CompositionBuilder.build(context)
-        let item = built.makePlayerItem()
-        let output = AVPlayerItemVideoOutput(pixelBufferAttributes: [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA])
-        item.add(output)
-        let player = AVPlayer(playerItem: item)
-        player.isMuted = true
-        defer { player.replaceCurrentItem(with: nil) }
-        await player.seek(to: time.cmTime, toleranceBefore: .zero, toleranceAfter: .zero)
-        let deadline = Date().addingTimeInterval(5)
-        while Date() < deadline {
-            if output.hasNewPixelBuffer(forItemTime: time.cmTime), let pixels = output.copyPixelBuffer(forItemTime: time.cmTime, itemTimeForDisplay: nil) {
-                return Bitmap(CIImage(cvPixelBuffer: pixels), size: built.renderSize)
-            }
-            try await Task.sleep(nanoseconds: 1_000_000)
-        }
-        return try XCTUnwrap(nil, "the player showed nothing at \(time.seconds) s")
-    }
 }
 
 extension TestMedia {

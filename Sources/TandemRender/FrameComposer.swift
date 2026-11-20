@@ -22,9 +22,11 @@ struct SceneClip {
     /// directly when AVFoundation can't (see `FrameRecovery`).
     var picture: SourceTrack?
     var matte: SourceTrack?
-    /// Timeline stretches where AVFoundation's frames for this clip are
-    /// wrong: the clip starts on leading frames it can't decode, so it
-    /// shows a stale frame or nothing until the next keyframe.
+    /// Timeline stretches where the composition track has no frames for
+    /// this clip and the compositor decodes them itself: a freeze frame's
+    /// whole length, or the clip starting on leading frames AVFoundation
+    /// can't decode (it'd show a stale frame or nothing until the next
+    /// keyframe).
     var pictureRecovery: TimeRange?
     var matteRecovery: TimeRange?
 
@@ -142,6 +144,10 @@ struct FrameComposer {
     /// Single frames (grabs) rather than a stream: every one is a seek, so
     /// any leading frame AVFoundation can't reach is decoded directly.
     var stills = false
+    /// Read by an AVAssetReader, which converts HDR video to SDR before the
+    /// compositor sees it: frames decoded here are converted too
+    /// (`FrameRecovery.frame`).
+    var reading = false
 
     func compose(_ stack: [StackNode], at time: Time, sources: FrameSources) -> CIImage {
         let rect = CGRect(origin: .zero, size: scene.canvas)
@@ -295,14 +301,18 @@ struct FrameComposer {
         if stills, !direct, let map = source?.leading {
             direct = map.window(containing: Time(cmTime: clip.mediaTime(at: time))) != nil
         }
-        if direct, let image = recovered(source, clip, at: time) { return image }
+        if direct { return recovered(source, clip, at: time) ?? sources.frame(track: track) }
         return sources.frame(track: track) ?? recovered(source, clip, at: time)
     }
 
-    /// The frame at a clip's media time, decoded directly.
+    /// The frame at a clip's media time, decoded directly. A freeze frame's
+    /// is kept, as it shows on every frame of the clip.
     func recovered(_ source: SourceTrack?, _ clip: SceneClip, at time: Time) -> CIImage? {
-        guard let source, let recovery = scene.recovery,
-              let pixels = recovery.frame(source, at: clip.mediaTime(at: time)) else { return nil }
+        guard let source, let recovery = scene.recovery else { return nil }
+        let media = clip.mediaTime(at: time)
+        guard let pixels = clip.clip.freezeFrame
+            ? recovery.still(source, at: media, sdr: reading)
+            : recovery.frame(source, at: media, sdr: reading) else { return nil }
         return CIImage(cvPixelBuffer: pixels)
     }
 
