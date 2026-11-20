@@ -383,6 +383,14 @@ enum CompositionAssembler {
         videoComposition.instructions = plan.instructions.map {
             TandemInstruction(range: $0.range, stack: $0.stack, scene: scene, trackIDs: trackIDs)
         }
+        // An AVPlayer given a video composition AVFoundation finds invalid
+        // shows no picture at all and says nothing, while exports and
+        // stills render as usual (the coordinators Shorts, 20 Nov 2026). So
+        // it's checked here, and a problem shows in the viewer's status bar
+        // and in what `tandem frame` prints.
+        if let problem = await Self.invalidity(of: videoComposition, in: composition) {
+            warnings.add("The viewer can't play this cut: AVFoundation finds \(problem). Exports and stills still render.")
+        }
 
         var built = BuiltComposition(
             composition: composition,
@@ -394,6 +402,37 @@ enum CompositionAssembler {
         )
         built.audioGains = audioGains
         return built
+    }
+
+    /// What AVFoundation's own check finds wrong with a video composition,
+    /// or nil when it plays.
+    static func invalidity(of videoComposition: AVVideoComposition, in composition: AVComposition) async -> String? {
+        final class Problems: NSObject, AVVideoCompositionValidationHandling, @unchecked Sendable {
+            var found: [String] = []
+            func span(_ range: CMTimeRange) -> String {
+                String(format: "%.4f-%.4f s", range.start.seconds, range.end.seconds)
+            }
+            func videoComposition(_ videoComposition: AVVideoComposition, shouldContinueValidatingAfterFindingInvalidValueForKey key: String) -> Bool {
+                found.append("an invalid \(key)")
+                return true
+            }
+            func videoComposition(_ videoComposition: AVVideoComposition, shouldContinueValidatingAfterFindingEmptyTimeRange timeRange: CMTimeRange) -> Bool {
+                found.append("no instruction for \(span(timeRange))")
+                return true
+            }
+            func videoComposition(_ videoComposition: AVVideoComposition, shouldContinueValidatingAfterFindingInvalidTimeRangeIn videoCompositionInstruction: any AVVideoCompositionInstructionProtocol) -> Bool {
+                found.append("an instruction with a bad time range, \(span(videoCompositionInstruction.timeRange))")
+                return true
+            }
+            func videoComposition(_ videoComposition: AVVideoComposition, shouldContinueValidatingAfterFindingInvalidTrackIDIn videoCompositionInstruction: any AVVideoCompositionInstructionProtocol, layerInstruction: AVVideoCompositionLayerInstruction, asset: AVAsset) -> Bool {
+                found.append("an instruction naming a missing track at \(span(videoCompositionInstruction.timeRange))")
+                return true
+            }
+        }
+        let problems = Problems()
+        let range = CMTimeRange(start: .zero, duration: composition.duration)
+        guard let valid = try? await videoComposition.isValid(for: composition, timeRange: range, validationDelegate: problems), !valid else { return nil }
+        return problems.found.isEmpty ? "it invalid" : problems.found.prefix(3).joined(separator: "; ")
     }
 
     /// When a segment starts on leading frames AVFoundation can't decode
@@ -475,6 +514,22 @@ enum CompositionAssembler {
 
         if segment.freeze {
             let at = min(max(segment.sourceStart, first), last - frame)
+            // Pictures only (sound's gain taps time each edit by its own
+            // speed): straight on from a freeze of the same frame (cuts in the talk
+            // over a held screen), the edit already there stretches over
+            // this one too. A run of separate edits of one frame between
+            // keyframes (a proxy's P-frame) never played: the player showed
+            // black from the first of them on (the coordinators Schedules
+            // Short, 23 cuts over a frame at 7:45, 20 Nov 2026).
+            if holdLastFrame, trackEnd == start, let previous = track.segments.last, !previous.isEmpty,
+               previous.timeMapping.source == TimeRange(start: at, duration: frame).cmTimeRange,
+               previous.timeMapping.target.end == start.cmTime,
+               let url = (source.asset as? AVURLAsset)?.url, previous.sourceURL == url,
+               previous.sourceTrackID == source.trackID {
+                track.scaleTimeRange(previous.timeMapping.target, toDuration: (end.cmTime - previous.timeMapping.target.start))
+                trackEnd = end
+                return
+            }
             try track.insertTimeRange(TimeRange(start: at, duration: frame).cmTimeRange, of: source, at: start.cmTime)
             track.scaleTimeRange(TimeRange(start: start, duration: frame).cmTimeRange, toDuration: (end - start).cmTime)
             trackEnd = end

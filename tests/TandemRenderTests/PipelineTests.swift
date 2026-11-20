@@ -1,7 +1,7 @@
 import AVFoundation
 import XCTest
 import TandemCore
-import TandemMedia
+@testable import TandemMedia
 @testable import TandemRender
 
 /// Frames through the real AVFoundation path: composition, custom
@@ -330,6 +330,102 @@ final class PipelineTests: XCTestCase {
         let tracks = try await built.composition.load(.tracks)
         let valid = built.videoComposition.isValid(for: tracks, assetDuration: built.composition.duration, timeRange: CMTimeRange(start: .zero, duration: built.composition.duration), validationDelegate: nil)
         XCTAssertTrue(valid)
+    }
+
+    /// The coordinators Shorts (20 Nov 2026) ended at 66.666 s, under a
+    /// millisecond short of frame 2000. The last clip's end moves onto that
+    /// frame, so the timeline's end has to as well: with the clip running
+    /// past the last instruction AVFoundation rejects the video composition
+    /// and the viewer plays black, while export and stills look fine.
+    func testATimelineEndingJustShortOfAFrameStillPlays() async throws {
+        let media = try TestMedia()
+        try await media.movie("green.mov", seconds: 3, draw: { TestMedia.fill($1, 0, 1, 0) })
+        let end = t(2 - 0.0007)
+        let clip = Clip(id: "clip_g", content: .media(mediaID: "med_g"), start: .zero, duration: end)
+        let title = Clip(id: "clip_t", content: .text(TextContent(text: "Hi")), start: t(1), duration: end - t(1))
+        let project = smallProject(
+            video: [Track(kind: .video, name: "V1", clips: [clip]), Track(kind: .video, name: "Text", clips: [title])],
+            media: [media.item("med_g", "green.mov", seconds: 3)]
+        )
+        let built = try await CompositionBuilder.build(RenderContext(project: project, folder: media.projectFolder))
+        let tracks = try await built.composition.load(.tracks)
+        let valid = built.videoComposition.isValid(for: tracks, assetDuration: built.composition.duration, timeRange: CMTimeRange(start: .zero, duration: built.composition.duration), validationDelegate: nil)
+        XCTAssertTrue(valid, "instructions end at \(built.videoComposition.instructions.last?.timeRange.end.seconds ?? 0), tracks at \(built.composition.duration.seconds)")
+        XCTAssertEqual(built.warnings, [])
+
+        // Had it been invalid, the viewer's status bar would say so.
+        let short = AVMutableVideoComposition()
+        short.renderSize = CGSize(width: 320, height: 180)
+        short.frameDuration = CMTime(value: 1, timescale: 30)
+        let instruction = AVMutableVideoCompositionInstruction()
+        instruction.timeRange = CMTimeRange(start: .zero, duration: CMTime(value: 1, timescale: 1))
+        short.instructions = [instruction]
+        let problem = await CompositionAssembler.invalidity(of: short, in: built.composition)
+        XCTAssertEqual(problem, "no instruction for 1.0000-2.0000 s")
+
+        let playerItem = built.makePlayerItem()
+        let output = AVPlayerItemVideoOutput(pixelBufferAttributes: [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA])
+        playerItem.add(output)
+        let player = AVPlayer(playerItem: playerItem)
+        player.isMuted = true
+        player.automaticallyWaitsToMinimizeStalling = false
+        await player.seek(to: CMTime(seconds: 0.5, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
+        player.rate = 1
+        var frames = 0
+        let started = Date()
+        while Date().timeIntervalSince(started) < 0.6 {
+            let now = output.itemTime(forHostTime: CACurrentMediaTime())
+            if output.hasNewPixelBuffer(forItemTime: now), output.copyPixelBuffer(forItemTime: now, itemTimeForDisplay: nil) != nil { frames += 1 }
+            try await Task.sleep(nanoseconds: 2_000_000)
+        }
+        player.pause()
+        XCTAssertGreaterThan(frames, 5, "frames shown while playing")
+    }
+
+    /// The coordinators Schedules Short (20 Nov 2026) held one screen frame
+    /// at 7:45 under 23 cuts in the talk. As 23 edits of that one frame, a
+    /// P-frame in the proxy, the viewer played black and a reader stalled
+    /// for good; as one stretched edit it plays. Cuts in a held picture
+    /// can't be seen, so a run of them is one edit.
+    /// A dissolve longer than twice the last clip: the clip before plays its
+    /// handle on past the timeline's end, so the instructions run that far.
+    func testATransitionHandlePastTheEndStillPlays() async throws {
+        let media = try TestMedia()
+        try await media.movie("red.mov", seconds: 8, draw: { TestMedia.fill($1, 1, 0, 0) })
+        let a = Clip(id: "clip_a", content: .media(mediaID: "med_r"), start: .zero, duration: t(5), sourceStart: t(1))
+        let b = Clip(id: "clip_b", content: .media(mediaID: "med_r"), start: t(5), duration: t(0.2), sourceStart: t(6))
+        let project = smallProject(
+            video: [Track(kind: .video, name: "V1", clips: [a, b], transitions: [Transition(type: .dissolve, duration: t(1), fromClipID: "clip_a", toClipID: "clip_b")])],
+            media: [media.item("med_r", "red.mov", seconds: 8)]
+        )
+        let built = try await CompositionBuilder.build(RenderContext(project: project, folder: media.projectFolder))
+        let tracks = try await built.composition.load(.tracks)
+        let valid = built.videoComposition.isValid(for: tracks, assetDuration: built.composition.duration, timeRange: CMTimeRange(start: .zero, duration: built.composition.duration), validationDelegate: nil)
+        XCTAssertTrue(valid, "instructions end at \(built.videoComposition.instructions.last?.timeRange.end.seconds ?? 0), tracks at \(built.composition.duration.seconds)")
+    }
+
+    func testARunOfFreezesOfOneFrameIsOneEdit() async throws {
+        let media = try TestMedia()
+        try await media.movie("screen.mov", seconds: 3, draw: { index, context in TestMedia.drawIndex(index, context) })
+        let lengths = [1.074667, 0.058667, 0.066667, 0.033333, 0.191333, 2.766667]
+        var start = Time.zero
+        var clips: [Clip] = []
+        for (i, length) in lengths.enumerated() {
+            clips.append(Clip(id: "clip_\(i)", content: .media(mediaID: "med_s"), start: start, duration: t(length), sourceStart: t(1.3), freezeFrame: true))
+            start = start + t(length)
+        }
+        // Then the same frame after a gap, and another frame straight on:
+        // each of those is an edit of its own.
+        clips.append(Clip(id: "clip_gap", content: .media(mediaID: "med_s"), start: start + t(1), duration: t(1), sourceStart: t(1.3), freezeFrame: true))
+        clips.append(Clip(id: "clip_other", content: .media(mediaID: "med_s"), start: start + t(2), duration: t(1), sourceStart: t(2), freezeFrame: true))
+        let project = smallProject(video: [Track(kind: .video, name: "Screen", clips: clips)], media: [media.item("med_s", "screen.mov", seconds: 3)])
+        let built = try await CompositionBuilder.build(RenderContext(project: project, folder: media.projectFolder))
+        let screen = try XCTUnwrap(built.composition.tracks(withMediaType: .video).first { $0.segments.contains { $0.sourceURL?.lastPathComponent == "screen.mov" } })
+        let edits = screen.segments.map { segment in
+            segment.isEmpty ? "gap \(String(format: "%.3f", segment.timeMapping.target.duration.seconds))"
+                : "\(String(format: "%.3f", segment.timeMapping.source.start.seconds)) for \(String(format: "%.3f", segment.timeMapping.target.duration.seconds))"
+        }
+        XCTAssertEqual(edits, ["1.300 for 4.191", "gap 1.000", "1.300 for 1.000", "2.000 for 1.000"])
     }
 
     func testThePlayerItemPlaysThroughTheCompositor() async throws {
