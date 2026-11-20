@@ -145,7 +145,12 @@ enum RenderPlanner {
 
     static func plan(_ project: Project, format: String?, assets: RenderAssets?) -> RenderPlan {
         var warnings = Warnings()
-        let duration = project.duration
+        // The end moves onto its frame as the clips' ends do (`onFrames`).
+        // Left a fraction of a millisecond short, the last clip ran past
+        // the last instruction, AVFoundation called the whole video
+        // composition invalid and the viewer played black (the
+        // coordinators Shorts, 20 Nov 2026, ending at 66.666 s).
+        let duration = onFrames(TimeRange(start: .zero, end: project.duration), rate: project.settings.frameRate).end
         let mediaByID = Dictionary(project.media.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
 
         // MARK: Video

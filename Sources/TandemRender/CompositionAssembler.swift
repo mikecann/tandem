@@ -475,6 +475,21 @@ enum CompositionAssembler {
 
         if segment.freeze {
             let at = min(max(segment.sourceStart, first), last - frame)
+            // Straight on from a freeze of the same frame (cuts in the talk
+            // over a held screen), the edit already there stretches over
+            // this one too. A run of separate edits of one frame between
+            // keyframes (a proxy's P-frame) never played: the player showed
+            // black from the first of them on (the coordinators Schedules
+            // Short, 23 cuts over a frame at 7:45, 20 Nov 2026).
+            if trackEnd == start, let previous = track.segments.last, !previous.isEmpty,
+               previous.timeMapping.source == TimeRange(start: at, duration: frame).cmTimeRange,
+               previous.timeMapping.target.end == start.cmTime,
+               let url = (source.asset as? AVURLAsset)?.url, previous.sourceURL == url,
+               previous.sourceTrackID == source.trackID {
+                track.scaleTimeRange(previous.timeMapping.target, toDuration: (end.cmTime - previous.timeMapping.target.start))
+                trackEnd = end
+                return
+            }
             try track.insertTimeRange(TimeRange(start: at, duration: frame).cmTimeRange, of: source, at: start.cmTime)
             track.scaleTimeRange(TimeRange(start: start, duration: frame).cmTimeRange, toDuration: (end - start).cmTime)
             trackEnd = end
