@@ -21,8 +21,6 @@ struct LoadedSource: @unchecked Sendable {
     /// track (QuickTime Animation, PNG in a MOV): the codec's four
     /// characters. One such track would fail the whole composition.
     var undecodableCodec: String?
-    /// The video is tagged HLG or PQ.
-    var hdr = false
 }
 
 /// Loaded sources by file, reused across builds (the viewer rebuilds the
@@ -50,11 +48,6 @@ final class SourceCache: @unchecked Sendable {
                 source.video = video
             } else {
                 source.undecodableCodec = formats.first.map { MediaItem.fourCharacterCode(CMFormatDescriptionGetMediaSubType($0)) } ?? "????"
-            }
-            source.hdr = formats.contains { format in
-                let transfer = CMFormatDescriptionGetExtension(format, extensionKey: kCMFormatDescriptionExtension_TransferFunction) as? String
-                return transfer == kCMFormatDescriptionTransferFunction_ITU_R_2100_HLG as String
-                    || transfer == kCMFormatDescriptionTransferFunction_SMPTE_ST_2084_PQ as String
             }
             source.naturalSize = size
             source.preferredTransform = transform
@@ -257,7 +250,7 @@ enum CompositionAssembler {
                     try insert(segment, into: videoTracks[segment.track], from: assetTrack, available: source.videoRange,
                                end: &videoEnds[segment.track], holdLastFrame: true, frameDuration: frameDuration)
                 }
-                let direct = SourceTrack(url: u, asset: source.asset, track: assetTrack, timeRange: source.videoRange, leading: leading, alpha: segment.alpha, hdr: source.hdr)
+                let direct = SourceTrack(url: u, asset: source.asset, track: assetTrack, timeRange: source.videoRange, leading: leading, alpha: segment.alpha)
                 if segment.role == .picture {
                     pictureTransforms[segment.clipID] = source.preferredTransform
                     pictureSources[segment.clipID] = direct

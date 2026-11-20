@@ -132,7 +132,7 @@ public final class FrameTextReader: @unchecked Sendable {
         let output = AVAssetReaderVideoCompositionOutput(videoTracks: tracks, videoSettings: [
             kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA
         ])
-        output.videoComposition = built.videoComposition.drawn(by: TandemReaderCompositor.self)
+        output.videoComposition = built.videoComposition
         output.alwaysCopiesSampleData = false
         reader.add(output)
         guard reader.startReading() else { throw reader.error ?? RenderError.export("couldn't start reading the timeline") }

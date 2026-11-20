@@ -505,11 +505,50 @@ final class PipelineTests: XCTestCase {
         XCTAssertTrue(QualityCheck.frameProblems(frames, in: project).isEmpty, "\(QualityCheck.frameProblems(frames, in: project).map(\.message))")
     }
 
+    /// An HLG take (an iPhone's HDR) looks the same paused, playing and
+    /// exported, and as exports always have. AVFoundation used to convert
+    /// it brighter for stills and the player than for an export's reader
+    /// (a warm grey 154/116/78 in a still, 135/83/52 exported, 20 Nov 2026).
+    func testAnHLGTakeLooksTheSameInStillsThePlayerAndExports() async throws {
+        let fills: [(String, (CGFloat, CGFloat, CGFloat), [Int])] = [
+            ("warm", (0.6, 0.45, 0.3), [135, 83, 52]),
+            ("bright", (0.9, 0.9, 0.9), [215, 213, 213]),
+            ("dark", (0.15, 0.2, 0.1), [23, 47, 14])
+        ]
+        for (label, fill, exported) in fills {
+            let media = try TestMedia()
+            try await media.movie("hlg.mov", seconds: 2, hlg: true, draw: { _, c in TestMedia.fill(c, fill.0, fill.1, fill.2) })
+            let clip = Clip(id: "clip_h", content: .media(mediaID: "med_h"), start: .zero, duration: t(2))
+            let project = smallProject(video: [Track(kind: .video, name: "V1", clips: [clip])], media: [media.item("med_h", "hlg.mov", seconds: 2)])
+            let context = RenderContext(project: project, folder: media.projectFolder)
+            let still = try await grab(context, 1)[160, 90]
+            let playing = try await playerFrame(context, at: t(1))[160, 90]
+            let built = try await CompositionBuilder.build(context)
+            let reader = try AVAssetReader(asset: built.composition)
+            reader.timeRange = CMTimeRange(start: .zero, end: t(1.1).cmTime)
+            let output = AVAssetReaderVideoCompositionOutput(videoTracks: try await built.composition.loadTracks(withMediaType: .video), videoSettings: [
+                kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA
+            ])
+            output.videoComposition = built.videoComposition
+            reader.add(output)
+            reader.startReading()
+            var last: CVPixelBuffer?
+            while let sample = output.copyNextSampleBuffer() { last = CMSampleBufferGetImageBuffer(sample) ?? last }
+            let read = Bitmap(CIImage(cvPixelBuffer: try XCTUnwrap(last)), size: size)[160, 90]
+            for channel in 0..<3 {
+                // Near what exports have shown on Macs here; GitHub's
+                // virtual Macs decode HDR a few levels off (209 for 215 in
+                // the highlights, 20 Nov 2026), whatever the compositor does.
+                XCTAssertEqual(read[channel], exported[channel], accuracy: 8, "\(label) exported, as it always has been")
+                XCTAssertEqual(still[channel], read[channel], accuracy: 3, "\(label) still")
+                XCTAssertEqual(playing[channel], read[channel], accuracy: 3, "\(label) playing")
+            }
+        }
+    }
+
     /// A freeze of an HDR take (an iPhone's HLG) looks like the same frame
     /// playing, though its picture comes through the compositor's own
-    /// reader: in a still and the player, which hand the compositor HLG
-    /// frames as they are, and in a scan or export, whose reader converts
-    /// them to SDR first.
+    /// reader: in a still, the player and a scan.
     func testAFreezeOfAnHLGTakeMatchesItPlaying() async throws {
         let media = try TestMedia()
         try await media.movie("hlg.mov", seconds: 3, hlg: true, draw: { _, c in TestMedia.fill(c, 0.6, 0.45, 0.3) })
