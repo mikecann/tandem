@@ -80,6 +80,9 @@ class TandemCompositor: NSObject, AVVideoCompositing {
             kCVPixelBufferPixelFormatTypeKey as String: [
                 kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
                 kCVPixelFormatType_420YpCbCr8BiPlanarFullRange,
+                // 8 bits for HDR too: taking 10-bit HLG as it's decoded moved
+                // exports' highlights by 4 to 6 levels from what they've
+                // always been (`HDRFrames`).
                 kCVPixelFormatType_32BGRA
             ],
             kCVPixelBufferMetalCompatibilityKey as String: true,

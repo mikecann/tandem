@@ -33,23 +33,42 @@ final class HDRFrames: @unchecked Sendable {
         return hdrTransfers.contains(transfer)
     }
 
-    /// The frame in SDR BT.709 (8-bit 4:2:0 video range, as decoders hand
-    /// the compositor SDR video), or the frame itself when it isn't HDR.
-    /// Frames with alpha stay as they are: the conversion would drop it.
+    /// The frame in SDR BT.709, or the frame itself when it isn't HDR:
+    /// 8-bit 4:2:0 video range (as decoders hand the compositor SDR video),
+    /// or BGRA for a frame with alpha, which keeps it.
     func sdr(_ buffer: CVPixelBuffer) -> CVPixelBuffer {
-        guard Self.isHDR(buffer), CVPixelBufferIsPlanar(buffer) else { return buffer }
+        guard Self.isHDR(buffer) else { return buffer }
+        let format: OSType = CVPixelBufferIsPlanar(buffer) ? kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange : kCVPixelFormatType_32BGRA
+        if let converted = convert(buffer, to: format, pooled: true) { return converted }
+        // Short of memory, most likely: once more with a buffer of its own.
+        // An HDR frame shown as it is comes out a flash of wrong colour.
+        if let converted = convert(buffer, to: format, pooled: false) { return converted }
+        NSLog("Tandem: couldn't convert an HDR frame to SDR; it shows unconverted")
+        return buffer
+    }
+
+    private func convert(_ buffer: CVPixelBuffer, to format: OSType, pooled: Bool) -> CVPixelBuffer? {
         let width = CVPixelBufferGetWidth(buffer)
         let height = CVPixelBufferGetHeight(buffer)
-        guard let session = take(), let pool = pool(width: width, height: height) else { return buffer }
-        defer { give(session) }
+        guard let session = pooled ? take() : Self.makeSession() else { return nil }
+        defer { if pooled { give(session) } }
         var made: CVPixelBuffer?
-        guard CVPixelBufferPoolCreatePixelBuffer(nil, pool, &made) == kCVReturnSuccess, let out = made,
-              VTPixelTransferSessionTransferImage(session, from: buffer, to: out) == noErr else { return buffer }
+        if pooled {
+            guard let pool = pool(width: width, height: height, format: format),
+                  CVPixelBufferPoolCreatePixelBuffer(nil, pool, &made) == kCVReturnSuccess else { return nil }
+        } else {
+            guard CVPixelBufferCreate(nil, width, height, format, Self.attributes(width: width, height: height, format: format) as CFDictionary, &made) == kCVReturnSuccess else { return nil }
+        }
+        guard let out = made, VTPixelTransferSessionTransferImage(session, from: buffer, to: out) == noErr else { return nil }
         return out
     }
 
     private func take() -> VTPixelTransferSession? {
         if let session = lock.withLock({ idle.popLast() }) { return session }
+        return Self.makeSession()
+    }
+
+    private static func makeSession() -> VTPixelTransferSession? {
         var made: VTPixelTransferSession?
         guard VTPixelTransferSessionCreate(allocator: nil, pixelTransferSessionOut: &made) == noErr, let session = made else { return nil }
         VTSessionSetProperty(session, key: kVTPixelTransferPropertyKey_DestinationColorPrimaries, value: kCVImageBufferColorPrimaries_ITU_R_709_2)
@@ -62,20 +81,25 @@ final class HDRFrames: @unchecked Sendable {
         lock.withLock { if idle.count < 8 { idle.append(session) } }
     }
 
-    private func pool(width: Int, height: Int) -> CVPixelBufferPool? {
-        let key = "\(width)x\(height)"
+    private static func attributes(width: Int, height: Int, format: OSType) -> [String: Any] {
+        [
+            kCVPixelBufferPixelFormatTypeKey as String: format,
+            kCVPixelBufferWidthKey as String: width,
+            kCVPixelBufferHeightKey as String: height,
+            kCVPixelBufferIOSurfacePropertiesKey as String: [String: Int](),
+            kCVPixelBufferMetalCompatibilityKey as String: true
+        ]
+    }
+
+    /// A pool per frame size and format. Pools let go of buffers nobody has
+    /// used for a second by themselves.
+    private func pool(width: Int, height: Int, format: OSType) -> CVPixelBufferPool? {
+        let key = "\(width)x\(height) \(format)"
         return lock.withLock {
             if let pool = pools[key] { return pool }
-            let attributes: [String: Any] = [
-                kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
-                kCVPixelBufferWidthKey as String: width,
-                kCVPixelBufferHeightKey as String: height,
-                kCVPixelBufferIOSurfacePropertiesKey as String: [String: Int](),
-                kCVPixelBufferMetalCompatibilityKey as String: true
-            ]
             var made: CVPixelBufferPool?
-            CVPixelBufferPoolCreate(nil, nil, attributes as CFDictionary, &made)
-            if pools.count > 8 { pools.removeAll() }
+            CVPixelBufferPoolCreate(nil, nil, Self.attributes(width: width, height: height, format: format) as CFDictionary, &made)
+            if pools.count >= 8, let any = pools.keys.first { pools[any] = nil }
             pools[key] = made
             return made
         }
