@@ -145,12 +145,9 @@ enum RenderPlanner {
 
     static func plan(_ project: Project, format: String?, assets: RenderAssets?) -> RenderPlan {
         var warnings = Warnings()
-        // The end moves onto its frame as the clips' ends do (`onFrames`).
-        // Left a fraction of a millisecond short, the last clip ran past
-        // the last instruction, AVFoundation called the whole video
-        // composition invalid and the viewer played black (the
-        // coordinators Shorts, 20 Nov 2026, ending at 66.666 s).
-        let duration = onFrames(TimeRange(start: .zero, end: project.duration), rate: project.settings.frameRate).end
+        // The end moves onto its frame as the clips' ends do (`onFrames`),
+        // and further if a picture runs on past it (below).
+        var duration = onFrames(TimeRange(start: .zero, end: project.duration), rate: project.settings.frameRate).end
         let mediaByID = Dictionary(project.media.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
 
         // MARK: Video
@@ -269,6 +266,14 @@ enum RenderPlanner {
             }
         }
         let videoTrackCount = assignTracks(&videoSegments)
+        // Instructions have to cover every picture on the composition's
+        // tracks. With a stretch of track past the last one, AVFoundation
+        // calls the whole video composition invalid and the viewer plays
+        // black, while exports and stills look fine: the coordinators
+        // Shorts ended at 66.666 s, under a millisecond short of the frame
+        // their last clips' ends moved onto (20 Nov 2026). A transition's
+        // handle past a last clip shorter than its half can do the same.
+        duration = max(duration, videoSegments.map(\.timeline.end).max() ?? .zero)
 
         // MARK: Instructions
 

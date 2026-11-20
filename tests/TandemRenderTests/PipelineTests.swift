@@ -387,6 +387,23 @@ final class PipelineTests: XCTestCase {
     /// P-frame in the proxy, the viewer played black and a reader stalled
     /// for good; as one stretched edit it plays. Cuts in a held picture
     /// can't be seen, so a run of them is one edit.
+    /// A dissolve longer than twice the last clip: the clip before plays its
+    /// handle on past the timeline's end, so the instructions run that far.
+    func testATransitionHandlePastTheEndStillPlays() async throws {
+        let media = try TestMedia()
+        try await media.movie("red.mov", seconds: 8, draw: { TestMedia.fill($1, 1, 0, 0) })
+        let a = Clip(id: "clip_a", content: .media(mediaID: "med_r"), start: .zero, duration: t(5), sourceStart: t(1))
+        let b = Clip(id: "clip_b", content: .media(mediaID: "med_r"), start: t(5), duration: t(0.2), sourceStart: t(6))
+        let project = smallProject(
+            video: [Track(kind: .video, name: "V1", clips: [a, b], transitions: [Transition(type: .dissolve, duration: t(1), fromClipID: "clip_a", toClipID: "clip_b")])],
+            media: [media.item("med_r", "red.mov", seconds: 8)]
+        )
+        let built = try await CompositionBuilder.build(RenderContext(project: project, folder: media.projectFolder))
+        let tracks = try await built.composition.load(.tracks)
+        let valid = built.videoComposition.isValid(for: tracks, assetDuration: built.composition.duration, timeRange: CMTimeRange(start: .zero, duration: built.composition.duration), validationDelegate: nil)
+        XCTAssertTrue(valid, "instructions end at \(built.videoComposition.instructions.last?.timeRange.end.seconds ?? 0), tracks at \(built.composition.duration.seconds)")
+    }
+
     func testARunOfFreezesOfOneFrameIsOneEdit() async throws {
         let media = try TestMedia()
         try await media.movie("screen.mov", seconds: 3, draw: { index, context in TestMedia.drawIndex(index, context) })
