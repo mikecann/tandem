@@ -1,3 +1,4 @@
+import Accelerate
 import CoreVideo
 import Foundation
 import VideoToolbox
@@ -20,7 +21,9 @@ final class HDRFrames: @unchecked Sendable {
     /// Sessions aren't for sharing between threads; the compositor renders
     /// several frames at once, so each takes one of its own for a frame.
     private var idle: [VTPixelTransferSession] = []
-    private var pools: [String: CVPixelBufferPool] = [:]
+    /// Pools by frame size and format, least recently used first.
+    private var pools: [(key: String, pool: CVPixelBufferPool)] = []
+    private let maxPools = 8
 
     static let hdrTransfers: Set<String> = [
         kCVImageBufferTransferFunction_ITU_R_2100_HLG as String,
@@ -38,29 +41,79 @@ final class HDRFrames: @unchecked Sendable {
     /// or BGRA for a frame with alpha, which keeps it.
     func sdr(_ buffer: CVPixelBuffer) -> CVPixelBuffer {
         guard Self.isHDR(buffer) else { return buffer }
-        let format: OSType = CVPixelBufferIsPlanar(buffer) ? kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange : kCVPixelFormatType_32BGRA
-        if let converted = convert(buffer, to: format, pooled: true) { return converted }
-        // Short of memory, most likely: once more with a buffer of its own.
-        // An HDR frame shown as it is comes out a flash of wrong colour.
-        if let converted = convert(buffer, to: format, pooled: false) { return converted }
+        if let converted = convert(buffer, pooled: true) { return converted }
+        // Short of memory, most likely: once more with a session and buffers
+        // of its own. An HDR frame shown as it is is a flash of wrong colour.
+        if let converted = convert(buffer, pooled: false) { return converted }
         NSLog("Tandem: couldn't convert an HDR frame to SDR; it shows unconverted")
         return buffer
     }
 
-    private func convert(_ buffer: CVPixelBuffer, to format: OSType, pooled: Bool) -> CVPixelBuffer? {
-        let width = CVPixelBufferGetWidth(buffer)
-        let height = CVPixelBufferGetHeight(buffer)
+    private func convert(_ buffer: CVPixelBuffer, pooled: Bool) -> CVPixelBuffer? {
+        guard CVPixelBufferIsPlanar(buffer) else { return convertWithAlpha(buffer, pooled: pooled) }
+        return transfer(buffer, to: kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange, pooled: pooled)
+    }
+
+    /// One VideoToolbox transfer to BT.709 in `format`. A session that
+    /// fails is let go rather than handed to the next frame.
+    private func transfer(_ buffer: CVPixelBuffer, to format: OSType, pooled: Bool) -> CVPixelBuffer? {
         guard let session = pooled ? take() : Self.makeSession() else { return nil }
-        defer { if pooled { give(session) } }
-        var made: CVPixelBuffer?
-        if pooled {
-            guard let pool = pool(width: width, height: height, format: format),
-                  CVPixelBufferPoolCreatePixelBuffer(nil, pool, &made) == kCVReturnSuccess else { return nil }
-        } else {
-            guard CVPixelBufferCreate(nil, width, height, format, Self.attributes(width: width, height: height, format: format) as CFDictionary, &made) == kCVReturnSuccess else { return nil }
+        guard let out = makeBuffer(like: buffer, format: format, pooled: pooled) else {
+            if pooled { give(session) } else { VTPixelTransferSessionInvalidate(session) }
+            return nil
         }
-        guard let out = made, VTPixelTransferSessionTransferImage(session, from: buffer, to: out) == noErr else { return nil }
+        guard VTPixelTransferSessionTransferImage(session, from: buffer, to: out) == noErr else {
+            VTPixelTransferSessionInvalidate(session)
+            return nil
+        }
+        if pooled { give(session) } else { VTPixelTransferSessionInvalidate(session) }
         return out
+    }
+
+    /// A frame with alpha (BGRA). The conversion to SDR isn't linear, so it
+    /// works on colours as they'd show at full opacity: premultiplied
+    /// frames (Core Image's default) are unpremultiplied first and
+    /// premultiplied again after, or a half-transparent edge comes out
+    /// darker than it should. The result says which kind it is, as the
+    /// frame did, since a pooled buffer may still carry the last one's tag.
+    private func convertWithAlpha(_ buffer: CVPixelBuffer, pooled: Bool) -> CVPixelBuffer? {
+        guard CVPixelBufferGetPixelFormatType(buffer) == kCVPixelFormatType_32BGRA else { return nil }
+        let mode = CVBufferCopyAttachment(buffer, kCVImageBufferAlphaChannelModeKey, nil) as? String
+        let straight = mode == (kCVImageBufferAlphaChannelMode_StraightAlpha as String)
+        var source = buffer
+        if !straight {
+            guard let copy = makeBuffer(like: buffer, format: kCVPixelFormatType_32BGRA, pooled: pooled),
+                  Self.premultiply(buffer, into: copy, undo: true) else { return nil }
+            CVBufferPropagateAttachments(buffer, copy)
+            source = copy
+        }
+        guard let out = transfer(source, to: kCVPixelFormatType_32BGRA, pooled: pooled) else { return nil }
+        if !straight { guard Self.premultiply(out, into: out, undo: false) else { return nil } }
+        CVBufferSetAttachment(out, kCVImageBufferAlphaChannelModeKey,
+                              straight ? kCVImageBufferAlphaChannelMode_StraightAlpha : kCVImageBufferAlphaChannelMode_PremultipliedAlpha,
+                              .shouldPropagate)
+        return out
+    }
+
+    /// BGRA premultiplied by its alpha, or with `undo` unpremultiplied (the
+    /// RGBA functions: alpha is last in both, and the rest is alike).
+    private static func premultiply(_ from: CVPixelBuffer, into to: CVPixelBuffer, undo: Bool) -> Bool {
+        let same = from === to
+        CVPixelBufferLockBaseAddress(from, same ? [] : .readOnly)
+        if !same { CVPixelBufferLockBaseAddress(to, []) }
+        defer {
+            if !same { CVPixelBufferUnlockBaseAddress(to, []) }
+            CVPixelBufferUnlockBaseAddress(from, same ? [] : .readOnly)
+        }
+        guard let fromBase = CVPixelBufferGetBaseAddress(from), let toBase = CVPixelBufferGetBaseAddress(to) else { return false }
+        let width = vImagePixelCount(CVPixelBufferGetWidth(from))
+        let height = vImagePixelCount(CVPixelBufferGetHeight(from))
+        var source = vImage_Buffer(data: fromBase, height: height, width: width, rowBytes: CVPixelBufferGetBytesPerRow(from))
+        var destination = vImage_Buffer(data: toBase, height: height, width: width, rowBytes: CVPixelBufferGetBytesPerRow(to))
+        let error = undo
+            ? vImageUnpremultiplyData_RGBA8888(&source, &destination, vImage_Flags(kvImageNoFlags))
+            : vImagePremultiplyData_RGBA8888(&source, &destination, vImage_Flags(kvImageNoFlags))
+        return error == kvImageNoError
     }
 
     private func take() -> VTPixelTransferSession? {
@@ -71,14 +124,27 @@ final class HDRFrames: @unchecked Sendable {
     private static func makeSession() -> VTPixelTransferSession? {
         var made: VTPixelTransferSession?
         guard VTPixelTransferSessionCreate(allocator: nil, pixelTransferSessionOut: &made) == noErr, let session = made else { return nil }
-        VTSessionSetProperty(session, key: kVTPixelTransferPropertyKey_DestinationColorPrimaries, value: kCVImageBufferColorPrimaries_ITU_R_709_2)
-        VTSessionSetProperty(session, key: kVTPixelTransferPropertyKey_DestinationTransferFunction, value: kCVImageBufferTransferFunction_ITU_R_709_2)
-        VTSessionSetProperty(session, key: kVTPixelTransferPropertyKey_DestinationYCbCrMatrix, value: kCVImageBufferYCbCrMatrix_ITU_R_709_2)
+        // Without these it would copy the frame unconverted and say it had
+        // worked.
+        let set = [
+            VTSessionSetProperty(session, key: kVTPixelTransferPropertyKey_DestinationColorPrimaries, value: kCVImageBufferColorPrimaries_ITU_R_709_2),
+            VTSessionSetProperty(session, key: kVTPixelTransferPropertyKey_DestinationTransferFunction, value: kCVImageBufferTransferFunction_ITU_R_709_2),
+            VTSessionSetProperty(session, key: kVTPixelTransferPropertyKey_DestinationYCbCrMatrix, value: kCVImageBufferYCbCrMatrix_ITU_R_709_2)
+        ]
+        guard set.allSatisfy({ $0 == noErr }) else {
+            VTPixelTransferSessionInvalidate(session)
+            return nil
+        }
         return session
     }
 
     private func give(_ session: VTPixelTransferSession) {
-        lock.withLock { if idle.count < 8 { idle.append(session) } }
+        let kept = lock.withLock {
+            guard idle.count < 8 else { return false }
+            idle.append(session)
+            return true
+        }
+        if !kept { VTPixelTransferSessionInvalidate(session) }
     }
 
     private static func attributes(width: Int, height: Int, format: OSType) -> [String: Any] {
@@ -91,17 +157,38 @@ final class HDRFrames: @unchecked Sendable {
         ]
     }
 
-    /// A pool per frame size and format. Pools let go of buffers nobody has
-    /// used for a second by themselves.
+    private func makeBuffer(like buffer: CVPixelBuffer, format: OSType, pooled: Bool) -> CVPixelBuffer? {
+        let width = CVPixelBufferGetWidth(buffer)
+        let height = CVPixelBufferGetHeight(buffer)
+        var made: CVPixelBuffer?
+        if pooled {
+            guard let pool = pool(width: width, height: height, format: format),
+                  CVPixelBufferPoolCreatePixelBuffer(nil, pool, &made) == kCVReturnSuccess else { return nil }
+        } else {
+            guard CVPixelBufferCreate(nil, width, height, format, Self.attributes(width: width, height: height, format: format) as CFDictionary, &made) == kCVReturnSuccess else { return nil }
+        }
+        return made
+    }
+
+    /// A pool for a frame size and format. Pools let go of buffers nobody
+    /// has used for a second as they're next used; one dropped for a new
+    /// size lets go of its spare buffers at once.
     private func pool(width: Int, height: Int, format: OSType) -> CVPixelBufferPool? {
         let key = "\(width)x\(height) \(format)"
         return lock.withLock {
-            if let pool = pools[key] { return pool }
+            if let index = pools.firstIndex(where: { $0.key == key }) {
+                let entry = pools.remove(at: index)
+                pools.append(entry)
+                return entry.pool
+            }
             var made: CVPixelBufferPool?
-            CVPixelBufferPoolCreate(nil, nil, Self.attributes(width: width, height: height, format: format) as CFDictionary, &made)
-            if pools.count >= 8, let any = pools.keys.first { pools[any] = nil }
-            pools[key] = made
-            return made
+            guard CVPixelBufferPoolCreate(nil, nil, Self.attributes(width: width, height: height, format: format) as CFDictionary, &made) == kCVReturnSuccess,
+                  let pool = made else { return nil }
+            if pools.count >= maxPools {
+                CVPixelBufferPoolFlush(pools.removeFirst().pool, .excessBuffers)
+            }
+            pools.append((key, pool))
+            return pool
         }
     }
 }
