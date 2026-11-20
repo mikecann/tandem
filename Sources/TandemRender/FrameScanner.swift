@@ -129,9 +129,7 @@ public enum FrameScanner {
     /// The composition a scan reads: the built one through the scan's own
     /// compositor.
     static func scanComposition(_ built: BuiltComposition) -> AVVideoComposition {
-        let composition = built.videoComposition.mutableCopy() as! AVMutableVideoComposition
-        composition.customVideoCompositorClass = TandemUtilityCompositor.self
-        return composition
+        built.videoComposition.drawn(by: TandemUtilityCompositor.self)
     }
 
     /// Reads one stretch on a thread of its own: the reader blocks. It

@@ -415,14 +415,9 @@ final class ExportPipeline: @unchecked Sendable {
             kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
             kCVPixelBufferIOSurfacePropertiesKey as String: [String: Int]()
         ])
-        if waiting {
-            pictures.videoComposition = built.videoComposition
-        } else {
-            // The same drawing on a utility queue (see `TandemUtilityCompositor`).
-            let composition = built.videoComposition.mutableCopy() as! AVMutableVideoComposition
-            composition.customVideoCompositorClass = TandemUtilityCompositor.self
-            pictures.videoComposition = composition
-        }
+        // The same drawing as a reader, on a utility queue unless someone's
+        // waiting (see `TandemUtilityCompositor`).
+        pictures.videoComposition = built.videoComposition.drawn(by: waiting ? TandemReaderCompositor.self : TandemUtilityCompositor.self)
         pictures.alwaysCopiesSampleData = false
         reader.add(pictures)
         var mix: AVAssetReaderAudioMixOutput?

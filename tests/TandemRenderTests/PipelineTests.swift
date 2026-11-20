@@ -497,7 +497,8 @@ final class PipelineTests: XCTestCase {
         let project = smallProject(video: [Track(kind: .video, name: "V1", clips: [freeze])], media: [media.item("med_f", "fast.mov", seconds: 2)])
         let context = RenderContext(project: project, folder: media.projectFolder)
         for time in [0.0, 0.5, 1.0, 1.9] {
-            XCTAssertEqual(TestMedia.readIndex(try await grab(context, time), in: CGRect(x: 0, y: 0, width: 320, height: 180)), 60, "at \(time)")
+            let frame = try await grab(context, time)
+            XCTAssertEqual(TestMedia.readIndex(frame, in: CGRect(x: 0, y: 0, width: 320, height: 180)), 60, "at \(time)")
         }
         let frames = try await FrameScanner.scan(context, ranges: [TimeRange(start: .zero, end: t(2))], width: 64)
         XCTAssertEqual(frames.count, 60)
@@ -505,8 +506,10 @@ final class PipelineTests: XCTestCase {
     }
 
     /// A freeze of an HDR take (an iPhone's HLG) looks like the same frame
-    /// playing: its picture comes through the compositor's own reader now,
-    /// not the composition's.
+    /// playing, though its picture comes through the compositor's own
+    /// reader: in a still and the player, which hand the compositor HLG
+    /// frames as they are, and in a scan or export, whose reader converts
+    /// them to SDR first.
     func testAFreezeOfAnHLGTakeMatchesItPlaying() async throws {
         let media = try TestMedia()
         try await media.movie("hlg.mov", seconds: 3, hlg: true, draw: { _, c in TestMedia.fill(c, 0.6, 0.45, 0.3) })
@@ -526,6 +529,11 @@ final class PipelineTests: XCTestCase {
                 }
             }
         }
+        let playerPlaying = try await playerFrame(context, at: t(2.5))
+        let playerFrozen = try await playerFrame(context, at: t(3.5))
+        for channel in 0..<3 {
+            XCTAssertEqual(Int(playerFrozen[160, 90][channel]), Int(playerPlaying[160, 90][channel]), accuracy: 3, "in the player")
+        }
         // And read straight through, as an export or check reads.
         let stats = try await FrameScanner.scan(context, ranges: [TimeRange(start: t(2), end: t(5))], width: 64)
         let means = stats.map(\.luma)
@@ -533,6 +541,24 @@ final class PipelineTests: XCTestCase {
         for (index, mean) in means.enumerated() {
             XCTAssertEqual(mean, reference, accuracy: 0.02, "frame \(index) of the scan")
         }
+    }
+
+    /// A freeze's picture is kept between frames, but not past its file
+    /// changing: a file replaced at the same path shows its own frame.
+    func testAFreezeShowsANewFileAtTheSamePath() async throws {
+        let media = try TestMedia()
+        try await indexMovie(media)
+        let freeze = Clip(id: "clip_f", content: .media(mediaID: "med_i"), start: .zero, duration: t(2), sourceStart: t(1))
+        var project = smallProject(video: [Track(kind: .video, name: "V1", clips: [freeze])], media: [media.item("med_i", "index.mov", seconds: 3)])
+        project.videoTracks[0].clips[0].freezeFrame = true
+        let whole = CGRect(x: 0, y: 0, width: 320, height: 180)
+        let before = try await grab(RenderContext(project: project, folder: media.projectFolder), 0.5)
+        XCTAssertEqual(TestMedia.readIndex(before, in: whole), 30)
+        let url = media.folder.appendingPathComponent("index.mov")
+        try FileManager.default.removeItem(at: url)
+        try await media.movie("index.mov", seconds: 3, draw: { TestMedia.drawIndex($0 + 100, $1) })
+        let after = try await grab(RenderContext(project: project, folder: media.projectFolder), 0.5)
+        XCTAssertEqual(TestMedia.readIndex(after, in: whole), 130)
     }
 
     /// Freezes stay off the composition's tracks, and the instructions
@@ -552,9 +578,11 @@ final class PipelineTests: XCTestCase {
         for instruction in built.videoComposition.instructions where Time(cmTime: instruction.timeRange.start) >= t(1) {
             XCTAssertEqual(instruction.requiredSourceTrackIDs?.count ?? 0, 0, "at \(instruction.timeRange.start.seconds)")
         }
-        XCTAssertNil(await CompositionAssembler.invalidity(of: built.videoComposition, in: built.composition))
+        let invalidity = await CompositionAssembler.invalidity(of: built.videoComposition, in: built.composition)
+        XCTAssertNil(invalidity)
         for (time, expected) in [(0.5, 30), (1.0, 39), (1.6, 39), (2.0, 60), (2.9, 60)] {
-            XCTAssertEqual(TestMedia.readIndex(try await grab(RenderContext(project: project, folder: media.projectFolder), time), in: CGRect(x: 0, y: 0, width: 320, height: 180)), expected, "at \(time)")
+            let frame = try await grab(RenderContext(project: project, folder: media.projectFolder), time)
+            XCTAssertEqual(TestMedia.readIndex(frame, in: CGRect(x: 0, y: 0, width: 320, height: 180)), expected, "at \(time)")
         }
     }
 

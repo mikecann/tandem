@@ -1,3 +1,4 @@
+import AVFoundation
 import CoreGraphics
 import CoreImage
 import XCTest
@@ -174,4 +175,24 @@ final class LockedCount: @unchecked Sendable {
     private var value = 0
     var count: Int { lock.withLock { value } }
     @discardableResult func add() -> Int { lock.withLock { value += 1; return value } }
+}
+
+/// The frame the viewer's player shows at `time`, paused there.
+func playerFrame(_ context: RenderContext, at time: Time) async throws -> Bitmap {
+    let built = try await CompositionBuilder.build(context)
+    let item = built.makePlayerItem()
+    let output = AVPlayerItemVideoOutput(pixelBufferAttributes: [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA])
+    item.add(output)
+    let player = AVPlayer(playerItem: item)
+    player.isMuted = true
+    defer { player.replaceCurrentItem(with: nil) }
+    await player.seek(to: time.cmTime, toleranceBefore: .zero, toleranceAfter: .zero)
+    let deadline = Date().addingTimeInterval(5)
+    while Date() < deadline {
+        if output.hasNewPixelBuffer(forItemTime: time.cmTime), let pixels = output.copyPixelBuffer(forItemTime: time.cmTime, itemTimeForDisplay: nil) {
+            return Bitmap(CIImage(cvPixelBuffer: pixels), size: built.renderSize)
+        }
+        try await Task.sleep(nanoseconds: 1_000_000)
+    }
+    return try XCTUnwrap(nil, "the player showed nothing at \(time.seconds) s")
 }
