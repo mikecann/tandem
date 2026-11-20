@@ -22,9 +22,11 @@ struct SceneClip {
     /// directly when AVFoundation can't (see `FrameRecovery`).
     var picture: SourceTrack?
     var matte: SourceTrack?
-    /// Timeline stretches where AVFoundation's frames for this clip are
-    /// wrong: the clip starts on leading frames it can't decode, so it
-    /// shows a stale frame or nothing until the next keyframe.
+    /// Timeline stretches where the composition track has no frames for
+    /// this clip and the compositor decodes them itself: a freeze frame's
+    /// whole length, or the clip starting on leading frames AVFoundation
+    /// can't decode (it'd show a stale frame or nothing until the next
+    /// keyframe).
     var pictureRecovery: TimeRange?
     var matteRecovery: TimeRange?
 
@@ -299,10 +301,12 @@ struct FrameComposer {
         return sources.frame(track: track) ?? recovered(source, clip, at: time)
     }
 
-    /// The frame at a clip's media time, decoded directly.
+    /// The frame at a clip's media time, decoded directly. A freeze frame's
+    /// is kept, as it shows on every frame of the clip.
     func recovered(_ source: SourceTrack?, _ clip: SceneClip, at time: Time) -> CIImage? {
-        guard let source, let recovery = scene.recovery,
-              let pixels = recovery.frame(source, at: clip.mediaTime(at: time)) else { return nil }
+        guard let source, let recovery = scene.recovery else { return nil }
+        let media = clip.mediaTime(at: time)
+        guard let pixels = clip.clip.freezeFrame ? recovery.still(source, at: media) : recovery.frame(source, at: media) else { return nil }
         return CIImage(cvPixelBuffer: pixels)
     }
 

@@ -55,7 +55,7 @@ public enum FrameScanner {
         let timeline = TimeRange(start: .zero, end: built.duration)
         let wanted = ranges.compactMap { $0.intersection(timeline) }.filter { $0.duration > .zero }
         let pieces = QualityCheck.pieces(of: wanted, every: pieceLength)
-        let leadIn = await hasHDR(built.composition) ? hdrLeadIn : .zero
+        let leadIn = await hasHDR(built.composition, decoded: decodedFiles(built)) ? hdrLeadIn : .zero
         let source = Unchecked((built: built, tracks: tracks))
         return try await inParallel(pieces, limit: readers) { piece in
             try Task.checkCancellation()
@@ -67,8 +67,9 @@ public enum FrameScanner {
     /// (`hdrLeadIn`). By its tag, not `containsHDRVideo`: that also wants 10
     /// bits, and a proxy of an HDR take is 8-bit HEVC still tagged HLG,
     /// which AVFoundation converts to SDR the same way.
-    static func hasHDR(_ composition: AVComposition) async -> Bool {
-        var urls = Set<URL>()
+    /// `decoded`: files the compositor decodes itself (`decodedFiles`).
+    static func hasHDR(_ composition: AVComposition, decoded: [URL] = []) async -> Bool {
+        var urls = Set(decoded)
         for track in composition.tracks(withMediaType: .video) {
             for segment in track.segments where !segment.isEmpty {
                 if let url = segment.sourceURL { urls.insert(url) }
@@ -87,6 +88,16 @@ public enum FrameScanner {
             }
         }
         return false
+    }
+
+    /// The files behind stretches the compositor decodes itself, which
+    /// aren't on the composition's tracks: freeze frames, and leading
+    /// frames AVFoundation can't seek to.
+    static func decodedFiles(_ built: BuiltComposition) -> [URL] {
+        guard let scene = built.videoComposition.instructions.lazy.compactMap({ $0 as? TandemInstruction }).first?.scene else { return [] }
+        return scene.clips.values.flatMap { clip in
+            [clip.pictureRecovery == nil ? nil : clip.picture?.url, clip.matteRecovery == nil ? nil : clip.matte?.url].compactMap { $0 }
+        }
     }
 
     /// `body` over each of `pieces`, `limit` at a time, joined in order.

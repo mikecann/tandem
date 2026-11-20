@@ -44,6 +44,10 @@ final class FrameRecovery: @unchecked Sendable {
     private(set) var readersOpened = 0
     /// Off shows what AVFoundation alone produces, for diagnostics.
     var enabled = true
+    /// Freeze frames' pictures, by file and time, most recently used last.
+    /// Copies, so they don't hold a reader's buffers.
+    private var stills: [(asset: AVAsset, path: String, time: CMTime, pixels: CVPixelBuffer)] = []
+    private let maxStills = 8
 
     /// An open reader positioned just after the last frame it returned.
     private final class Session {
@@ -102,6 +106,71 @@ final class FrameRecovery: @unchecked Sendable {
             }
             return nil
         }
+    }
+
+    /// The frame shown at `time`, as `frame`, kept for the next ask. A
+    /// freeze frame asks for the same picture on every frame it shows, while
+    /// other frames of its file come and go between (a run of cuts over
+    /// two held screens), so it doesn't wait on a reader's single frame.
+    func still(_ source: SourceTrack, at requested: CMTime) -> CVPixelBuffer? {
+        let range = source.timeRange
+        guard enabled, range.duration > .zero, requested.isNumeric else { return nil }
+        let time = CMTimeMaximum(range.start, CMTimeMinimum(requested, CMTimeSubtract(range.end, Self.tolerance)))
+        let path = source.url.path
+        let cached: CVPixelBuffer? = lock.withLock {
+            guard let index = stills.firstIndex(where: { $0.path == path && $0.asset === source.asset && CMTimeCompare($0.time, time) == 0 }) else { return nil }
+            let entry = stills.remove(at: index)
+            stills.append(entry)
+            return entry.pixels
+        }
+        if let cached { return cached }
+        guard let decoded = frame(source, at: time), let copy = Self.copy(decoded) else { return nil }
+        lock.withLock {
+            stills.removeAll { $0.path == path && CMTimeCompare($0.time, time) == 0 }
+            stills.append((source.asset, path, time, copy))
+            if stills.count > maxStills { stills.removeFirst(stills.count - maxStills) }
+        }
+        return copy
+    }
+
+    /// A pixel buffer's own copy, with its attachments (colour tags).
+    static func copy(_ buffer: CVPixelBuffer) -> CVPixelBuffer? {
+        let width = CVPixelBufferGetWidth(buffer)
+        let height = CVPixelBufferGetHeight(buffer)
+        let attributes: [String: Any] = [
+            kCVPixelBufferIOSurfacePropertiesKey as String: [String: Int](),
+            kCVPixelBufferMetalCompatibilityKey as String: true
+        ]
+        var made: CVPixelBuffer?
+        guard CVPixelBufferCreate(nil, width, height, CVPixelBufferGetPixelFormatType(buffer), attributes as CFDictionary, &made) == kCVReturnSuccess,
+              let copy = made else { return nil }
+        CVPixelBufferLockBaseAddress(buffer, .readOnly)
+        CVPixelBufferLockBaseAddress(copy, [])
+        defer {
+            CVPixelBufferUnlockBaseAddress(copy, [])
+            CVPixelBufferUnlockBaseAddress(buffer, .readOnly)
+        }
+        if CVPixelBufferIsPlanar(buffer) {
+            for plane in 0..<CVPixelBufferGetPlaneCount(buffer) {
+                guard let from = CVPixelBufferGetBaseAddressOfPlane(buffer, plane),
+                      let to = CVPixelBufferGetBaseAddressOfPlane(copy, plane) else { return nil }
+                let rows = CVPixelBufferGetHeightOfPlane(buffer, plane)
+                let fromStride = CVPixelBufferGetBytesPerRowOfPlane(buffer, plane)
+                let toStride = CVPixelBufferGetBytesPerRowOfPlane(copy, plane)
+                for row in 0..<rows {
+                    memcpy(to + row * toStride, from + row * fromStride, min(fromStride, toStride))
+                }
+            }
+        } else {
+            guard let from = CVPixelBufferGetBaseAddress(buffer), let to = CVPixelBufferGetBaseAddress(copy) else { return nil }
+            let fromStride = CVPixelBufferGetBytesPerRow(buffer)
+            let toStride = CVPixelBufferGetBytesPerRow(copy)
+            for row in 0..<height {
+                memcpy(to + row * toStride, from + row * fromStride, min(fromStride, toStride))
+            }
+        }
+        CVBufferPropagateAttachments(buffer, copy)
+        return copy
     }
 
     /// Continues an open reader when the wanted time is a little later than
@@ -182,6 +251,7 @@ final class FrameRecovery: @unchecked Sendable {
         lock.withLock {
             sessions.forEach { $0.reader.cancelReading() }
             sessions.removeAll()
+            stills.removeAll()
         }
     }
 }

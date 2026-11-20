@@ -23,10 +23,23 @@ final class TandemInstruction: NSObject, AVVideoCompositionInstructionProtocol, 
         self.stack = stack
         self.scene = scene
         self.trackIDs = trackIDs
+        // Not the tracks of layers the compositor decodes itself here (a
+        // freeze frame): those tracks are empty, and a reader waiting on
+        // them could stall before the compositor is asked for a frame.
+        let range = range
+        func decodedDirectly(_ recovery: TimeRange?) -> Bool {
+            guard let recovery else { return false }
+            return recovery.start <= range.start && range.end <= recovery.end
+        }
         var needed = Set<CMPersistentTrackID>()
         for node in stack {
             for layer in node.layers {
-                for pool in [layer.pictureTrack, layer.matteTrack].compactMap({ $0 }) where trackIDs.indices.contains(pool) {
+                let clip = scene.clips[layer.clipID]
+                let used = [
+                    decodedDirectly(clip?.pictureRecovery) ? nil : layer.pictureTrack,
+                    decodedDirectly(clip?.matteRecovery) ? nil : layer.matteTrack
+                ]
+                for pool in used.compactMap({ $0 }) where trackIDs.indices.contains(pool) {
                     needed.insert(trackIDs[pool])
                 }
             }
