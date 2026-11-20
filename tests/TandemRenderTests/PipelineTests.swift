@@ -536,7 +536,10 @@ final class PipelineTests: XCTestCase {
             while let sample = output.copyNextSampleBuffer() { last = CMSampleBufferGetImageBuffer(sample) ?? last }
             let read = Bitmap(CIImage(cvPixelBuffer: try XCTUnwrap(last)), size: size)[160, 90]
             for channel in 0..<3 {
-                XCTAssertEqual(read[channel], exported[channel], accuracy: 3, "\(label) exported, as it always has been")
+                // Near what exports have shown on Macs here; GitHub's
+                // virtual Macs decode HDR a few levels off (209 for 215 in
+                // the highlights, 20 Nov 2026), whatever the compositor does.
+                XCTAssertEqual(read[channel], exported[channel], accuracy: 8, "\(label) exported, as it always has been")
                 XCTAssertEqual(still[channel], read[channel], accuracy: 3, "\(label) still")
                 XCTAssertEqual(playing[channel], read[channel], accuracy: 3, "\(label) playing")
             }
