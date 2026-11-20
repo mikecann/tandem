@@ -56,10 +56,6 @@ class TandemCompositor: NSObject, AVVideoCompositing {
     class var outputPixelFormat: OSType { kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange }
     /// True for frame grabs, where every frame is a seek.
     class var rendersStills: Bool { false }
-    /// True when an AVAssetReader reads through it (exports and scans),
-    /// which converts HDR sources to SDR before the compositor sees them
-    /// (see `FrameRecovery.frame`). The player and frame grabs don't.
-    class var reads: Bool { false }
     /// How urgently frames are rendered: someone's watching the viewer or
     /// waiting on an export, but not on a check's scan.
     class var renderQoS: DispatchQoS { .userInitiated }
@@ -73,6 +69,10 @@ class TandemCompositor: NSObject, AVVideoCompositing {
         queue = DispatchQueue(label: "com.mikerosoft.tandem.compositor", qos: Self.renderQoS, attributes: .concurrent)
         super.init()
     }
+
+    /// HDR frames come as they are, and `HDRFrames` converts them, the
+    /// same way for the player, frame grabs and exports.
+    var supportsHDRSourceFrames: Bool { true }
 
     var sourcePixelBufferAttributes: [String: any Sendable]? {
         [
@@ -145,7 +145,7 @@ class TandemCompositor: NSObject, AVVideoCompositing {
         }
         let time = Time(cmTime: request.compositionTime)
         let sources = RequestSources(request: request, trackIDs: instruction.trackIDs)
-        var image = FrameComposer(scene: instruction.scene, stills: type(of: self).rendersStills, reading: type(of: self).reads).compose(instruction.stack, at: time, sources: sources)
+        var image = FrameComposer(scene: instruction.scene, stills: type(of: self).rendersStills).compose(instruction.stack, at: time, sources: sources)
 
         // A player or frame grab may ask for a smaller frame than the canvas.
         let canvas = instruction.scene.canvas
@@ -197,18 +197,10 @@ final class TandemRGBCompositor: TandemCompositor {
 /// check would feel.
 final class TandemUtilityCompositor: TandemCompositor {
     override class var renderQoS: DispatchQoS { .utility }
-    override class var reads: Bool { true }
-}
-
-/// The compositor for an AVAssetReader at the viewer's priority: an export
-/// someone's waiting on, the privacy scan.
-final class TandemReaderCompositor: TandemCompositor {
-    override class var reads: Bool { true }
 }
 
 extension AVVideoComposition {
-    /// This composition drawn by `compositor` instead, as a reader of it
-    /// has to (`TandemCompositor.reads`).
+    /// This composition drawn by `compositor` instead.
     func drawn(by compositor: TandemCompositor.Type) -> AVVideoComposition {
         let composition = mutableCopy() as! AVMutableVideoComposition
         composition.customVideoCompositorClass = compositor
@@ -223,7 +215,7 @@ struct RequestSources: FrameSources {
 
     func frame(track: Int) -> CIImage? {
         guard trackIDs.indices.contains(track), let buffer = request.sourceFrame(byTrackID: trackIDs[track]) else { return nil }
-        return CIImage(cvPixelBuffer: buffer)
+        return CIImage(cvPixelBuffer: HDRFrames.shared.sdr(buffer))
     }
 }
 

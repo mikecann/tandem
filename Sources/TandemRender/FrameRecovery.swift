@@ -16,8 +16,6 @@ struct SourceTrack: @unchecked Sendable {
     /// The picture has transparency (a sticker in HEVC with alpha, ProRes
     /// 4444, a converted QuickTime Animation): decoded with alpha.
     var alpha = false
-    /// The video is tagged HLG or PQ (see `FrameRecovery.frame`'s `sdr`).
-    var hdr = false
 }
 
 /// Decodes a source frame when AVFoundation hands the compositor nothing.
@@ -54,7 +52,7 @@ final class FrameRecovery: @unchecked Sendable {
     /// A frame that couldn't be decoded is kept too, as nil, for a moment
     /// (`failureLife`), so a broken file isn't read again for every frame
     /// of an export, but is tried again later.
-    private var stills: [(asset: AVAsset, path: String, time: CMTime, sdr: Bool, alpha: Bool, pixels: CVPixelBuffer?, at: Date)] = []
+    private var stills: [(asset: AVAsset, path: String, time: CMTime, alpha: Bool, pixels: CVPixelBuffer?, at: Date)] = []
     private let maxStills = 8
     static let failureLife: TimeInterval = 2
 
@@ -64,7 +62,6 @@ final class FrameRecovery: @unchecked Sendable {
         /// The file as loaded: a file replaced at the same path is a new
         /// asset (`SourceCache`), and mustn't continue the old one's reader.
         let asset: AVAsset
-        let sdr: Bool
         let alpha: Bool
         let reader: AVAssetReader
         let output: AVAssetReaderTrackOutput
@@ -74,10 +71,9 @@ final class FrameRecovery: @unchecked Sendable {
         /// The first sample after `lastTime`, read but not used yet.
         var pending: CMSampleBuffer?
 
-        init(path: String, asset: AVAsset, sdr: Bool, alpha: Bool, reader: AVAssetReader, output: AVAssetReaderTrackOutput, end: CMTime, time: CMTime, current: CVPixelBuffer, pending: CMSampleBuffer?) {
+        init(path: String, asset: AVAsset, alpha: Bool, reader: AVAssetReader, output: AVAssetReaderTrackOutput, end: CMTime, time: CMTime, current: CVPixelBuffer, pending: CMSampleBuffer?) {
             self.path = path
             self.asset = asset
-            self.sdr = sdr
             self.alpha = alpha
             self.reader = reader
             self.output = output
@@ -100,29 +96,18 @@ final class FrameRecovery: @unchecked Sendable {
 
     /// The frame shown at media time `time`: the last one at or before it.
     /// Times past the end hold the last frame; before the start, the first.
-    ///
-    /// `sdr`: HDR video (an iPhone's HLG) comes converted to SDR, BT.709.
-    /// An AVAssetReader (exports, `tandem check`) hands the compositor the
-    /// frames around this one converted like that, while the player and
-    /// frame grabs hand them over as they are, and a frame decoded here has
-    /// to look like its neighbours: on 20 Nov 2026 an HLG freeze read
-    /// unconverted came out a third brighter than the same frame playing
-    /// in a scan (luma 0.48 against 0.36).
-    /// Not for video with alpha: its BGRA output takes no YCbCr colour
-    /// settings, and AVFoundation throws on them (HDR stickers are rare).
-    func frame(_ source: SourceTrack, at requested: CMTime, sdr: Bool = false) -> CVPixelBuffer? {
-        let sdr = sdr && source.hdr && !source.alpha
+    func frame(_ source: SourceTrack, at requested: CMTime) -> CVPixelBuffer? {
         let range = source.timeRange
         guard enabled, range.duration > .zero, requested.isNumeric else { return nil }
         let latest = CMTimeSubtract(range.end, Self.tolerance)
         let time = CMTimeMaximum(range.start, CMTimeMinimum(requested, latest))
         return lock.withLock {
             requests += 1
-            if let frame = continueSession(source, sdr: sdr, to: time) { return frame }
+            if let frame = continueSession(source, to: time) { return frame }
             for lookback in Self.lookbacks {
                 let start = CMTimeMaximum(range.start, CMTimeSubtract(time, CMTime(seconds: lookback, preferredTimescale: 600)))
                 let atFileStart = CMTimeCompare(start, range.start) == 0
-                guard let session = open(source, sdr: sdr, from: start, to: time) else {
+                guard let session = open(source, from: start, to: time) else {
                     if atFileStart { break }
                     continue
                 }
@@ -143,21 +128,20 @@ final class FrameRecovery: @unchecked Sendable {
     /// freeze frame asks for the same picture on every frame it shows, while
     /// other frames of its file come and go between (a run of cuts over
     /// two held screens), so it doesn't wait on a reader's single frame.
-    func still(_ source: SourceTrack, at requested: CMTime, sdr: Bool = false) -> CVPixelBuffer? {
-        let sdr = sdr && source.hdr && !source.alpha
+    func still(_ source: SourceTrack, at requested: CMTime) -> CVPixelBuffer? {
         let range = source.timeRange
         guard enabled, range.duration > .zero, requested.isNumeric else { return nil }
         let time = CMTimeMaximum(range.start, CMTimeMinimum(requested, CMTimeSubtract(range.end, Self.tolerance)))
         let path = source.url.path
         let cached: CVPixelBuffer?? = lock.withLock {
-            guard let index = stills.firstIndex(where: { $0.path == path && $0.asset === source.asset && $0.sdr == sdr && $0.alpha == source.alpha && CMTimeCompare($0.time, time) == 0 }) else { return nil }
+            guard let index = stills.firstIndex(where: { $0.path == path && $0.asset === source.asset && $0.alpha == source.alpha && CMTimeCompare($0.time, time) == 0 }) else { return nil }
             if stills[index].pixels == nil, Date().timeIntervalSince(stills[index].at) > Self.failureLife { return nil }
             let entry = stills.remove(at: index)
             stills.append(entry)
             return .some(entry.pixels)
         }
         if let cached { return cached }
-        let decoded = frame(source, at: time, sdr: sdr)
+        let decoded = frame(source, at: time)
         // Without a buffer for the copy (memory short), show the decoded
         // frame and keep nothing: the next frame tries again.
         let copy = decoded.flatMap(Self.copy)
@@ -165,8 +149,8 @@ final class FrameRecovery: @unchecked Sendable {
         // Switched off meanwhile: nothing was tried, so nothing failed.
         guard enabled else { return copy }
         lock.withLock {
-            stills.removeAll { $0.path == path && $0.sdr == sdr && $0.alpha == source.alpha && CMTimeCompare($0.time, time) == 0 }
-            stills.append((source.asset, path, time, sdr, source.alpha, copy, Date()))
+            stills.removeAll { $0.path == path && $0.alpha == source.alpha && CMTimeCompare($0.time, time) == 0 }
+            stills.append((source.asset, path, time, source.alpha, copy, Date()))
             if stills.count > maxStills { stills.removeFirst(stills.count - maxStills) }
         }
         return copy
@@ -214,8 +198,8 @@ final class FrameRecovery: @unchecked Sendable {
 
     /// Continues an open reader when the wanted time is a little later than
     /// the last one it returned.
-    private func continueSession(_ source: SourceTrack, sdr: Bool, to time: CMTime) -> CVPixelBuffer? {
-        guard let index = sessions.firstIndex(where: { $0.path == source.url.path && $0.asset === source.asset && $0.sdr == sdr && $0.alpha == source.alpha }) else { return nil }
+    private func continueSession(_ source: SourceTrack, to time: CMTime) -> CVPixelBuffer? {
+        guard let index = sessions.firstIndex(where: { $0.path == source.url.path && $0.asset === source.asset && $0.alpha == source.alpha }) else { return nil }
         let session = sessions[index]
         if CMTimeCompare(time, session.lastTime) == 0 { return session.current }
         guard CMTimeCompare(time, session.lastTime) > 0, CMTimeCompare(time, session.end) < 0 else { return nil }
@@ -237,22 +221,15 @@ final class FrameRecovery: @unchecked Sendable {
         return session.current
     }
 
-    private func open(_ source: SourceTrack, sdr: Bool, from start: CMTime, to time: CMTime) -> (session: Session, decodedFromStart: Bool)? {
+    private func open(_ source: SourceTrack, from start: CMTime, to time: CMTime) -> (session: Session, decodedFromStart: Bool)? {
         readersOpened += 1
         guard let reader = try? AVAssetReader(asset: source.asset) else { return nil }
         let end = CMTimeMinimum(source.timeRange.end, CMTimeAdd(time, CMTime(seconds: Self.readAhead, preferredTimescale: 600)))
         reader.timeRange = CMTimeRange(start: start, end: end)
-        var settings: [String: Any] = [
+        let settings: [String: Any] = [
             kCVPixelBufferPixelFormatTypeKey as String: source.alpha ? kCVPixelFormatType_32BGRA : kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
             kCVPixelBufferIOSurfacePropertiesKey as String: [String: Int]()
         ]
-        if sdr {
-            settings[AVVideoColorPropertiesKey] = [
-                AVVideoColorPrimariesKey: AVVideoColorPrimaries_ITU_R_709_2,
-                AVVideoTransferFunctionKey: AVVideoTransferFunction_ITU_R_709_2,
-                AVVideoYCbCrMatrixKey: AVVideoYCbCrMatrix_ITU_R_709_2
-            ]
-        }
         let output = AVAssetReaderTrackOutput(track: source.track, outputSettings: settings)
         output.alwaysCopiesSampleData = false
         guard reader.canAdd(output) else { return nil }
@@ -288,12 +265,12 @@ final class FrameRecovery: @unchecked Sendable {
         // A reader gives the frame showing at its start time that time, so
         // a first frame later than the start means frames there failed.
         let decodedFromStart = first.map { CMTimeCompare($0, CMTimeAdd(start, Self.tolerance)) <= 0 } ?? false
-        let session = Session(path: source.url.path, asset: source.asset, sdr: sdr, alpha: source.alpha, reader: reader, output: output, end: end, time: time, current: best, pending: pending)
+        let session = Session(path: source.url.path, asset: source.asset, alpha: source.alpha, reader: reader, output: output, end: end, time: time, current: best, pending: pending)
         return (session, decodedFromStart)
     }
 
     private func keep(_ session: Session) {
-        if let index = sessions.firstIndex(where: { $0.path == session.path && $0.sdr == session.sdr && $0.alpha == session.alpha }) {
+        if let index = sessions.firstIndex(where: { $0.path == session.path && $0.alpha == session.alpha }) {
             sessions[index].reader.cancelReading()
             sessions.remove(at: index)
         }
