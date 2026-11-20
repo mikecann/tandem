@@ -351,6 +351,17 @@ final class PipelineTests: XCTestCase {
         let tracks = try await built.composition.load(.tracks)
         let valid = built.videoComposition.isValid(for: tracks, assetDuration: built.composition.duration, timeRange: CMTimeRange(start: .zero, duration: built.composition.duration), validationDelegate: nil)
         XCTAssertTrue(valid, "instructions end at \(built.videoComposition.instructions.last?.timeRange.end.seconds ?? 0), tracks at \(built.composition.duration.seconds)")
+        XCTAssertEqual(built.warnings, [])
+
+        // Had it been invalid, the viewer's status bar would say so.
+        let short = AVMutableVideoComposition()
+        short.renderSize = CGSize(width: 320, height: 180)
+        short.frameDuration = CMTime(value: 1, timescale: 30)
+        let instruction = AVMutableVideoCompositionInstruction()
+        instruction.timeRange = CMTimeRange(start: .zero, duration: CMTime(value: 1, timescale: 1))
+        short.instructions = [instruction]
+        let problem = await CompositionAssembler.invalidity(of: short, in: built.composition)
+        XCTAssertEqual(problem, "no instruction for 1.0000-2.0000 s")
 
         let playerItem = built.makePlayerItem()
         let output = AVPlayerItemVideoOutput(pixelBufferAttributes: [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA])
