@@ -13,7 +13,7 @@ final class HDRFramesTests: XCTestCase {
 
     /// A 64x64 HLG BGRA frame: opaque on the left, half transparent in the
     /// middle, clear on the right.
-    func frame(straight: Bool) throws -> CVPixelBuffer {
+    func frame(straight: Bool, tagsCarryOver: Bool = true) throws -> CVPixelBuffer {
         var made: CVPixelBuffer?
         CVPixelBufferCreate(nil, 64, 64, kCVPixelFormatType_32BGRA, [kCVPixelBufferIOSurfacePropertiesKey as String: [String: Int]()] as CFDictionary, &made)
         let frame = try XCTUnwrap(made)
@@ -27,10 +27,14 @@ final class HDRFramesTests: XCTestCase {
             base[o + 3] = UInt8(alpha)
         } }
         CVPixelBufferUnlockBaseAddress(frame, [])
-        CVBufferSetAttachment(frame, kCVImageBufferTransferFunctionKey, kCVImageBufferTransferFunction_ITU_R_2100_HLG, .shouldPropagate)
-        CVBufferSetAttachment(frame, kCVImageBufferColorPrimariesKey, kCVImageBufferColorPrimaries_ITU_R_2020, .shouldPropagate)
+        let mode: CVAttachmentMode = tagsCarryOver ? .shouldPropagate : .shouldNotPropagate
+        CVBufferSetAttachment(frame, kCVImageBufferTransferFunctionKey, kCVImageBufferTransferFunction_ITU_R_2100_HLG, mode)
+        CVBufferSetAttachment(frame, kCVImageBufferColorPrimariesKey, kCVImageBufferColorPrimaries_ITU_R_2020, mode)
         if straight {
             CVBufferSetAttachment(frame, kCVImageBufferAlphaChannelModeKey, kCVImageBufferAlphaChannelMode_StraightAlpha, .shouldPropagate)
+        } else if !tagsCarryOver {
+            // Said outright, as ProRes 4444 and HEVC with alpha do.
+            CVBufferSetAttachment(frame, kCVImageBufferAlphaChannelModeKey, kCVImageBufferAlphaChannelMode_PremultipliedAlpha, .shouldPropagate)
         }
         return frame
     }
@@ -40,9 +44,10 @@ final class HDRFramesTests: XCTestCase {
     /// transparent pixel gets the same colour as an opaque one, whether its
     /// colour is premultiplied by its alpha or not.
     func testAnHDRFrameWithAlphaKeepsItAndIsConverted() throws {
-        for straight in [false, true] {
-            let what = straight ? "straight" : "premultiplied"
-            let sdr = HDRFrames.shared.sdr(try frame(straight: straight))
+        // Twice over, so the second pass gets buffers the first one used.
+        for (straight, carry) in [(false, true), (true, true), (false, false), (false, true), (true, true), (false, false)] {
+            let what = (straight ? "straight" : "premultiplied") + (carry ? "" : ", tags set not to carry over")
+            let sdr = HDRFrames.shared.sdr(try frame(straight: straight, tagsCarryOver: carry))
             XCTAssertEqual(CVPixelBufferGetPixelFormatType(sdr), kCVPixelFormatType_32BGRA, what)
             XCTAssertFalse(HDRFrames.isHDR(sdr), what)
             let mode = CVBufferCopyAttachment(sdr, kCVImageBufferAlphaChannelModeKey, nil) as? String

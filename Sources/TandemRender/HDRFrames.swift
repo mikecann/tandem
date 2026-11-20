@@ -77,7 +77,10 @@ final class HDRFrames: @unchecked Sendable {
     /// darker than it should. The result says which kind it is, as the
     /// frame did, since a pooled buffer may still carry the last one's tag.
     private func convertWithAlpha(_ buffer: CVPixelBuffer, pooled: Bool) -> CVPixelBuffer? {
-        guard CVPixelBufferGetPixelFormatType(buffer) == kCVPixelFormatType_32BGRA else { return nil }
+        // Other packed formats: converted as they are, as BGRA.
+        guard CVPixelBufferGetPixelFormatType(buffer) == kCVPixelFormatType_32BGRA else {
+            return transfer(buffer, to: kCVPixelFormatType_32BGRA, pooled: pooled)
+        }
         let mode = CVBufferCopyAttachment(buffer, kCVImageBufferAlphaChannelModeKey, nil) as? String
         let straight = mode == (kCVImageBufferAlphaChannelMode_StraightAlpha as String)
         var source = buffer
@@ -85,6 +88,12 @@ final class HDRFrames: @unchecked Sendable {
             guard let copy = makeBuffer(like: buffer, format: kCVPixelFormatType_32BGRA, pooled: pooled),
                   Self.premultiply(buffer, into: copy, undo: true) else { return nil }
             CVBufferPropagateAttachments(buffer, copy)
+            // Its colour tags too, even ones set not to carry over: without
+            // them the copy wouldn't be converted at all.
+            for key in [kCVImageBufferTransferFunctionKey, kCVImageBufferColorPrimariesKey, kCVImageBufferYCbCrMatrixKey, kCVImageBufferCGColorSpaceKey] {
+                if let value = CVBufferCopyAttachment(buffer, key, nil) { CVBufferSetAttachment(copy, key, value, .shouldPropagate) }
+            }
+            CVBufferSetAttachment(copy, kCVImageBufferAlphaChannelModeKey, kCVImageBufferAlphaChannelMode_StraightAlpha, .shouldPropagate)
             source = copy
         }
         guard let out = transfer(source, to: kCVPixelFormatType_32BGRA, pooled: pooled) else { return nil }
@@ -164,6 +173,8 @@ final class HDRFrames: @unchecked Sendable {
         if pooled {
             guard let pool = pool(width: width, height: height, format: format),
                   CVPixelBufferPoolCreatePixelBuffer(nil, pool, &made) == kCVReturnSuccess else { return nil }
+            // A pooled buffer keeps the tags of the frame it last held.
+            if let made { CVBufferRemoveAllAttachments(made) }
         } else {
             guard CVPixelBufferCreate(nil, width, height, format, Self.attributes(width: width, height: height, format: format) as CFDictionary, &made) == kCVReturnSuccess else { return nil }
         }
