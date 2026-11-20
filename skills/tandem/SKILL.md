@@ -1158,6 +1158,20 @@ and the upload batch.
   at the same time, which is confusing". Put it in the top window as a card
   (scale 0.42 at y 0.21875 over a blurred copy cropped to the window), with
   the camera in the bottom half, so it reads as the old video playing.
+- **When his camera is soft, he goes small and the screen goes big**
+  (coordinators video, 19 Nov 2026: "having me smaller on the screen and
+  showing more of the screen would be better given that I'm blurry"). The
+  default top-and-bottom split put his blurry face across half the phone.
+  What he got instead: the screen cropped to the part that matters and
+  scaled to fill the top two thirds, captions under it, and him on his
+  cutout at scale 0.85 at (0.6, 0.84), bottom right.
+- **Pick the moments that carry the video, not the first quotable line.**
+  He turned down a Short built round one aside ("pick out some more
+  interesting parts"). Fable and Astra both ranked the strongest rant
+  first, and the Short he took ran rant, then the demo that proves it,
+  then his closing question. For a talky, off-the-cuff video, ask other
+  labs to rank the moments when he asks for that, and lead with the
+  strongest.
 - **A question he asks the viewer types out on screen as he says it**, in
   his exact words with the typing sound, below his face, sliding off as he
   moves on (1.48: "pop up the question on the screen here as I say it").
