@@ -203,6 +203,8 @@ public enum ThroughEdits {
         var video = clip.video ?? VideoProperties()
         video.redactionSources = nil
         video.redactionEffectID = nil
+        // Origin stays a setting: independent privacy requests cannot be
+        // joined into one request whose controls could clear both.
         video.effects = video.effects.map { var effect = $0; effect.id = ""; return effect }
         shape.video = video
         var audio = clip.audio ?? AudioProperties()

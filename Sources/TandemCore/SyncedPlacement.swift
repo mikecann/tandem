@@ -287,15 +287,15 @@ enum SyncedPlacement {
     /// its linked clip of the same file: one over an angle that's off would
     /// otherwise show a patch of it over the camera.
     static func followHiddenPictures(_ p: inout Project, in range: TimeRange) {
-        let pictures = p.videoTracks.flatMap(\.clips).filter { !$0.isObscured && $0.linkGroup != nil && $0.range.overlaps(range) }
-        for t in p.videoTracks.indices {
+        let pictures = p.videoTracks.flatMap(\.clips).filter { !$0.isRedaction && !$0.isObscured && $0.linkGroup != nil && $0.range.overlaps(range) }
+        for t in p.videoTracks.indices where !p.videoTracks[t].locked {
             for i in p.videoTracks[t].clips.indices {
                 let clip = p.videoTracks[t].clips[i]
-                guard clip.isObscured, range.start <= clip.start, clip.end <= range.end, let group = clip.linkGroup else { continue }
+                guard clip.isRedaction || clip.isObscured, range.start <= clip.start, clip.end <= range.end, let group = clip.linkGroup else { continue }
                 // The picture it hides is the same file, linked, at the same time.
                 let under = pictures.filter { $0.linkGroup == group && $0.mediaID == clip.mediaID && $0.range.overlaps(clip.range) }
                 guard !under.isEmpty else { continue }
-                p.videoTracks[t].clips[i].enabled = under.contains(where: \.enabled)
+                p.videoTracks[t].clips[i].enabled = clip.video?.redactionVisibility != .disabled && under.contains(where: \.enabled)
             }
         }
     }
@@ -328,7 +328,7 @@ enum SyncedPlacement {
         }
         // A redaction (`redact`) is the take too, but it's a patch over the
         // picture below it, not an angle; it follows that picture instead.
-        func inTake(_ clip: Clip) -> Bool { !clip.isObscured && clip.mediaID.flatMap(p.media)?.takeID == take }
+        func inTake(_ clip: Clip) -> Bool { !clip.isRedaction && !clip.isObscured && clip.mediaID.flatMap(p.media)?.takeID == take }
         func isCamera(_ clip: Clip) -> Bool { clip.mediaID.flatMap(p.media)?.role == .camera }
         // The camera's track is the lowest with the take's camera on it
         // there; its angles are the take's tracks above it.

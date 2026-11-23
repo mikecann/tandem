@@ -100,6 +100,24 @@ cut that removes every current copy retains the source intent, so inserting
 those frames again must still cover them. Changing a protected file's
 picture delay also refuses.
 
+A timing edit to a copy cannot release its protected tail, including an
+animated blur. Adding another effect keeps the active privacy effect's
+identity; removing it uses another effective blur or pixelate if one remains.
+Clearing the copy's whole `video` object refuses rather than clear ownership.
+Repointing a privacy copy to different content also refuses; redact the other
+source to create its own request. Stills do not need a video flag to be
+redacted. A one-pixel mosaic is ineffective, so pixelate size must be above1
+(blur radius above0).
+An automatic privacy fix needs source evidence from the actual composed
+frame. An alpha-capable or unknown video format stays a finding to inspect,
+even when its project entry says it has no alpha. A loaded video that fails
+to supply a frame cannot take attribution from the picture visible below it.
+If a replacement file's rendered dimensions differ from its saved dimensions,
+the scan retains findings without an automatic fix until the media is refreshed.
+Privacy copies need their own tracks: mixing them with ordinary footage
+refuses the edit, so that footage remains available to redact and scan.
+Naming an ordinary track Privacy does not give it this role.
+
 Fractional source cuts retain the whole decoded source frames they show.
 The renderer reads actual presentation timestamps, including isolated dropped
 frames in recordings still classified as constant-rate. If that table cannot
@@ -123,11 +141,31 @@ identity as well as its media ID, so another reference to the same file
 cannot evade it. Blur strength is retained in source pixels through later
 zooms. Renaming a privacy track keeps its identity.
 
-Switching a copy or its effect off, hiding its track, or explicitly removing
+Switching a copy or its last effective privacy effect off, hiding its track, or explicitly removing
 it relinquishes that copy's selected source region. Blading partitions that
 selection; joining combines it again. Ordinary cuts that happen to remove
 the copy do not relinquish the source intent. Undo restores the whole edit,
 including its protection. Older projects acquire this intent on load.
+Old copies with disabled or removed effects keep their identity too, so they
+stay undrawn until an effect is restored. A copy deliberately disabled stays
+off when its picture is hidden and shown again or the camera angle changes,
+including after reload. An inactive copy on a locked track does not block
+picture transforms or layout changes.
+Removing or editing an already inactive copy cannot relinquish another
+copy's retained protection. Separate redaction requests retain separate
+ownership even over the same pixels; a later copy cannot turn off an older
+request that a cut retained. A new redaction uses a visible privacy track.
+Strengthening a blur keeps its recorded source timing and all earlier file
+identities, including an offline original after relinking. A locked privacy
+copy cannot be rewritten when adopting a format, even when unlinked or off;
+unlock the track first. Locked tracks cannot be reordered.
+Originless policies from unreleased development versions retain separate
+historical protection: their old merged rows cannot prove who owns them.
+Disabling a surviving copy can refuse if it would expose that history.
+Released schema1/2 projects acquire ordinary ownership when loaded.
+At a file's opening, the recovery decoder can hold a later frame within
+250 ms of the track start. Protection covers that possible held frame too,
+which can conceal an opening region earlier than the selected time.
 
 Turning a copy's blur off (Mike's "Turn off blur" in the inspector), or
 removing it, leaves the copy hiding nothing, so it isn't drawn: drawn,
@@ -195,8 +233,11 @@ rules can't know that a plan is internal, a quote is someone else's, or a
 list of projects is private. A title or caption is left out only when the
 read text matches its words and drawn position. Recognised private text is
 flagged even when its source has a blur effect. Text in a transition lists
-its possible contributors, with no automatic redaction; an unknown source
-is still a problem to inspect. Missing frames or failed OCR stop the scan
+its possible contributors, with no automatic redaction. Overlapping cutouts,
+mixed or unknown transparency, and translucent titles can also leave the
+source uncertain. Those findings still need inspection and have no automatic
+redaction. Adjustment layers and graphics outside the text do not hide its
+source. Missing frames or failed OCR stop the scan
 with an error, so they cannot produce a clean result. The reader uses
 original media and only reuses OCR for byte-identical rendered frames.
 It reads the main layout; a format with its own layout

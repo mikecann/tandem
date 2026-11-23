@@ -571,7 +571,7 @@ export type RedactArgs = {
   name?: string;
   range: TimeRange;
   rect: Rect;
-  /** Block size (pixelate) or radius (blur) in px@1080. Default the effect's own: 24 and 20. */
+  /** Block size (pixelate, above 1) or radius (blur, above 0) in px@1080. Default the effect's own: 24 and 20. */
   size?: number;
   /** Default pixelate. */
   style?: "pixelate" | "blur";

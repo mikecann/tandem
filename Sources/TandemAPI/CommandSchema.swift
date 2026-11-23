@@ -707,7 +707,7 @@ extension CommandSchema {
                 "mediaID": S.string("The recording to hide part of, wherever it shows. Give this or trackID."),
                 "trackID": S.track("Hide part of every clip on this video track instead."),
                 "style": S.enumeration(RedactStyle.allCases.map(\.rawValue), "Default pixelate."),
-                "size": S.number("Block size (pixelate) or radius (blur) in px@1080. Default the effect's own: 24 and 20."),
+                "size": S.number("Block size (pixelate, above 1) or radius (blur, above 0) in px@1080. Default the effect's own: 24 and 20."),
                 "name": S.string("What's hidden, for the copies' names: \"Privacy: QR code\".")
             ], required: ["range", "rect"]),
             example: #"{"redact": {"mediaID": "med_phone", "range": {"start": 1134.1, "duration": 2.8}, "rect": {"x": 0.05, "y": 0.22, "width": 0.9, "height": 0.63}, "size": 40, "name": "QR code"}}"#

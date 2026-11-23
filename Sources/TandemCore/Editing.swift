@@ -6,6 +6,27 @@ import Foundation
 /// whole batch on a copy of the project and only commits it if every command
 /// succeeds and the result validates.
 public enum Editing {
+    /// Commit, recovery and preflight share the same atomic batch validation.
+    @discardableResult
+    public static func apply(_ batch: EditBatch, to project: inout Project, context: inout EditContext) throws -> [ValidationIssue] {
+        var working = project
+        var pending = context
+        pending.defersPrivacyCoverage = true
+        for (index, command) in batch.commands.enumerated() {
+            do { try apply(command, to: &working, context: &pending) }
+            catch let error as EditError where batch.commands.count > 1 {
+                throw EditError.invalid("command \(index + 1) of \(batch.commands.count): \(error.description)")
+            }
+        }
+        try RedactionSafety.requireCoverage(working, protecting: RedactionSafety.protections(in: working))
+        let issues = ProjectValidator.validate(working)
+        if let first = issues.first(where: { $0.severity == .error }) { throw EditError.invalid(first.message) }
+        pending.defersPrivacyCoverage = context.defersPrivacyCoverage
+        project = working
+        context = pending
+        return issues
+    }
+
     public static func apply(_ submitted: EditCommand, to project: inout Project, context: inout EditContext) throws {
         var working = project
         var pending = context
@@ -56,7 +77,7 @@ public enum Editing {
         case .placeSynced(let mediaID, let trackID):
             try SyncedPlacement.place(&project, mediaID: mediaID, trackID: trackID, &context)
         case .insertClip(let trackID, let clip, let mode):
-            guard clip.video?.redaction == nil, clip.video?.redactionSources == nil, clip.video?.redactionEffectID == nil else {
+            guard !clip.isRedaction else {
                 throw EditError.invalid("Privacy source fields are created by redact. Insert the picture and redact it in the same batch.")
             }
             try insertClip(&project, trackID: trackID, clip: clip, mode: mode ?? .place, &context)
@@ -404,6 +425,7 @@ public enum Editing {
 
     static func moveTrack(_ p: inout Project, _ trackID: String, _ index: Int) throws {
         let location = try requireTrack(p, trackID)
+        try requireUnlocked(p[location])
         if location.kind == .video {
             let track = p.videoTracks.remove(at: location.index)
             p.videoTracks.insert(track, at: min(max(index, 0), p.videoTracks.count))
@@ -581,11 +603,11 @@ public enum Editing {
         _ context: inout EditContext
     ) throws -> TrackLocation {
         if let name = trackName(for: role, kind: kind), let track = p.track(named: name, kind: kind),
-           let location = p.location(ofTrack: track.id), !track.locked {
+           let location = p.location(ofTrack: track.id), !track.locked, !track.isPrivacy {
             return location
         }
         let tracks = kind == .video ? p.videoTracks : p.audioTracks
-        if let index = tracks.firstIndex(where: { !$0.locked && (!requireFree || $0.isFree(range)) }) {
+        if let index = tracks.firstIndex(where: { !$0.locked && !$0.isPrivacy && (!requireFree || $0.isFree(range)) }) {
             return TrackLocation(kind: kind, index: index)
         }
         try addTrack(&p, kind: kind, name: trackName(for: role, kind: kind), index: nil, id: nil, &context)
@@ -1305,7 +1327,7 @@ public enum Editing {
     }
 
     static func updateClip(_ p: inout Project, _ clipID: String, _ patch: JSONValue, _ context: inout EditContext) throws {
-        if patchSets(patch, "video", "redaction") || patchSets(patch, "video", "redactionSources") || patchSets(patch, "video", "redactionEffectID") {
+        if patchSets(patch, "video", "redaction") || patchSets(patch, "video", "redactionSources") || patchSets(patch, "video", "redactionEffectID") || patchSets(patch, "video", "redactionOriginID") || patchSets(patch, "video", "redactionVisibility") {
             throw EditError.invalid("Privacy source intent cannot be replaced by a clip patch. Use the redaction's enabled or effect controls.")
         }
         let (location, index) = try requireClip(p, clipID)
@@ -1313,6 +1335,21 @@ public enum Editing {
         try requireObject(patch, forbidden: ["id"], what: "clip")
         let before = p[location].clips[index]
         var clip = try JSONValue.applyMergePatch(patch, to: before)
+        if before.isRedaction {
+            guard clip.content == before.content else {
+                throw EditError.invalid("A privacy copy must keep its source picture. Redact the other source to create a new request.")
+            }
+            guard clip.video?.redaction == before.video?.redaction,
+                  clip.video?.redactionSources == before.video?.redactionSources,
+                  clip.video?.redactionEffectID == before.video?.redactionEffectID,
+                  clip.video?.redactionOriginID == before.video?.redactionOriginID,
+                  clip.video?.redactionVisibility == before.video?.redactionVisibility else {
+                throw EditError.invalid("Privacy source intent cannot be cleared with video properties. Use the redaction's enabled or effect controls.")
+            }
+            if patchSets(patch, "enabled") {
+                clip.video?.redactionVisibility = clip.enabled ? .followingPicture : .disabled
+            }
+        }
         // A clip's gain set before it was levelled (a bed's -31 dB from
         // placing it) was chosen against the file as it is. Levelling to a
         // loudness replaces that choice, so the old gain stacking on top
@@ -1341,7 +1378,7 @@ public enum Editing {
     }
 
     /// Whether a merge patch names this key path, with any value.
-    private static func patchSets(_ patch: JSONValue, _ path: String...) -> Bool {
+    static func patchSets(_ patch: JSONValue, _ path: String...) -> Bool {
         var value = patch
         for key in path {
             guard case .object(let object) = value, let next = object[key] else { return false }
@@ -1758,7 +1795,6 @@ public enum Editing {
                 throw EditError.invalid("clip \(clipID) already has effect \(effect.id)")
             }
             video.effects.insert(effect, at: min(max(index ?? video.effects.count, 0), video.effects.count))
-            if video.redaction != nil, RedactStyle(rawValue: effect.type) != nil { video.redactionEffectID = effect.id }
             clip.video = video
         case .audio:
             guard p[location].kind == .audio else {

@@ -129,19 +129,7 @@ public final class ProjectCoordinator: @unchecked Sendable {
             }
             var working = _project
             var context = EditContext(sourceFolder: sourceFolder?.url)
-            context.defersPrivacyCoverage = true
-            for (index, command) in batch.commands.enumerated() {
-                do {
-                    try Editing.apply(command, to: &working, context: &context)
-                } catch let error as EditError where batch.commands.count > 1 {
-                    throw EditError.invalid("command \(index + 1) of \(batch.commands.count): \(error.description)")
-                }
-            }
-            try RedactionSafety.requireCoverage(working, protecting: RedactionSafety.protections(in: working))
-            let issues = ProjectValidator.validate(working)
-            if let first = issues.first(where: { $0.severity == .error }) {
-                throw EditError.invalid(first.message)
-            }
+            let issues = try Editing.apply(batch, to: &working, context: &context)
             let before = _project
             _project = working
             _revision += 1

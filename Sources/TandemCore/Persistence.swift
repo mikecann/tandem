@@ -300,14 +300,9 @@ public final class ProjectJournal: @unchecked Sendable {
                 replayed?(entry, before, current)
             } else if let batch = entry.batch {
                 var context = EditContext(seed: entry.seed ?? 0, sourceFolder: sourceFolder)
-                context.defersPrivacyCoverage = true
                 var working = current
                 do {
-                    for command in batch.commands {
-                        try Editing.apply(command, to: &working, context: &context)
-                    }
-                    try RedactionSafety.requireCoverage(working, protecting: RedactionSafety.protections(in: working))
-                    if let error = ProjectValidator.validate(working).first(where: { $0.severity == .error }) { throw EditError.invalid(error.message) }
+                    try Editing.apply(batch, to: &working, context: &context)
                     // An older Tandem wrote full styles where it meant
                     // "the preset's". Every edit before this one was that
                     // older Tandem's too, so the whole project reads its way.

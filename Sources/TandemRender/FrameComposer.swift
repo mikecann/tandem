@@ -115,8 +115,9 @@ final class RenderScene: @unchecked Sendable {
     let recovery: FrameRecovery?
     /// Properties being dragged in the viewer, used over the clips' own.
     let overrides: LiveVideoOverrides?
+    let collectPrivacyEvidence: Bool
 
-    init(canvas: CGSize, frameDuration: Time, format: String?, clips: [String: SceneClip], registry: EffectRegistry, folder: ProjectFolder, recovery: FrameRecovery? = nil, overrides: LiveVideoOverrides? = nil) {
+    init(canvas: CGSize, frameDuration: Time, format: String?, clips: [String: SceneClip], registry: EffectRegistry, folder: ProjectFolder, recovery: FrameRecovery? = nil, overrides: LiveVideoOverrides? = nil, collectPrivacyEvidence: Bool = false) {
         self.canvas = canvas
         self.frameDuration = frameDuration
         self.format = format
@@ -125,6 +126,7 @@ final class RenderScene: @unchecked Sendable {
         self.folder = folder
         self.recovery = recovery
         self.overrides = overrides
+        self.collectPrivacyEvidence = collectPrivacyEvidence
     }
 
     var pixelScale: CGFloat { LayerMath.pixelScale(canvas: canvas) }
@@ -147,6 +149,16 @@ struct FrameComposer {
     /// Single frames (grabs) rather than a stream: every one is a seek, so
     /// any leading frame AVFoundation can't reach is decoded directly.
     var stills = false
+    var privacyEvidence: FramePrivacyEvidence? = nil
+
+    private func attestEffects(_ effects: [Effect]) {
+        guard let privacyEvidence else { return }
+        if effects.contains(where: { $0.enabled && scene.registry.definition($0.type) != EffectRegistry.standard.definition($0.type) }) {
+            // A pack can replace defaults or bindings under a built-in name.
+            // The scanner's standard bounds cannot attest those coordinates.
+            privacyEvidence.uncertain()
+        }
+    }
 
     func compose(_ stack: [StackNode], at time: Time, sources: FrameSources) -> CIImage {
         let rect = CGRect(origin: .zero, size: scene.canvas)
@@ -175,15 +187,30 @@ struct FrameComposer {
     func layer(_ ref: LayerRef, below: CIImage, at time: Time, sources: FrameSources) -> CIImage? {
         guard let sceneClip = scene.clips[ref.clipID] else { return nil }
         let clip = sceneClip.clip
+        var renderedMedia = false
+        var opaqueVideo = sceneClip.picture?.opaque == true && FramePrivacyEvidence.preservesPixelGrid(sceneClip.pictureTransform)
+        defer {
+            if case .media = clip.content {
+                if renderedMedia {
+                    privacyEvidence?.visible(ref.clipID, opaqueVideo: ref.pictureTrack != nil && opaqueVideo)
+                } else {
+                    privacyEvidence?.missing(ref.clipID)
+                }
+            }
+        }
         let clipTime = time - clip.start
         guard var video = clip.resolvedVideo(at: clipTime, format: scene.format) else { return nil }
-        if let live = scene.overrides?.video(for: ref.clipID) { video = live }
+        if let live = scene.overrides?.video(for: ref.clipID) {
+            video = live
+            privacyEvidence?.uncertain()
+        }
         let canvas = scene.canvas
         let rect = CGRect(origin: .zero, size: canvas)
 
         // An adjustment layer applies its effects to everything below it,
         // mixed in by its opacity.
         if case .adjustment = clip.content {
+            attestEffects(video.effects)
             let env = EffectEnvironment(registry: scene.registry, folder: scene.folder, pixelsPerUnit: scene.pixelScale)
             return EffectRenderer.apply(video.effects, to: below, env).cropped(to: rect).tandemOpacity(video.opacity)
         }
@@ -194,7 +221,9 @@ struct FrameComposer {
         switch clip.content {
         case .media:
             if let track = ref.pictureTrack {
-                guard let frame = frame(track, sceneClip.picture, sceneClip.pictureRecovery, sceneClip, at: time, sources: sources) else { return nil }
+                guard let frame = frame(track, sceneClip.picture, sceneClip.pictureRecovery, sceneClip, at: time, sources: sources) else {
+                    return nil
+                }
                 image = Self.oriented(frame, sceneClip.pictureTransform)
             } else if let url = sceneClip.imageURL, let still = ImageCache.shared.image(at: url) {
                 image = still
@@ -229,19 +258,27 @@ struct FrameComposer {
 
         let size = image.extent.size
         guard size.width > 0, size.height > 0 else { return nil }
+        if case .media = clip.content,
+           sceneClip.media?.width.map(CGFloat.init) != size.width || sceneClip.media?.height.map(CGFloat.init) != size.height {
+            // Attribution places OCR rectangles using the saved dimensions.
+            // A path-only replacement can render at a different size.
+            privacyEvidence?.uncertain()
+        }
         let total = LayerMath.totalScale(source: size, canvas: canvas, transform: video.transform, fitToCanvas: fitToCanvas)
         guard total > 1e-4 else { return nil }
         // Source pixels per px@1080 unit, so sizes look the same on screen
         // whatever the layer's scale.
         let unit = scene.pixelScale / total
         let env = EffectEnvironment(registry: scene.registry, folder: scene.folder, pixelsPerUnit: unit)
-        let look = sceneClip.media.flatMap { scene.overrides?.look(for: $0) } ?? sceneClip.media?.look ?? []
+        let liveLook = sceneClip.media.flatMap { scene.overrides?.look(for: $0) }
+        if liveLook != nil { privacyEvidence?.uncertain() }
+        let look = liveLook ?? sceneClip.media?.look ?? []
 
         // Hide source pixels before crop, placement and transition motion.
         // A stationary overlay cannot follow a push, nor cover a dissolve's
         // handles. Protect every occurrence of the selected source frames.
         var appliedPrivacy = false
-        for protection in sceneClip.redactions {
+        for protection in sceneClip.redactions where !protection.sources.isEmpty {
             let pictureTime = clip.pictureTime(atTimelineTime: time, rate: sceneClip.frameRate)
             let shown = RedactionSafety.displayedSource(pictureTime, media: sceneClip.media, frame: scene.frameDuration)
             let nominal = RedactionSafety.displayedSource(clip.sourceTime(atTimelineTime: time), media: sceneClip.media, frame: scene.frameDuration)
@@ -252,16 +289,23 @@ struct FrameComposer {
             let ownCopy = clip.video?.redaction == protection.region && RedactionSafety.effect(on: clip).map { $0.type == protection.effect.type && $0.params == protection.effect.params } == true
             let decoded = RedactionSafety.frozenSources(pictureTime, media: sceneClip.media, frame: scene.frameDuration).contains { candidate in protection.sources.contains { $0.contains(candidate) } }
             let delay = sceneClip.media?.pictureDelay ?? .zero
-            var requests = [pictureTime]
-            if clip.freezeFrame { requests.append(pictureTime + Time(seconds: 0.001)) }
+            var requests = [pictureTime, pictureTime + Time(seconds: 0.001)]
+            if let picture = sceneClip.picture {
+                requests.append(Time(cmTime: FrameRecovery.sampleLimit(at: sceneClip.mediaTime(at: time), within: picture.timeRange)) - delay)
+            }
+            let opening = sceneClip.picture.flatMap { FrameRecovery.openingWindow(at: sceneClip.mediaTime(at: time), within: $0.timeRange) }
+            let openingHold = opening.map { window in protection.sources.contains { $0.overlaps(TimeRange(start: window.start - delay, end: window.end - delay)) } } ?? false
             if held { requests.append(pictureTime - min(Time(seconds: 0.001), scene.frameDuration)) }
             let actual = requests.compactMap { sceneClip.privacyTiming.source(at: $0, delay: delay) }
                 .contains { source in protection.sources.contains { $0.contains(source) } }
-            guard sceneClip.media?.kind == .image || sceneClip.media?.variableFrameRate == true || protection.sourceVariableFrameRate == true || sceneClip.privacyTiming.protectsEveryFrame || ownCopy || decoded || actual || handle || protection.sources.contains(where: { $0.contains(shown) || $0.contains(nominal) || (held && $0.contains(decodedHold)) }) else { continue }
+            guard sceneClip.media?.kind == .image || sceneClip.media?.variableFrameRate == true || protection.sourceVariableFrameRate == true || sceneClip.privacyTiming.protectsEveryFrame || ownCopy || decoded || actual || openingHold || handle || protection.sources.contains(where: { $0.contains(shown) || $0.contains(nominal) || (held && $0.contains(decodedHold)) }) else { continue }
             let region = protection.region
             let patch = CGRect(x: region.x * size.width, y: (1 - region.y - region.height) * size.height, width: region.width * size.width, height: region.height * size.height)
-            let ratio = size.width / CGFloat(max(1, sceneClip.media?.width ?? Int(size.width)))
-            let privacyEnvironment = EffectEnvironment(registry: scene.registry, folder: scene.folder, pixelsPerUnit: max(unit, protection.sourcePixelsPerUnit * ratio))
+            let ratio = size.width / CGFloat(max(1, protection.sourceWidth ?? Int(size.width)))
+            // Privacy intent keeps its built-in meaning even when a caller
+            // replaces a display effect's defaults or Core Image binding.
+            let privacyEnvironment = EffectEnvironment(registry: .standard, folder: scene.folder, pixelsPerUnit: max(unit, protection.sourcePixelsPerUnit * ratio))
+            attestEffects([protection.effect])
             let hidden = EffectRenderer.apply([protection.effect], to: image, privacyEnvironment).cropped(to: patch)
             // Replace the selected pixels, including alpha. Source-over
             // would keep sharp opaque glyphs under a translucent blur.
@@ -271,9 +315,15 @@ struct FrameComposer {
             ])
             appliedPrivacy = true
         }
+        if appliedPrivacy, sceneClip.media?.kind == .image {
+            // A durable blur/pixelate can mix a still's alpha even on an
+            // occurrence without a visible copy or ordinary effect.
+            privacyEvidence?.uncertain()
+        }
         let effects = appliedPrivacy && clip.video?.redaction != nil
             ? video.effects.filter { $0.id != clip.video?.redactionEffectID }
             : video.effects
+        attestEffects(look + effects)
         image = EffectRenderer.apply(look + effects, to: image, env)
 
         if !video.crop.isIdentity {
@@ -302,6 +352,12 @@ struct FrameComposer {
 
         let placement = LayerMath.placement(source: size, canvas: canvas, transform: video.transform, fitToCanvas: fitToCanvas)
         let transform = LayerMath.coreImage(placement, sourceHeight: size.height, canvasHeight: canvas.height)
+        if !FramePrivacyEvidence.preservesPixelGrid(transform), total <= 1.001 {
+            // Other Core Image resamplers do not establish the bounded
+            // source support used by scan attribution.
+            opaqueVideo = false
+            if sceneClip.media?.kind == .image { privacyEvidence?.uncertain() }
+        }
         if !transform.isIdentity {
             // Scaling up (a 3200 px screen recording on a 4K canvas, and
             // more so zoomed in), Lanczos keeps small text crisp where
@@ -324,7 +380,9 @@ struct FrameComposer {
                 color: colour
             )
         }
-        return image.cropped(to: rect).tandemOpacity(opacity)
+        let output = image.cropped(to: rect).tandemOpacity(opacity)
+        renderedMedia = !output.extent.isEmpty
+        return output
     }
 
     // MARK: - Pieces

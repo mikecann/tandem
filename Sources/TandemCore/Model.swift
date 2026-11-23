@@ -496,6 +496,11 @@ public struct HeldFrame: Codable, Equatable, Sendable {
     }
 }
 
+public enum RedactionVisibility: String, Codable, Sendable {
+    case followingPicture
+    case disabled
+}
+
 public struct VideoProperties: Codable, Equatable, Sendable {
     public var transform: Transform
     /// Crop in normalised units of the source frame: 0.1 on `left` trims 10%
@@ -522,6 +527,11 @@ public struct VideoProperties: Codable, Equatable, Sendable {
     public var redactionSources: [TimeRange]?
     /// The copy's privacy effect, separate from looks on its source.
     public var redactionEffectID: String?
+    /// The original privacy request, retained by blades and effect changes.
+    public var redactionOriginID: String?
+    /// An intentional switch-off survives the picture being hidden and
+    /// shown. Hiding a picture temporarily keeps its copy following it.
+    public var redactionVisibility: RedactionVisibility?
 
     public init(
         transform: Transform = Transform(),
@@ -533,7 +543,9 @@ public struct VideoProperties: Codable, Equatable, Sendable {
         formatOverrides: [String: FormatOverride] = [:],
         redaction: Rect? = nil,
         redactionSources: [TimeRange]? = nil,
-        redactionEffectID: String? = nil
+        redactionEffectID: String? = nil,
+        redactionOriginID: String? = nil,
+        redactionVisibility: RedactionVisibility? = nil
     ) {
         self.transform = transform
         self.crop = crop
@@ -545,6 +557,8 @@ public struct VideoProperties: Codable, Equatable, Sendable {
         self.redaction = redaction
         self.redactionSources = redactionSources
         self.redactionEffectID = redactionEffectID
+        self.redactionOriginID = redactionOriginID
+        self.redactionVisibility = redactionVisibility
     }
 }
 
@@ -1287,6 +1301,8 @@ extension VideoProperties {
         redaction = try c.decodeIfPresent(Rect.self, forKey: .redaction)
         redactionSources = try c.decodeIfPresent([TimeRange].self, forKey: .redactionSources)
         redactionEffectID = try c.decodeIfPresent(String.self, forKey: .redactionEffectID)
+        redactionOriginID = try c.decodeIfPresent(String.self, forKey: .redactionOriginID)
+        redactionVisibility = try c.decodeIfPresent(RedactionVisibility.self, forKey: .redactionVisibility)
     }
 }
 

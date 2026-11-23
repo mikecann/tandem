@@ -7,6 +7,15 @@ enum SourcePrivacyTiming: Sendable {
     case allFrames
     case samples([Time])
 
+    init(_ times: [Time]?) {
+        guard let times, !times.isEmpty, times[0] >= .zero,
+              zip(times, times.dropFirst()).allSatisfy({ $0 < $1 }) else {
+            self = .allFrames
+            return
+        }
+        self = .samples(times)
+    }
+
     var protectsEveryFrame: Bool {
         if case .allFrames = self { return true }
         return false
@@ -24,6 +33,17 @@ enum SourcePrivacyTiming: Sendable {
     func source(at request: Time, delay: Time) -> Time? {
         guard case .samples(let times) = self, !times.isEmpty else { return nil }
         return times[Self.index(at: request + delay, in: times)] - delay
+    }
+
+    /// One actual sample's presentation interval. An output frame (or even
+    /// a millisecond) can contain several samples in a fast source file.
+    func slice(at request: Time, within available: TimeRange) -> TimeRange? {
+        guard case .samples(let times) = self, !times.isEmpty else { return nil }
+        let index = Self.index(at: request, in: times)
+        let next = Self.index(at: times[index], in: times) + 1
+        let start = max(available.start, times[index])
+        let end = min(available.end, next < times.count ? times[next] : available.end)
+        return end > start ? TimeRange(start: start, end: end) : nil
     }
 
     func expanding(_ ranges: [TimeRange], media: MediaItem, frame: Time) -> [TimeRange] {

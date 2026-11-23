@@ -31,6 +31,33 @@ final class EditorBehaviourTests: XCTestCase {
 
     // MARK: - Cutting
 
+    func testADisabledPrivacyCopyStaysOffWhenItsPictureIsToggledFromTheMenu() throws {
+        let screen = editor.clip("Screen")
+        editor.model.apply(EditBatch(label: "Hide private text", commands: [
+            .redact(range: TimeRange(start: t(2), end: t(6)), rect: Rect(x: 0.1, y: 0.1, width: 0.3, height: 0.1), mediaID: screen.mediaID, style: .blur)
+        ]))
+        editor.settle()
+        let copy = try XCTUnwrap(editor.clips("Privacy (Screen)").first)
+        let picture = try XCTUnwrap(editor.clips("Screen").first { $0.start == t(2) })
+        let copyPoint = editor.point(of: copy.id, at: 4)
+        editor.click(copyPoint, modifiers: .option)
+        XCTAssertEqual(editor.model.selection, [copy.id])
+        editor.choose("Disable", at: copyPoint)
+        XCTAssertFalse(editor.project.clip(copy.id)!.enabled)
+        let picturePoint = editor.point(of: picture.id, at: 4)
+        editor.click(picturePoint, modifiers: .option)
+        editor.choose("Disable", at: picturePoint)
+        XCTAssertFalse(editor.project.clip(picture.id)!.enabled)
+        editor.click(picturePoint, modifiers: .option)
+        editor.choose("Enable", at: picturePoint)
+        XCTAssertTrue(editor.project.clip(picture.id)!.enabled)
+        XCTAssertFalse(editor.project.clip(copy.id)!.enabled)
+        XCTAssertFalse(RenderPlanner.plan(editor.project, format: nil, assets: nil).videoSegments.contains { $0.clipID == copy.id })
+        XCTAssertTrue(editor.press("cmd+z"))
+        XCTAssertTrue(editor.press("cmd+shift+z"))
+        XCTAssertFalse(editor.project.clip(copy.id)!.enabled)
+    }
+
     func testBladingAndDraggingARedactedPieceKeepsItsPrivacyCopyWithIt() throws {
         let screen = editor.clip("Screen")
         editor.model.apply(EditBatch(label: "Hide private text", commands: [

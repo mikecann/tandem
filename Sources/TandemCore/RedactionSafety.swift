@@ -30,10 +30,21 @@ public struct SourceRedaction: Codable, Equatable, Sendable {
     public var region: Rect
     public var effect: Effect
     public var sourcePixelsPerUnit: Double
+    public var originID: String? = nil
 
     public func matches(_ item: MediaItem) -> Bool {
         identities?.contains(where: { $0.matches(item) }) == true || mediaID == item.id || (fingerprint?.isEmpty == false && fingerprint == item.fingerprint)
             || (sourcePath as NSString).standardizingPath == (item.path as NSString).standardizingPath
+    }
+
+    func sharesSource(with other: SourceRedaction) -> Bool {
+        let left = [RedactionSourceIdentity(mediaID: mediaID, path: sourcePath, fingerprint: fingerprint)] + (identities ?? [])
+        let right = [RedactionSourceIdentity(mediaID: other.mediaID, path: other.sourcePath, fingerprint: other.fingerprint)] + (other.identities ?? [])
+        return left.contains { a in right.contains { b in
+            a.mediaID == b.mediaID || (!a.path.isEmpty && (a.path as NSString).standardizingPath == (b.path as NSString).standardizingPath)
+                || (a.fingerprint?.isEmpty == false && a.fingerprint == b.fingerprint)
+                || (a.fileIdentity != nil && a.fileIdentity == b.fileIdentity)
+        } }
     }
 }
 
@@ -55,17 +66,38 @@ public enum RedactionSafety {
         }
     }
     public static func effect(on clip: Clip) -> Effect? {
-        for effect in (clip.video?.effects ?? []).reversed() {
-            if let id = clip.video?.redactionEffectID, effect.id != id { continue }
+        let effects = clip.video?.effects ?? []
+        let preferred = effects.filter { $0.id == clip.video?.redactionEffectID }
+        for effect in preferred + effects.reversed().filter({ $0.id != clip.video?.redactionEffectID }) {
             guard effect.enabled, let style = RedactStyle(rawValue: effect.type) else { continue }
-            let minimum = style == .blur ? 0.0 : 1.0
             let values = strengths(effect, on: clip, style: style)
-            guard let amount = values.min(), amount > minimum else { continue }
+            guard let amount = values.min(), amount > style.minimumSize else { continue }
             var result = effect
             result.params[style.parameter] = .number(amount)
             return result
         }
         return nil
+    }
+
+    static func rememberEffect(_ clip: inout Clip) {
+        guard clip.isRedaction else { return }
+        if let active = effect(on: clip) {
+            clip.video?.redactionEffectID = active.id
+        } else if !(clip.video?.effects.contains { $0.id == clip.video?.redactionEffectID } ?? false) {
+            let fallback = clip.video?.effects.last { RedactStyle(rawValue: $0.type) != nil }?.id
+            clip.video?.redactionEffectID = fallback
+        }
+    }
+
+    private struct EffectControl: Equatable {
+        var effects: [Effect]
+        var keyframes: [String: [Keyframe]]
+
+        init(_ clip: Clip, watching ids: Set<String>) {
+            let effects = (clip.video?.effects ?? []).filter { ids.contains($0.id) && RedactStyle(rawValue: $0.type) != nil }
+            self.effects = effects
+            keyframes = clip.keyframes.filter { key, _ in effects.contains { key.hasPrefix("video.effects.\($0.id).") } }
+        }
     }
 
     static func strengths(_ effect: Effect, on clip: Clip, style: RedactStyle) -> [Double] {
@@ -130,19 +162,30 @@ public enum RedactionSafety {
     }
 
     public static func protections(in project: Project) -> [SourceRedaction] {
-        if let remembered = project.sourceRedactions { return remembered }
+        if let remembered = project.sourceRedactions { return remembered.filter { !$0.sources.isEmpty } }
         var captured = project
         rememberSources(&captured)
         return copies(in: captured)
     }
 
+    /// A temporarily hidden picture still owns privacy. An explicit copy,
+    /// effect or track switch-off cannot later erase someone else's policy.
+    static func ownsProtection(_ copy: Clip, on track: Track) -> Bool {
+        !track.hidden && copy.video?.redactionVisibility != .disabled
+            && (copy.enabled || copy.video?.redactionVisibility == .followingPicture)
+            && copy.video?.redactionSources?.isEmpty != true && effect(on: copy) != nil
+    }
+
     static func copies(in project: Project) -> [SourceRedaction] {
         project.videoTracks.filter { $0.isPrivacy && !$0.hidden }.flatMap { track in
             track.clips.compactMap { copy in
-                guard copy.enabled, let mediaID = copy.mediaID, let region = Editing.redactionRegion(of: copy, on: track),
+                guard ownsProtection(copy, on: track),
+                      let mediaID = copy.mediaID, let region = Editing.redactionRegion(of: copy, on: track),
                       let effect = effect(on: copy) else { return nil }
                 let frame = project.media(mediaID)?.frameRate?.frameDuration ?? project.settings.frameRate.frameDuration
                 let item = project.media(mediaID)
+                let selected = copy.video?.redactionSources ?? sources(of: copy, frame: frame, media: item, rate: project.settings.frameRate)
+                guard !selected.isEmpty else { return nil }
                 let scales = [copy.video?.transform.scale ?? 1] + (copy.keyframes["video.transform.scale"] ?? []).compactMap(\.value.number)
                 let smallest = scales.filter { $0 > 0.0001 }.min() ?? 1
                 func unit(width: Int, height: Int, scale: Double) -> Double {
@@ -154,7 +197,7 @@ public enum RedactionSafety {
                     let override = copy.video?.formatOverrides[format.id]
                     if override?.hidden != true { strongest = max(strongest, unit(width: format.width, height: format.height, scale: override?.transform?.scale ?? smallest)) }
                 }
-                return SourceRedaction(mediaID: mediaID, sourcePath: item?.path ?? "", fingerprint: item?.fingerprint, pictureDelay: item?.pictureDelay, sourceDuration: item?.duration, sourceFrameRate: item?.frameRate, sourceVariableFrameRate: item?.variableFrameRate, sourceKind: item?.kind ?? .video, sourceWidth: item?.width, sourceHeight: item?.height, sources: copy.video?.redactionSources ?? sources(of: copy, frame: frame, media: item, rate: project.settings.frameRate), region: region, effect: effect, sourcePixelsPerUnit: strongest)
+                return SourceRedaction(mediaID: mediaID, sourcePath: item?.path ?? "", fingerprint: item?.fingerprint, pictureDelay: item?.pictureDelay, sourceDuration: item?.duration, sourceFrameRate: item?.frameRate, sourceVariableFrameRate: item?.variableFrameRate, sourceKind: item?.kind ?? .video, sourceWidth: item?.width, sourceHeight: item?.height, sources: selected, region: region, effect: effect, sourcePixelsPerUnit: strongest, originID: copy.video?.redactionOriginID)
             }
         }
     }
@@ -187,18 +230,32 @@ public enum RedactionSafety {
     /// Union equal source-region policies without tying them to a timeline
     /// clip or a link group. Removing a take segment must not forget privacy.
     static func rememberPolicies(_ p: inout Project, keepingCalibrationFrom previous: [SourceRedaction] = [], sourceFolder: URL? = nil) {
-        var policies = p.sourceRedactions ?? []
+        let captured = copies(in: p)
+        var policies: [SourceRedaction] = []
         // Persist each encountered identity before a later repoint can make
         // the current-path association disappear, even without live copies.
-        for index in policies.indices { rememberIdentities(&policies[index], in: p, sourceFolder: sourceFolder) }
-        for var scope in copies(in: p) {
+        for (index, saved) in (p.sourceRedactions ?? []).filter({ !$0.sources.isEmpty }).enumerated() {
+            var policy = saved
+            rememberIdentities(&policy, in: p, sourceFolder: sourceFolder)
+            if policy.originID != nil { policies.append(policy); continue }
+            // Unreleased development builds merged independent requests
+            // without their origins. Neither matching effect IDs/settings
+            // nor current selections can prove who owns that history. Keep
+            // it separate; current copies cannot silently relinquish it.
+            let owners = Set(captured.compactMap(\.originID) + policies.compactMap(\.originID))
+            var origin = "legacy-policy-\(index)-\(policy.effect.id)"
+            while owners.contains(origin) { origin += "-historical" }
+            policy.originID = origin
+            policies.append(policy)
+        }
+        for var scope in captured {
             rememberIdentities(&scope, in: p, sourceFolder: sourceFolder)
             // Changing an effect's amount or style must not recalibrate its
             // units at a later zoom. A larger radius must stay stronger.
-            for prior in previous where prior.mediaID == scope.mediaID && prior.region == scope.region {
+            for prior in previous where prior.sharesSource(with: scope) && prior.region == scope.region {
                 scope.sourcePixelsPerUnit = max(scope.sourcePixelsPerUnit, prior.sourcePixelsPerUnit)
             }
-            if let index = policies.firstIndex(where: { $0.mediaID == scope.mediaID && $0.sourcePath == scope.sourcePath && $0.fingerprint == scope.fingerprint && $0.pictureDelay == scope.pictureDelay && $0.region == scope.region && $0.effect.type == scope.effect.type && $0.effect.params == scope.effect.params }) {
+            if let index = policies.firstIndex(where: { $0.originID == scope.originID && $0.mediaID == scope.mediaID && $0.sourcePath == scope.sourcePath && $0.fingerprint == scope.fingerprint && $0.pictureDelay == scope.pictureDelay && $0.region == scope.region && $0.effect.type == scope.effect.type && $0.effect.params == scope.effect.params }) {
                 policies[index].sources = TimeRange.union(policies[index].sources + scope.sources)
                 policies[index].sourcePixelsPerUnit = max(policies[index].sourcePixelsPerUnit, scope.sourcePixelsPerUnit)
             } else { policies.append(scope) }
@@ -225,8 +282,12 @@ public enum RedactionSafety {
     static func applyControls(_ command: EditCommand, before: Project, to p: inout Project) {
         let changed = before.videoTracks.filter(\.isPrivacy).flatMap { track in
             track.clips.filter { copy in
+                guard ownsProtection(copy, on: track) else { return false }
                 if explicitlyEditsCopy(command, id: copy.id), let after = p.clip(copy.id) {
-                    return effect(on: after) != effect(on: copy) || after.enabled != copy.enabled
+                    // Ignore unused effects. Only definitions controlling the
+                    // before/after concealment can replace a source policy.
+                    let ids = Set([copy.video?.redactionEffectID, after.video?.redactionEffectID].compactMap { $0 })
+                    return EffectControl(after, watching: ids) != EffectControl(copy, watching: ids) || after.enabled != copy.enabled || after.video?.redactionVisibility != copy.video?.redactionVisibility
                 }
                 switch command {
                 case .removeClips(let ids, _, _): return ids.contains(copy.id)
@@ -237,27 +298,56 @@ public enum RedactionSafety {
             }
         }
         var policies = p.sourceRedactions ?? protections(in: before)
+        var replacements: [SourceRedaction] = []
+        var visible = p
+        rememberSources(&visible)
         for copy in changed {
             guard let mediaID = copy.mediaID, let media = before.media(mediaID), let region = copy.video?.redaction else { continue }
-            for index in policies.indices where policies[index].region == region && policies[index].matches(media) {
-                policies[index].sources = subtract(copy.video?.redactionSources ?? [], from: policies[index].sources)
+            let owned = copy.video?.redactionSources ?? []
+            let after = visible.clip(copy.id)
+            let relinquished = after == nil || after?.video?.redactionVisibility == .disabled || after.flatMap(effect(on:)) == nil || visible.track(containingClip: copy.id)?.hidden == true
+            // An active effect edit replaces only the source selection the
+            // copy still owns. A simultaneous trim must retain the old tail.
+            let affected = relinquished ? owned : owned.flatMap { range in (after?.video?.redactionSources ?? []).compactMap { range.intersection($0) } }
+            for index in policies.indices where policies[index].region == region && policies[index].matches(media)
+                && policies[index].originID == copy.video?.redactionOriginID {
+                // Controls belong to a request, not every historical
+                // redaction of the same pixels, even with identical effects.
+                if !relinquished, let active = after.flatMap(effect(on:)) {
+                    var replacement = policies[index]
+                    replacement.sources = TimeRange.union(replacement.sources.flatMap { range in affected.compactMap { range.intersection($0) } })
+                    replacement.effect = active
+                    // Strength edits change concealment, not its file or
+                    // clock. Retain every historical identity and mapping,
+                    // including offline sources and earlier batch commands.
+                    if !replacement.sources.isEmpty { replacements.append(replacement) }
+                }
+                policies[index].sources = subtract(affected, from: policies[index].sources)
             }
         }
-        p.sourceRedactions = policies.filter { !$0.sources.isEmpty }
+        p.sourceRedactions = policies.filter { !$0.sources.isEmpty } + replacements
     }
 
     /// Old projects are captured before their first edit, including copies
     /// made before `video.redaction` existed. Journal replay uses this too.
     static func rememberSources(_ project: inout Project) {
-        for ti in project.videoTracks.indices where project.videoTracks[ti].isPrivacy {
+        for ti in project.videoTracks.indices where project.videoTracks[ti].isPrivacy || (project.schemaVersion < 3 && project.videoTracks[ti].name.lowercased().hasPrefix(Editing.privacyTrackPrefix)) {
             for ci in project.videoTracks[ti].clips.indices {
                 let copy = project.videoTracks[ti].clips[ci]
                 guard let region = Editing.redactionRegion(of: copy, on: project.videoTracks[ti], inferLegacy: project.schemaVersion < 3), let mediaID = copy.mediaID else { continue }
+                if project.videoTracks[ti].locked, copy.video?.redactionOriginID != nil,
+                   copy.video?.redactionSources != nil, copy.video?.redactionVisibility != nil,
+                   !ownsProtection(copy, on: project.videoTracks[ti]) {
+                    // Inactive copies do not follow the picture while locked.
+                    // Initial legacy capture still fills missing metadata.
+                    continue
+                }
                 let frame = project.media(mediaID)?.frameRate?.frameDuration ?? project.settings.frameRate.frameDuration
                 let item = project.media(mediaID)
+                let origin = copy.video?.redactionOriginID ?? copy.id
                 var visible = sources(of: copy, frame: frame, media: item, rate: project.settings.frameRate)
                 var ranges = copy.video?.redactionSources ?? visible
-                ranges += (project.sourceRedactions ?? []).filter { $0.region == region && item.map($0.matches) == true }.flatMap(\.sources)
+                ranges += (project.sourceRedactions ?? []).filter { $0.originID == origin && $0.region == region && item.map($0.matches) == true }.flatMap(\.sources)
                 // Capture picture-only holds as well as the copy's mapping.
                 for picture in project.videoTracks.flatMap(\.clips)
                     where picture.video?.redaction == nil && picture.mediaID == mediaID && picture.linkGroup != nil && picture.linkGroup == copy.linkGroup {
@@ -278,10 +368,13 @@ public enum RedactionSafety {
                     }
                 }
                 project.videoTracks[ti].clips[ci].video?.redaction = region
+                project.videoTracks[ti].clips[ci].video?.redactionOriginID = origin
                 project.videoTracks[ti].clips[ci].video?.redactionSources = TimeRange.union(ranges.flatMap { range in visible.compactMap { range.intersection($0) } })
-                if copy.video?.redactionEffectID == nil {
-                    project.videoTracks[ti].clips[ci].video?.redactionEffectID = copy.video?.effects.last { RedactStyle(rawValue: $0.type) != nil }?.id
+                if copy.video?.redactionVisibility == nil {
+                    let picture = project.videoTracks.flatMap(\.clips).first { !$0.isRedaction && $0.linkGroup != nil && $0.linkGroup == copy.linkGroup && $0.mediaID == copy.mediaID }
+                    project.videoTracks[ti].clips[ci].video?.redactionVisibility = !copy.enabled && picture?.enabled != false ? .disabled : .followingPicture
                 }
+                rememberEffect(&project.videoTracks[ti].clips[ci])
             }
         }
     }
@@ -290,13 +383,25 @@ public enum RedactionSafety {
     /// the same coverage check; an unsupported edit is refused atomically.
     static func reconcile(_ project: inout Project, before: Project, command: EditCommand, validateCoverage: Bool, sourceFolder: URL?) throws {
         let old = protections(in: before)
+        for ti in project.videoTracks.indices {
+            for ci in project.videoTracks[ti].clips.indices {
+                rememberEffect(&project.videoTracks[ti].clips[ci])
+                if project.videoTracks[ti].clips[ci].video?.redactionVisibility == .disabled {
+                    project.videoTracks[ti].clips[ci].enabled = false
+                }
+            }
+            if project.videoTracks[ti].clips.contains(where: \.isRedaction),
+               project.videoTracks[ti].clips.contains(where: { $0.mediaID != nil && !$0.isRedaction }) {
+                throw EditError.invalid("Privacy copies need a separate track from ordinary footage. Move the copy to a dedicated privacy track.")
+            }
+        }
         applyControls(command, before: before, to: &project)
         for track in project.videoTracks where track.isPrivacy {
             for copy in track.clips where copy.video?.redaction != nil {
                 for effect in copy.video?.effects ?? [] where effect.enabled {
                     guard let style = RedactStyle(rawValue: effect.type) else { continue }
                     let values = strengths(effect, on: copy, style: style)
-                    let minimum = style == .blur ? 0.0 : 1.0
+                    let minimum = style.minimumSize
                     if values.contains(where: { $0 <= minimum }) && values.contains(where: { $0 > minimum }) {
                         throw EditError.invalid("A privacy effect cannot animate through a zero-strength redaction. Keep the blur effective for the whole protected clip, or explicitly switch the effect off.")
                     }
@@ -306,24 +411,21 @@ public enum RedactionSafety {
         // Picture delay changes the identity of every displayed source frame.
         // Existing protection is in the old file mapping: refuse rather than
         // silently moving private frames into neighbouring placements.
-        for scope in old {
-            if project.media.contains(where: { matches(scope, $0, in: project) && (($0.pictureDelay ?? .zero) != (scope.pictureDelay ?? .zero) || $0.duration != scope.sourceDuration || $0.frameRate != scope.sourceFrameRate || $0.variableFrameRate != (scope.sourceVariableFrameRate ?? $0.variableFrameRate) || $0.kind != scope.sourceKind || $0.width != scope.sourceWidth || $0.height != scope.sourceHeight) }) {
-                throw EditError.invalid("A protected file's frame timing, boundaries and dimensions cannot change while it has redactions. Keep its privacy source mapping unchanged.")
-            }
-        }
         guard before.videoTracks.contains(where: { track in track.clips.contains { Editing.redactionRegion(of: $0, on: track) != nil } }) else {
             rememberSources(&project)
             rememberPolicies(&project, keepingCalibrationFrom: old, sourceFolder: sourceFolder)
             if validateCoverage { try requireCoverage(project, protecting: protections(in: project)) }
             return
         }
-        for ti in project.videoTracks.indices where project.videoTracks[ti].isPrivacy {
+        for ti in project.videoTracks.indices where project.videoTracks[ti].isPrivacy && !project.videoTracks[ti].hidden {
             for ci in project.videoTracks[ti].clips.indices {
                 var copy = project.videoTracks[ti].clips[ci]
-                guard let region = Editing.redactionRegion(of: copy, on: project.videoTracks[ti]), let group = copy.linkGroup else { continue }
+                guard copy.video?.redactionVisibility != .disabled,
+                      let region = Editing.redactionRegion(of: copy, on: project.videoTracks[ti]), let group = copy.linkGroup else { continue }
                 let pictures = project.videoTracks.flatMap(\.clips).filter { $0.video?.redaction == nil && $0.linkGroup == group && $0.mediaID == copy.mediaID }
                 guard pictures.count == 1, let picture = pictures.first else { continue }
                 var placed = Editing.aligned(copy, over: picture, region: region, format: nil)
+                placed.enabled = picture.enabled
                 // Animation is relative to each clip's head, including rolls
                 // whose picture and patch have different bounds.
                 for key in ["video.transform.position", "video.transform.scale", "video.transform.rotation"] {
@@ -338,7 +440,6 @@ public enum RedactionSafety {
                         placed.speed = picture.speed
                         placed.freezeFrame = picture.freezeFrame
                         placed.holdEdges = picture.holdEdges
-                        if priorPicture.enabled != picture.enabled { placed.enabled = picture.enabled }
                         placed.holds = picture.holds
                         for key in ["video.transform.position", "video.transform.scale", "video.transform.rotation"] { placed.keyframes[key] = picture.keyframes[key] }
                     }
@@ -348,7 +449,7 @@ public enum RedactionSafety {
                 }
                 // Explicit edits to the copy are intentional controls (for
                 // example switching off a blur), not a picture to realign.
-                if explicitlyEditsCopy(command, id: copy.id) { continue }
+                if editsCopyPlacement(command, id: copy.id) || effect(on: copy) == nil { continue }
                 if placed != copy {
                     guard !project.videoTracks[ti].locked else { throw EditError.invalid("Privacy track \(project.videoTracks[ti].name) is locked; unlock it so its redaction can follow the picture.") }
                     copy = placed
@@ -360,7 +461,7 @@ public enum RedactionSafety {
         // A blade skipped under a locked patch can look covered now but
         // leave the right piece unlinked. Refuse before committing that state.
         for track in before.videoTracks where track.isPrivacy && track.locked {
-            for copy in track.clips where effect(on: copy) != nil {
+            for copy in track.clips where ownsProtection(copy, on: track) {
                 let partners = before.videoTracks.flatMap(\.clips).filter { $0.video?.redaction == nil && $0.linkGroup != nil && $0.linkGroup == copy.linkGroup && $0.mediaID == copy.mediaID }
                 if partners.contains(where: { original in
                     guard var after = project.clip(original.id) else { return true }
@@ -373,6 +474,11 @@ public enum RedactionSafety {
             }
         }
         rememberSources(&project)
+        for track in before.videoTracks where track.isPrivacy && track.locked {
+            if let after = project.track(track.id), after.clips != track.clips {
+                throw EditError.invalid("Privacy track \(track.name) is locked; its copies cannot change.")
+            }
+        }
         rememberPolicies(&project, keepingCalibrationFrom: old, sourceFolder: sourceFolder)
         if validateCoverage { try requireCoverage(project, protecting: protections(in: project)) }
     }
@@ -380,6 +486,24 @@ public enum RedactionSafety {
     static func explicitlyEditsCopy(_ command: EditCommand, id: String) -> Bool {
         switch command {
         case .updateClip(let clipID, _), .setKeyframes(let clipID, _, _), .addEffect(let clipID, _, _), .updateEffect(let clipID, _, _), .removeEffect(let clipID, _), .moveEffect(let clipID, _, _): return clipID == id
+        default: return false
+        }
+    }
+
+    static func requireSourceMappings(_ project: Project) throws {
+        for scope in protections(in: project) {
+            if project.media.contains(where: { matches(scope, $0, in: project) && (($0.pictureDelay ?? .zero) != (scope.pictureDelay ?? .zero) || $0.duration != scope.sourceDuration || $0.frameRate != scope.sourceFrameRate || $0.variableFrameRate != (scope.sourceVariableFrameRate ?? $0.variableFrameRate) || $0.kind != scope.sourceKind || $0.width != scope.sourceWidth || $0.height != scope.sourceHeight) }) {
+                throw EditError.invalid("A protected file's frame timing, boundaries and dimensions cannot change while it has redactions. Keep its privacy source mapping unchanged.")
+            }
+        }
+    }
+
+    static func editsCopyPlacement(_ command: EditCommand, id: String) -> Bool {
+        switch command {
+        case .updateClip(let clipID, let patch) where clipID == id:
+            return Editing.patchSets(patch, "video", "transform") || Editing.patchSets(patch, "video", "crop") || Editing.patchSets(patch, "video", "formatOverrides") || Editing.patchSets(patch, "keyframes")
+        case .setKeyframes(let clipID, let parameter, _) where clipID == id:
+            return parameter.hasPrefix("video.transform.") || parameter.hasPrefix("video.crop.")
         default: return false
         }
     }
@@ -411,6 +535,9 @@ public enum RedactionSafety {
     }
 
     static func requireCoverage(_ p: Project, protecting scopes: [SourceRedaction]) throws {
+        // A coordinator/journal batch may repair an invalid alias in steps.
+        // Validate the complete result at the same gate as pixel coverage.
+        try requireSourceMappings(p)
         for (ti, track) in p.videoTracks.enumerated() where !track.hidden {
             for picture in track.clips where picture.enabled && picture.video?.redaction == nil {
                 for scope in scopes where picture.mediaID.flatMap(p.media).map({ matches(scope, $0, in: p) }) == true {

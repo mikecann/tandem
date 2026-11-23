@@ -10,6 +10,7 @@ struct LoadedSource: @unchecked Sendable {
     var asset: AVURLAsset
     var video: AVAssetTrack?
     var videoRange: CMTimeRange = .zero
+    var timing: SourcePrivacyTiming = .allFrames
     var naturalSize: CGSize = .zero
     var preferredTransform: CGAffineTransform = .identity
     var audio: AVAssetTrack?
@@ -21,6 +22,7 @@ struct LoadedSource: @unchecked Sendable {
     /// track (QuickTime Animation, PNG in a MOV): the codec's four
     /// characters. One such track would fail the whole composition.
     var undecodableCodec: String?
+    var opaque = false
 }
 
 /// Loaded sources by file, reused across builds (the viewer rebuilds the
@@ -46,6 +48,8 @@ final class SourceCache: @unchecked Sendable {
             let (size, transform, range, decodable, formats) = try await video.load(.naturalSize, .preferredTransform, .timeRange, .isDecodable, .formatDescriptions)
             if decodable {
                 source.video = video
+                source.opaque = FramePrivacyEvidence.provesOpaque(formats)
+                source.timing = SourcePrivacyTiming(await FrameTimes.read(video))
             } else {
                 source.undecodableCodec = formats.first.map { MediaItem.fourCharacterCode(CMFormatDescriptionGetMediaSubType($0)) } ?? "????"
             }
@@ -213,6 +217,7 @@ enum CompositionAssembler {
         var pictureTransforms: [String: CGAffineTransform] = [:]
         var matteTransforms: [String: CGAffineTransform] = [:]
         var pictureSources: [String: SourceTrack] = [:]
+        var pictureTimings: [String: SourcePrivacyTiming] = [:]
         var matteSources: [String: SourceTrack] = [:]
         var pictureRecovery: [String: TimeRange] = [:]
         var matteRecovery: [String: TimeRange] = [:]
@@ -244,16 +249,17 @@ enum CompositionAssembler {
                 if let bad {
                     if let rest = bad.rest {
                         try insert(rest, into: videoTracks[segment.track], from: assetTrack, available: source.videoRange,
-                                   end: &videoEnds[segment.track], holdLastFrame: true, frameDuration: frameDuration)
+                                   end: &videoEnds[segment.track], holdLastFrame: true, frameDuration: frameDuration, timing: source.timing)
                     }
                 } else {
                     try insert(segment, into: videoTracks[segment.track], from: assetTrack, available: source.videoRange,
-                               end: &videoEnds[segment.track], holdLastFrame: true, frameDuration: frameDuration)
+                               end: &videoEnds[segment.track], holdLastFrame: true, frameDuration: frameDuration, timing: source.timing)
                 }
-                let direct = SourceTrack(url: u, asset: source.asset, track: assetTrack, timeRange: source.videoRange, leading: leading, alpha: segment.alpha)
+                let direct = SourceTrack(url: u, asset: source.asset, track: assetTrack, timeRange: source.videoRange, leading: leading, alpha: segment.alpha, opaque: source.opaque)
                 if segment.role == .picture {
                     pictureTransforms[segment.clipID] = source.preferredTransform
                     pictureSources[segment.clipID] = direct
+                    pictureTimings[segment.clipID] = source.timing
                     pictureRecovery[segment.clipID] = bad?.timeline
                 } else {
                     matteTransforms[segment.clipID] = source.preferredTransform
@@ -365,23 +371,20 @@ enum CompositionAssembler {
 
         // The compositor's view of the clips.
         var sceneClips = RenderEngine.sceneClips(project, folder: context.folder)
-        let protectedMedia = Set(sceneClips.values.filter { !$0.redactions.isEmpty && $0.media?.kind == .video }.compactMap { $0.media?.id })
-        for mediaID in protectedMedia {
-            guard let item = project.media(mediaID), !item.variableFrameRate,
-                  let times = await FrameTimes.read(item, in: context.folder), !times.isEmpty,
-                  times[0] >= .zero,
-                  zip(times, times.dropFirst()).allSatisfy({ $0 < $1 }) else { continue }
-            let timing = SourcePrivacyTiming.samples(times)
-            for id in Array(sceneClips.keys) where sceneClips[id]?.media?.id == mediaID {
-                guard var clip = sceneClips[id] else { continue }
-                clip.privacyTiming = timing
-                clip.redactions = clip.redactions.map { scope in
-                    var expanded = scope
-                    expanded.sources = timing.expanding(scope.sources, media: item, frame: frameDuration)
-                    return expanded
-                }
-                sceneClips[id] = clip
+        for id in Array(sceneClips.keys) {
+            guard var clip = sceneClips[id], !clip.redactions.isEmpty,
+                  let item = clip.media, item.kind == .video, !item.variableFrameRate else { continue }
+            // The same actual file clock selects held samples and protects
+            // their pixels. An unreadable table must remain conservative in
+            // both paths, even if a later retry could read it.
+            let timing = pictureTimings[id] ?? .allFrames
+            clip.privacyTiming = timing
+            clip.redactions = clip.redactions.map { scope in
+                var expanded = scope
+                expanded.sources = timing.expanding(scope.sources, media: item, frame: frameDuration)
+                return expanded
             }
+            sceneClips[id] = clip
         }
         for (id, transform) in pictureTransforms { sceneClips[id]?.pictureTransform = transform }
         for (id, transform) in matteTransforms { sceneClips[id]?.matteTransform = transform }
@@ -393,7 +396,7 @@ enum CompositionAssembler {
         let scene = RenderScene(
             canvas: canvas, frameDuration: frameDuration, format: context.format,
             clips: sceneClips, registry: context.effects, folder: context.folder,
-            recovery: .shared, overrides: context.liveOverrides
+            recovery: .shared, overrides: context.liveOverrides, collectPrivacyEvidence: context.collectPrivacyEvidence
         )
         let trackIDs = videoTracks.map(\.trackID)
         let videoComposition = AVMutableVideoComposition()
@@ -496,7 +499,8 @@ enum CompositionAssembler {
         available: CMTimeRange,
         end trackEnd: inout Time,
         holdLastFrame: Bool,
-        frameDuration: Time
+        frameDuration: Time,
+        timing: SourcePrivacyTiming = .allFrames
     ) throws {
         let start = segment.timeline.start
         let end = segment.timeline.end
@@ -507,11 +511,19 @@ enum CompositionAssembler {
         let first = Time(cmTime: available.start)
         let last = Time(cmTime: available.end)
         let frame = min(frameDuration, max(last - first, Time(flicks: 1)))
+        let still = min(Time(seconds: 0.001), frame)
+        func heldSample(at requested: Time) -> TimeRange {
+            if let sample = timing.slice(at: requested, within: TimeRange(start: first, end: last)) {
+                let duration = min(still, sample.duration)
+                return TimeRange(start: min(max(requested, sample.start), sample.end - duration), duration: duration)
+            }
+            return TimeRange(start: min(max(requested, first), last - still), duration: still)
+        }
 
         // Frames held over a flash (`Clip.holds`): the stretches either side
-        // play as they would, and each held one is the millisecond of the
-        // file up to the held frame, stretched, all on this track. A whole
-        // project frame of a 60 fps file would hold two of its frames.
+        // play as they would, and each held one uses a short slice inside
+        // its actual sample. A whole output frame, or even a millisecond,
+        // can contain several samples of a faster file.
         if !segment.freeze, !segment.holds.isEmpty {
             var cursor = start
             func play(to time: Time) throws {
@@ -520,18 +532,17 @@ enum CompositionAssembler {
                 part.holds = []
                 part.timeline = TimeRange(start: cursor, end: time)
                 part.sourceStart = segment.sourceStart + (cursor - start).scaled(by: segment.speed > 0 ? segment.speed : 1)
-                try insert(part, into: track, from: source, available: available, end: &trackEnd, holdLastFrame: holdLastFrame, frameDuration: frameDuration)
+                try insert(part, into: track, from: source, available: available, end: &trackEnd, holdLastFrame: holdLastFrame, frameDuration: frameDuration, timing: timing)
                 cursor = time
             }
             for hold in segment.holds.sorted(by: { $0.timeline.start < $1.timeline.start }) {
                 guard let held = hold.timeline.intersection(TimeRange(start: cursor, end: end)), !held.isEmpty else { continue }
                 try play(to: held.start)
-                // Ending at the held time, which is before the flash, so it
-                // can't reach into it whatever the file's frame times.
-                let still = min(Time(seconds: 0.001), frame)
-                let at = min(max(hold.frame - still, first), last - still)
-                try track.insertTimeRange(TimeRange(start: at, duration: still).cmTimeRange, of: source, at: held.start.cmTime)
-                track.scaleTimeRange(TimeRange(start: held.start, duration: still).cmTimeRange, toDuration: held.duration.cmTime)
+                // Keep the existing pre-flash request, but constrain the
+                // slice to that sample so no neighbouring frame can play.
+                let sample = heldSample(at: hold.frame - still)
+                try track.insertTimeRange(sample.cmTimeRange, of: source, at: held.start.cmTime)
+                track.scaleTimeRange(TimeRange(start: held.start, duration: sample.duration).cmTimeRange, toDuration: held.duration.cmTime)
                 trackEnd = held.end
                 cursor = held.end
             }
@@ -540,9 +551,10 @@ enum CompositionAssembler {
         }
 
         if segment.freeze {
-            let at = min(max(segment.sourceStart, first), last - frame)
-            try track.insertTimeRange(TimeRange(start: at, duration: frame).cmTimeRange, of: source, at: start.cmTime)
-            track.scaleTimeRange(TimeRange(start: start, duration: frame).cmTimeRange, toDuration: (end - start).cmTime)
+            let sample = holdLastFrame ? heldSample(at: segment.sourceStart)
+                : TimeRange(start: min(max(segment.sourceStart, first), last - frame), duration: frame)
+            try track.insertTimeRange(sample.cmTimeRange, of: source, at: start.cmTime)
+            track.scaleTimeRange(TimeRange(start: start, duration: sample.duration).cmTimeRange, toDuration: (end - start).cmTime)
             trackEnd = end
             return
         }
@@ -558,9 +570,10 @@ enum CompositionAssembler {
             let skipped = first - sourceStart
             let skippedTimeline = speed == 1 ? skipped : skipped.scaled(by: 1 / speed)
             let gap = min(skippedTimeline, end - start)
-            if holdLastFrame && last - frame >= first {
-                try track.insertTimeRange(TimeRange(start: first, duration: frame).cmTimeRange, of: source, at: position.cmTime)
-                track.scaleTimeRange(TimeRange(start: position, duration: frame).cmTimeRange, toDuration: gap.cmTime)
+            if holdLastFrame && last - still >= first {
+                let sample = heldSample(at: first)
+                try track.insertTimeRange(sample.cmTimeRange, of: source, at: position.cmTime)
+                track.scaleTimeRange(TimeRange(start: position, duration: sample.duration).cmTimeRange, toDuration: gap.cmTime)
             } else {
                 track.insertEmptyTimeRange(TimeRange(start: position, duration: gap).cmTimeRange)
             }
@@ -582,9 +595,10 @@ enum CompositionAssembler {
             position += min(timeline, end - position)
         }
         if position < end {
-            if holdLastFrame && last - frame >= first {
-                try track.insertTimeRange(TimeRange(start: last - frame, duration: frame).cmTimeRange, of: source, at: position.cmTime)
-                track.scaleTimeRange(TimeRange(start: position, duration: frame).cmTimeRange, toDuration: (end - position).cmTime)
+            if holdLastFrame && last - still >= first {
+                let sample = heldSample(at: last - Time(flicks: 1))
+                try track.insertTimeRange(sample.cmTimeRange, of: source, at: position.cmTime)
+                track.scaleTimeRange(TimeRange(start: position, duration: sample.duration).cmTimeRange, toDuration: (end - position).cmTime)
             } else {
                 track.insertEmptyTimeRange(TimeRange(start: position, end: end).cmTimeRange)
             }

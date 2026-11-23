@@ -160,7 +160,7 @@ struct MediaProbe: Sendable {
         var times: [Int64] = []
         repeat {
             let pts = cursor.presentationTimeStamp
-            guard pts.isNumeric else { break }
+            guard pts.isNumeric else { return nil }
             times.append(pts.timescale == timescale ? pts.value : CMTimeConvertScale(pts, timescale: timescale, method: .roundHalfAwayFromZero).value)
         } while cursor.stepInDecodeOrder(byCount: 1) == 1
         return times.isEmpty ? nil : times.sorted()

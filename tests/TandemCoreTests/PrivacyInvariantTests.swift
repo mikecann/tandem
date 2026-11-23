@@ -116,7 +116,7 @@ final class PrivacyInvariantTests: XCTestCase {
         legacy.sourceRedactions = nil
         legacy.media[legacy.media.firstIndex { $0.id == "med_screen" }!].variableFrameRate = true
         for ti in legacy.videoTracks.indices where legacy.videoTracks[ti].isPrivacy {
-            for ci in legacy.videoTracks[ti].clips.indices { legacy.videoTracks[ti].clips[ci].video?.redactionSources = nil }
+            for ci in legacy.videoTracks[ti].clips.indices { legacy.videoTracks[ti].clips[ci].video?.redactionSources = nil; legacy.videoTracks[ti].clips[ci].video?.redactionOriginID = nil; legacy.videoTracks[ti].clips[ci].video?.redactionVisibility = nil; legacy.videoTracks[ti].clips[ci].video?.redactionEffectID = nil }
         }
         let migrated = try ProjectFile.migrate(legacy)
         let scopes = RedactionSafety.protections(in: migrated)
@@ -249,7 +249,7 @@ final class PrivacyInvariantTests: XCTestCase {
         var p = c.project
         p.sourceRedactions = nil
         for ti in p.videoTracks.indices where p.videoTracks[ti].isPrivacy {
-            for ci in p.videoTracks[ti].clips.indices { p.videoTracks[ti].clips[ci].video?.redactionSources = nil }
+            for ci in p.videoTracks[ti].clips.indices { p.videoTracks[ti].clips[ci].video?.redactionSources = nil; p.videoTracks[ti].clips[ci].video?.redactionOriginID = nil; p.videoTracks[ti].clips[ci].video?.redactionVisibility = nil; p.videoTracks[ti].clips[ci].video?.redactionEffectID = nil }
         }
         let before = p
         var context = EditContext()
@@ -315,10 +315,14 @@ final class PrivacyInvariantTests: XCTestCase {
         try c.run("Slip protected piece", .slip(clipID: picture, delta: t(1)))
         let data = try ProjectFile.encoder().encode(c.project)
         let loaded = try ProjectFile.migrate(JSONDecoder().decode(Project.self, from: data))
+        XCTAssertTrue(RedactionSafety.protections(in: loaded).contains { $0.sources.contains { $0.contains(t(11)) } })
         let next = ProjectCoordinator(project: loaded)
         let left = next.clips("Screen").first { $0.end == t(10) }!
         if try PrivacyAuditCoverage.applyOrRefuse(.slip(clipID: left.id, delta: t(1)), to: next) {
             XCTAssertTrue(PrivacyAuditCoverage.failures(next.project, protecting: scopes).isEmpty)
         }
+        try next.run("Remove current occurrences", .rippleDeleteRange(range: TimeRange(start: .zero, end: next.project.duration)))
+        let reused = Clip(id: "clip_original_source_again", content: .media(mediaID: "med_screen"), start: .zero, duration: t(1), sourceStart: t(11))
+        XCTAssertFalse(try PrivacyAuditCoverage.applyOrRefuse(.insertClip(trackID: "Screen", clip: reused), to: next))
     }
 }

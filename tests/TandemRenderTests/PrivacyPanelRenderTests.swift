@@ -120,7 +120,9 @@ extension PrivacyAuditRenderTests {
             } else {
                 let mask = c.project.videoTracks.first { $0.isPrivacy }!.clips[0]
                 try apply(c, .updateClip(clipID: picture.id, patch: .object(["enabled": .bool(false)])))
-                try apply(c, .updateClip(clipID: mask.id, patch: .object(["enabled": .bool(false)])))
+                // This probe checks automatic following. An explicit copy
+                // disable intentionally stays off, even after picture-on.
+                XCTAssertFalse(c.project.clip(mask.id)!.enabled)
                 try apply(c, .updateClip(clipID: picture.id, patch: .object(["enabled": .bool(true)])))
             }
             try await panelCovered(c, media, at: change == "start" ? 3.2 : 2, name: "direct-\(change)", encode: change == "start")

@@ -341,8 +341,10 @@ final class PrivacyPanelTests: XCTestCase {
     }
 
     func testDirectEnableMustNotLeaveThePrivacyCopyDisabled() throws {
-        let (c, picture, mask, scopes) = try screen()
-        try c.run("Both off", .updateClip(clipID: picture, patch: .object(["enabled": .bool(false)])), .updateClip(clipID: mask, patch: .object(["enabled": .bool(false)])))
+        let (c, picture, _, scopes) = try screen()
+        // The picture hides its copy automatically. Explicitly disabling
+        // the copy relinquishes privacy and must instead stay off (#12).
+        try c.run("Picture off", .updateClip(clipID: picture, patch: .object(["enabled": .bool(false)])))
         if try PrivacyAuditCoverage.applyOrRefuse(.updateClip(clipID: picture, patch: .object(["enabled": .bool(true)])), to: c) {
             assertSafe(c, scopes, "direct enable")
             try roundTrip(c, scopes: scopes, label: "direct enable")

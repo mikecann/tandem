@@ -7,6 +7,9 @@ public enum RedactStyle: String, Codable, CaseIterable, Sendable {
     /// The effect parameter `size` sets: the block size or the radius.
     var parameter: String { self == .pixelate ? "scale" : "radius" }
 
+    /// One-pixel mosaic cells and a zero-radius blur leave pixels sharp.
+    var minimumSize: Double { self == .pixelate ? 1 : 0 }
+
     /// The effect's own default, from the registry.
     var defaultSize: Double {
         let definition = EffectRegistry.builtIn.first { $0.type == rawValue }
@@ -16,6 +19,10 @@ public enum RedactStyle: String, Codable, CaseIterable, Sendable {
 }
 
 extension Clip {
+    public var isRedaction: Bool {
+        video?.redaction != nil || video?.redactionSources != nil || video?.redactionEffectID != nil || video?.redactionOriginID != nil || video?.redactionVisibility != nil
+    }
+
     /// A copy of a picture that hides it, or part of it, behind a pixelate
     /// or blur: a redaction over a QR code or an email, or the blurred fill
     /// behind a shot that doesn't cover the frame. It's the same file at
@@ -37,18 +44,16 @@ extension Track {
     /// track by hand is never taken for one.
     public func isSwitchedOffRedaction(_ clip: Clip) -> Bool {
         guard isPrivacy, case .media = clip.content, !clip.isObscured else { return false }
-        return clip.video?.redaction != nil || clip.video?.redactionSources != nil || clip.video?.redactionEffectID != nil
+        return clip.isRedaction
     }
 }
 
 extension Editing {
-    /// The tracks `redact` puts its copies on are named "Privacy (Screen)"
-    /// after the track they hide part of; this is how they're recognised,
-    /// hand-made ones included.
+    /// The prefix used when naming tracks and importing legacy copies.
     static let privacyTrackPrefix = "privacy ("
 
     public static func isPrivacyTrack(_ track: Track) -> Bool {
-        track.name.lowercased().hasPrefix(privacyTrackPrefix) || track.clips.contains { $0.video?.redaction != nil || $0.video?.redactionSources != nil }
+        track.clips.contains(where: \.isRedaction)
     }
 
     /// `redact`: hides `rect` (fractions of the source frame, from the top
@@ -80,7 +85,9 @@ extension Editing {
               rect.x + rect.width <= 1 + slack, rect.y + rect.height <= 1 + slack else {
             throw EditError.invalid("rect is fractions of the source frame from the top left: x and y from 0, width and height above 0, inside 1")
         }
-        if let size, !(size > 0) { throw EditError.invalid("size must be above 0") }
+        if let size, !(size > style.minimumSize) {
+            throw EditError.invalid("A \(style.rawValue) redaction needs size above \(style.minimumSize) to hide pixels")
+        }
         if let mediaID, p.media(mediaID) == nil { throw EditError.notFound("media \(mediaID)") }
         let rate = p.settings.frameRate
         let range = TimeRange(start: requested.start.roundedToFrame(rate), end: requested.end.roundedToFrame(rate))
@@ -106,7 +113,7 @@ extension Editing {
             let track = p[location]
             for clip in track.clips where clip.range.overlaps(range) {
                 guard let id = clip.mediaID, mediaID == nil || id == mediaID,
-                      let item = p.media(id), item.hasVideo, var span = clip.range.intersection(range) else { continue }
+                      let item = p.media(id), item.hasVideo || item.kind == .image, var span = clip.range.intersection(range) else { continue }
                 // Never past the time asked for, except to a clip edge
                 // less than a frame away: that's rounding (a take tightened
                 // off the frame grid), and cutting there would leave a
@@ -190,6 +197,7 @@ extension Editing {
             return effect
         } + [Effect(id: context.makeID("fx"), type: style.rawValue, params: [style.parameter: .number(size)])]
         video.redactionEffectID = video.effects.last?.id
+        video.redactionOriginID = copy.id
         // A format's own crop replaces the main one there, so the region
         // has to be cut from it too, or the short would show the copy uncropped.
         video.formatOverrides = video.formatOverrides.mapValues { override in
@@ -236,9 +244,9 @@ extension Editing {
     /// frame crop is a layout that once lost the region (the short did
     /// that), not the region, so it's left out unless it's all there is.
     static func redactionRegion(of clip: Clip, on track: Track, inferLegacy: Bool = false) -> Rect? {
-        guard track.isPrivacy, case .media = clip.content, let video = clip.video,
+        guard track.isPrivacy || (inferLegacy && track.name.lowercased().hasPrefix(privacyTrackPrefix)), case .media = clip.content, let video = clip.video,
               video.redaction != nil || video.redactionSources != nil || (inferLegacy && clip.name?.hasPrefix("Privacy") == true),
-              clip.isObscured || track.isSwitchedOffRedaction(clip) else { return nil }
+              clip.isObscured || track.isSwitchedOffRedaction(clip) || (inferLegacy && clip.name?.hasPrefix("Privacy") == true) else { return nil }
         if let region = video.redaction { return region }
         let crops = ([video.crop] + video.formatOverrides.values.filter { !$0.hidden }.compactMap(\.crop))
             .filter { $0.left + $0.right < 1 && $0.top + $0.bottom < 1 }
@@ -298,11 +306,12 @@ extension Editing {
         _ p: inout Project, format: String?, respectLocks: Bool = true,
         where follows: (_ copy: Clip, _ picture: Clip) -> Bool
     ) throws {
-        for trackIndex in p.videoTracks.indices where isPrivacyTrack(p.videoTracks[trackIndex]) {
+        for trackIndex in p.videoTracks.indices where isPrivacyTrack(p.videoTracks[trackIndex]) && !p.videoTracks[trackIndex].hidden {
             let location = TrackLocation(kind: .video, index: trackIndex)
             for index in p[location].clips.indices {
                 let copy = p[location].clips[index]
-                guard let region = redactionRegion(of: copy, on: p[location]) else { continue }
+                guard copy.enabled, copy.video?.redactionVisibility != .disabled, RedactionSafety.effect(on: copy) != nil,
+                      let region = redactionRegion(of: copy, on: p[location]) else { continue }
                 guard let at = redactedPictureTrack(of: copy, on: location, in: p) else { continue }
                 let pictures = p[at].clips.filter { $0.mediaID == copy.mediaID && $0.range.overlaps(copy.range) }
                 guard pictures.contains(where: { follows(copy, $0) }) else { continue }
@@ -367,9 +376,9 @@ extension Editing {
     static func privacyTrack(_ p: inout Project, above sourceID: String, fitting ranges: [TimeRange], _ context: inout EditContext) throws -> TrackLocation {
         guard let source = p.location(ofTrack: sourceID) else { throw EditError.notFound("track \(sourceID)") }
         var index = source.index + 1
-        while index < p.videoTracks.count, isPrivacyTrack(p.videoTracks[index]) {
+        while index < p.videoTracks.count, isPrivacyTrack(p.videoTracks[index]) || (p.videoTracks[index].clips.isEmpty && p.videoTracks[index].name.lowercased().hasPrefix(privacyTrackPrefix)) {
             let track = p.videoTracks[index]
-            if !track.locked, ranges.allSatisfy({ track.isFree($0) }) { return TrackLocation(kind: .video, index: index) }
+            if !track.locked, !track.hidden, ranges.allSatisfy({ track.isFree($0) }) { return TrackLocation(kind: .video, index: index) }
             index += 1
         }
         let stem = "Privacy (\(p[source].name))"
