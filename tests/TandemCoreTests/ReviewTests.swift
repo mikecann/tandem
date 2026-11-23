@@ -854,7 +854,7 @@ final class JournalReplayTests: XCTestCase {
         journal.append(batch: EditBatch(label: "A", author: "claude", commands: [.placeMedia(mediaIDs: ["med_broll"], at: t(40), duration: t(3))]), revision: c.revision + 1, seed: 1)
         journal.appendSnapshot(project: f.project, revision: c.revision + 2, reason: "undo A")
         var seen: [(String, Int, Int)] = []
-        _ = journal.recover(project: f.project, revision: c.revision) { entry, before, after in
+        _ = try journal.recover(project: f.project, revision: c.revision) { entry, before, after in
             seen.append((entry.batch?.label ?? entry.reason ?? "", before.track(named: "B-roll")!.clips.count, after.track(named: "B-roll")!.clips.count))
         }
         XCTAssertEqual(seen.map(\.0), ["A", "undo A"])

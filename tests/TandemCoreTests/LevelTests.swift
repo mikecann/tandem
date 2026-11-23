@@ -270,7 +270,7 @@ final class LevelTests: XCTestCase {
         c.measureSound = { project in mic.filter { id, _ in project.media(id) != nil } }
         try c.run("Normalise speech clips", .normalizeSpeech())
         XCTAssertEqual(c.clips("Voice")[0].audio?.effects.map(\.type), ["compressor", "limiter"])
-        let recovered = journal.recover(project: built.project, revision: built.revision)
+        let recovered = try journal.recover(project: built.project, revision: built.revision)
         XCTAssertEqual(recovered?.project, c.project)
     }
 

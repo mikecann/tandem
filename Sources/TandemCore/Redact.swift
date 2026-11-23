@@ -22,7 +22,7 @@ extension Clip {
     /// the same moment as the clip it sits on, on purpose, so it isn't a
     /// second shot (`sameShotTwice`) or another angle (`showAngle`).
     public var isObscured: Bool {
-        video?.effects.contains { $0.enabled && RedactStyle(rawValue: $0.type) != nil } == true
+        RedactionSafety.effect(on: self) != nil
     }
 }
 
@@ -37,7 +37,7 @@ extension Track {
     /// track by hand is never taken for one.
     public func isSwitchedOffRedaction(_ clip: Clip) -> Bool {
         guard isPrivacy, case .media = clip.content, !clip.isObscured else { return false }
-        return clip.name?.hasPrefix("Privacy") == true
+        return clip.video?.redaction != nil || clip.video?.redactionSources != nil || clip.video?.redactionEffectID != nil
     }
 }
 
@@ -48,13 +48,14 @@ extension Editing {
     static let privacyTrackPrefix = "privacy ("
 
     public static func isPrivacyTrack(_ track: Track) -> Bool {
-        track.name.lowercased().hasPrefix(privacyTrackPrefix)
+        track.name.lowercased().hasPrefix(privacyTrackPrefix) || track.clips.contains { $0.video?.redaction != nil || $0.video?.redactionSources != nil }
     }
 
     /// `redact`: hides `rect` (fractions of the source frame, from the top
     /// left) of every clip of `mediaID` (or every clip on `trackID`) over
     /// `range`, behind a pixelate or blur. Each clip there gets a copy of
-    /// itself on a `cut` track right above its own ("Privacy (Screen)"):
+    /// itself on a track right above its own ("Privacy (Screen)"), with
+    /// the source's ripple mode:
     /// the same file, start, length, source time, speed and placement
     /// (keyframes and format layouts too, so a phone shown as a PiP is
     /// hidden where it's shown), cropped to the region, with the effect on.
@@ -90,6 +91,7 @@ extension Editing {
         if let trackID {
             let location = try requireTrack(p, trackID)
             guard location.kind == .video else { throw EditError.invalid("\"\(p[location].name)\" is a sound track; redact hides part of a picture") }
+            guard !p[location].isPrivacy else { throw EditError.invalid("Redact the source picture, not its privacy copy.") }
             sources = [location]
         } else {
             // Not the privacy tracks themselves: their copies are the
@@ -102,7 +104,7 @@ extension Editing {
         var targets: [Target] = []
         for location in sources {
             let track = p[location]
-            for clip in track.clips where clip.range.overlaps(range) && !clip.isObscured {
+            for clip in track.clips where clip.range.overlaps(range) {
                 guard let id = clip.mediaID, mediaID == nil || id == mediaID,
                       let item = p.media(id), item.hasVideo, var span = clip.range.intersection(range) else { continue }
                 // Never past the time asked for, except to a clip edge
@@ -187,6 +189,7 @@ extension Editing {
             effect.id = context.makeID("fx")
             return effect
         } + [Effect(id: context.makeID("fx"), type: style.rawValue, params: [style.parameter: .number(size)])]
+        video.redactionEffectID = video.effects.last?.id
         // A format's own crop replaces the main one there, so the region
         // has to be cut from it too, or the short would show the copy uncropped.
         video.formatOverrides = video.formatOverrides.mapValues { override in
@@ -232,8 +235,9 @@ extension Editing {
     /// least cropped is the closest to it, and never outside it. A whole
     /// frame crop is a layout that once lost the region (the short did
     /// that), not the region, so it's left out unless it's all there is.
-    static func redactionRegion(of clip: Clip, on track: Track) -> Rect? {
+    static func redactionRegion(of clip: Clip, on track: Track, inferLegacy: Bool = false) -> Rect? {
         guard track.isPrivacy, case .media = clip.content, let video = clip.video,
+              video.redaction != nil || video.redactionSources != nil || (inferLegacy && clip.name?.hasPrefix("Privacy") == true),
               clip.isObscured || track.isSwitchedOffRedaction(clip) else { return nil }
         if let region = video.redaction { return region }
         let crops = ([video.crop] + video.formatOverrides.values.filter { !$0.hidden }.compactMap(\.crop))
@@ -253,7 +257,7 @@ extension Editing {
     /// track under the run, if it shows the file there.
     static func redactedPictureTrack(of copy: Clip, on location: TrackLocation, in p: Project) -> TrackLocation? {
         func shows(_ clip: Clip) -> Bool {
-            clip.mediaID == copy.mediaID && clip.range.overlaps(copy.range) && !clip.isObscured
+            clip.mediaID == copy.mediaID && clip.range.overlaps(copy.range)
         }
         var below = location.index - 1
         while below >= 0, isPrivacyTrack(p.videoTracks[below]) { below -= 1 }
@@ -300,7 +304,7 @@ extension Editing {
                 let copy = p[location].clips[index]
                 guard let region = redactionRegion(of: copy, on: p[location]) else { continue }
                 guard let at = redactedPictureTrack(of: copy, on: location, in: p) else { continue }
-                let pictures = p[at].clips.filter { $0.mediaID == copy.mediaID && $0.range.overlaps(copy.range) && !$0.isObscured }
+                let pictures = p[at].clips.filter { $0.mediaID == copy.mediaID && $0.range.overlaps(copy.range) }
                 guard pictures.contains(where: { follows(copy, $0) }) else { continue }
                 let placements = pictures.map { aligned(copy, over: $0, region: region, format: format) }
                 guard let placed = placements.first, placements.contains(where: { $0 != copy }) else { continue }
@@ -374,7 +378,7 @@ extension Editing {
             ? (2...).lazy.map { "\(stem) \($0)" }.first { !names.contains($0.lowercased()) }!
             : stem
         try addTrack(&p, kind: .video, name: name, index: index, id: nil, &context)
-        p.videoTracks[index].rippleMode = .cut
+        p.videoTracks[index].rippleMode = p[source].rippleMode
         return TrackLocation(kind: .video, index: index)
     }
 }

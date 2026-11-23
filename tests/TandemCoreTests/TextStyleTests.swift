@@ -128,7 +128,7 @@ final class TextStyleTests: XCTestCase {
         try ProjectFile.save(project, revision: 4, to: url)
 
         let saved = try String(contentsOf: url, encoding: .utf8)
-        XCTAssertTrue(saved.contains(#""schemaVersion" : 2"#), "saved as the current schema")
+        XCTAssertTrue(saved.contains("\"schemaVersion\" : \(Project.currentSchemaVersion)"), "saved as the current schema")
         let (reloaded, _) = try ProjectFile.load(from: url)
         XCTAssertEqual(try text("clip_callout", in: reloaded).style, TextStyle(uppercase: false, shadow: false))
     }

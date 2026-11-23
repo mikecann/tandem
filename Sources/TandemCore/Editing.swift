@@ -7,7 +7,21 @@ import Foundation
 /// succeeds and the result validates.
 public enum Editing {
     public static func apply(_ submitted: EditCommand, to project: inout Project, context: inout EditContext) throws {
+        var working = project
+        var pending = context
+        try applyUnchecked(submitted, to: &working, context: &pending)
+        if !pending.defersPrivacyCoverage, let error = ProjectValidator.validate(working).first(where: { $0.severity == .error }) {
+            throw EditError.invalid(error.message)
+        }
+        project = working
+        context = pending
+    }
+
+    private static func applyUnchecked(_ submitted: EditCommand, to project: inout Project, context: inout EditContext) throws {
         let command = try resolvingTrackNames(in: submitted, project)
+        RedactionSafety.rememberSources(&project)
+        RedactionSafety.rememberPolicies(&project, sourceFolder: context.sourceFolder)
+        let privacyBefore = project
         // Transitions' sounds are kept in step with them after whatever
         // this command does (`TransitionSounds`).
         let sounds = TransitionSounds.anchors(in: project)
@@ -42,6 +56,9 @@ public enum Editing {
         case .placeSynced(let mediaID, let trackID):
             try SyncedPlacement.place(&project, mediaID: mediaID, trackID: trackID, &context)
         case .insertClip(let trackID, let clip, let mode):
+            guard clip.video?.redaction == nil, clip.video?.redactionSources == nil, clip.video?.redactionEffectID == nil else {
+                throw EditError.invalid("Privacy source fields are created by redact. Insert the picture and redact it in the same batch.")
+            }
             try insertClip(&project, trackID: trackID, clip: clip, mode: mode ?? .place, &context)
         case .removeClips(let clipIDs, let ripple, let includeLinked):
             try removeClips(&project, clipIDs, ripple: ripple ?? false, includeLinked: includeLinked ?? true, &context)
@@ -132,6 +149,7 @@ public enum Editing {
         TransitionSounds.reconcile(&project, from: sounds, named: named, createdFrom: created, &context)
         context.placedSounds = []
         project.normalizeLinkGroups()
+        try RedactionSafety.reconcile(&project, before: privacyBefore, command: command, validateCoverage: !context.defersPrivacyCoverage, sourceFolder: context.sourceFolder)
     }
 
     // MARK: - Lookups
@@ -398,7 +416,11 @@ public enum Editing {
     static func updateTrack(_ p: inout Project, _ trackID: String, _ patch: JSONValue) throws {
         let location = try requireTrack(p, trackID)
         try requireObject(patch, forbidden: ["id", "kind", "clips", "transitions"], what: "track")
-        p[location] = try JSONValue.applyMergePatch(patch, to: p[location])
+        let updated = try JSONValue.applyMergePatch(patch, to: p[location])
+        if p[location].isPrivacy, p[location].locked, updated.locked, updated != p[location] {
+            throw EditError.invalid("Privacy track \(p[location].name) is locked. Unlock it before changing its visibility or settings.")
+        }
+        p[location] = updated
     }
 
     // MARK: - Media
@@ -1283,6 +1305,9 @@ public enum Editing {
     }
 
     static func updateClip(_ p: inout Project, _ clipID: String, _ patch: JSONValue, _ context: inout EditContext) throws {
+        if patchSets(patch, "video", "redaction") || patchSets(patch, "video", "redactionSources") || patchSets(patch, "video", "redactionEffectID") {
+            throw EditError.invalid("Privacy source intent cannot be replaced by a clip patch. Use the redaction's enabled or effect controls.")
+        }
         let (location, index) = try requireClip(p, clipID)
         try requireUnlocked(p[location])
         try requireObject(patch, forbidden: ["id"], what: "clip")
@@ -1328,6 +1353,7 @@ public enum Editing {
     static func link(_ p: inout Project, _ clipIDs: [String], _ context: inout EditContext) throws {
         let ids = try expand(p, clipIDs, includeLinked: true)
         guard ids.count > 1 else { throw EditError.invalid("link needs at least two clips") }
+        for id in ids { let (track, _) = try requireClip(p, id); try requireUnlocked(p[track]) }
         let group = context.makeID("lnk")
         let idSet = Set(ids)
         for location in p.trackLocations {
@@ -1338,6 +1364,7 @@ public enum Editing {
     }
 
     static func unlink(_ p: inout Project, _ clipIDs: [String]) throws {
+        for id in clipIDs { let (track, _) = try requireClip(p, id); try requireUnlocked(p[track]) }
         for id in clipIDs {
             let (location, index) = try requireClip(p, id)
             p[location].clips[index].linkGroup = nil
@@ -1731,6 +1758,7 @@ public enum Editing {
                 throw EditError.invalid("clip \(clipID) already has effect \(effect.id)")
             }
             video.effects.insert(effect, at: min(max(index ?? video.effects.count, 0), video.effects.count))
+            if video.redaction != nil, RedactStyle(rawValue: effect.type) != nil { video.redactionEffectID = effect.id }
             clip.video = video
         case .audio:
             guard p[location].kind == .audio else {

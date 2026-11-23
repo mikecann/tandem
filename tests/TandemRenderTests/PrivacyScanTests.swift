@@ -59,6 +59,127 @@ final class PrivacyScanTests: XCTestCase {
 
     func frame(_ n: Int) -> Time { Time(seconds: Double(n) / 30) }
 
+    func testAnExposureEntirelyBetweenHalfSecondSamplesIsFound() async throws {
+        let reader = FakeReader()
+        reader.shows = [(t(0.1), t(0.3), ReadLine(text: "jane@example.com", box: CGRect(x: 0.2, y: 0.3, width: 0.3, height: 0.02)))]
+        let found = try await run(project(), reader, to: 1)
+        XCTAssertEqual(found.problems.count, 1)
+        XCTAssertEqual(found.problems.first?.start, t(0.1))
+        XCTAssertEqual(found.problems.first?.end, t(0.3))
+    }
+
+    func testAMissingFrameOrRecognitionFailureCannotPassClean() async throws {
+        for missing in [true, false] {
+            do {
+                _ = try await PrivacyCheck.run(project: project(), ranges: [TimeRange(start: .zero, end: t(1))], folder: nil) { times, _ in
+                    if missing { return times.dropFirst().map { ReadFrame(time: $0, lines: []) } }
+                    return times.map { ReadFrame(time: $0, lines: [], recognitionError: "synthetic Vision failure") }
+                }
+                XCTFail("an incomplete scan must throw")
+            } catch { XCTAssertTrue(String(describing: error).contains("privacy") || String(describing: error).contains("output frame")) }
+        }
+    }
+
+    func testRecognisedTextIsNotDiscardedBecauseItsSourceHasABlur() async throws {
+        let reader = FakeReader()
+        reader.shows = [(t(0), t(1), ReadLine(text: "jane@example.com", box: CGRect(x: 0.2, y: 0.3, width: 0.3, height: 0.02)))]
+        let video = VideoProperties(effects: [Effect(type: "blur", params: ["radius": .number(0)])])
+        let found = try await run(project(screenVideo: video), reader, to: 1)
+        XCTAssertEqual(found.problems.count, 1)
+    }
+
+    func testTransitionFindingsIncludeTheOutgoingHandleAndDoNotSuggestTheWrongFile() async throws {
+        var p = project()
+        p.videoTracks[0].clips[0].duration = t(2)
+        p.media.append(MediaItem(id: "med_blank", path: "blank.mov", kind: .video, role: .screen, duration: t(5), width: 3840, height: 2160, hasVideo: true))
+        p.videoTracks[0].clips.append(Clip(id: "clip_blank", content: .media(mediaID: "med_blank"), start: t(2), duration: t(2), sourceStart: t(1)))
+        p.videoTracks[0].transitions = [Transition(type: .dissolve, duration: t(1), fromClipID: "clip_screen", toClipID: "clip_blank")]
+        let reader = FakeReader()
+        reader.shows = [(t(2.1), t(2.3), ReadLine(text: "jane@example.com", box: CGRect(x: 0.2, y: 0.3, width: 0.3, height: 0.02)))]
+        let found = try await run(p, reader, to: 4)
+        XCTAssertTrue(found.problems.contains { $0.message.contains("screen.mov") })
+        XCTAssertTrue(found.problems.allSatisfy { $0.fix == nil && $0.message.contains("contributing") })
+    }
+
+    func testOrdinaryFootageOnAPrivacyNamedTrackStillScans() async throws {
+        var p = project()
+        p.videoTracks[0].name = "Privacy (Screen)"
+        let reader = FakeReader()
+        reader.shows = [(t(0), t(1), ReadLine(text: "jane@example.com", box: CGRect(x: 0.2, y: 0.3, width: 0.3, height: 0.02)))]
+        let found = try await run(p, reader, to: 1)
+        XCTAssertEqual(found.problems.count, 1)
+    }
+
+    func testACroppedOutTitleCannotSuppressPrivateTextBeneathIt() async throws {
+        let title = Clip(id: "clip_invisible", content: .text(TextContent(text: "jane@example.com")), start: .zero, duration: t(1), video: VideoProperties(transform: Transform(position: Point(x: 0.5, y: 0.31)), crop: Crop(left: 0.5, right: 0.5)))
+        let reader = FakeReader()
+        reader.shows = [(t(0), t(1), ReadLine(text: "jane@example.com", box: CGRect(x: 0.4, y: 0.3, width: 0.2, height: 0.02)))]
+        let found = try await run(project(text: [title]), reader, to: 1)
+        XCTAssertEqual(found.problems.count, 1)
+    }
+
+    func testNearTransparentTitleColorCannotSuppressPrivateFootage() async throws {
+        let title = Clip(id: "clip_faint", content: .text(TextContent(text: "jane@example.com", style: TextStyle(color: RGBA(r: 1, g: 1, b: 1, a: 0.001)))), start: .zero, duration: t(1), video: VideoProperties())
+        let reader = FakeReader()
+        reader.shows = [(t(0), t(1), ReadLine(text: "jane@example.com", box: CGRect(x: 0.48, y: 0.495, width: 0.04, height: 0.01)))]
+        let found = try await run(project(text: [title]), reader, to: 1)
+        XCTAssertEqual(found.problems.count, 1)
+    }
+
+    func testTitleBelowUnprobedFootageCannotWhitelistThatFootagesText() async throws {
+        let title = Clip(id: "clip_below", content: .text(TextContent(text: "jane@example.com")), start: .zero, duration: t(1), video: VideoProperties())
+        var p = project(text: [title])
+        p.media[0].width = nil
+        p.media[0].height = nil
+        p.videoTracks.swapAt(0, 1)
+        let reader = FakeReader()
+        reader.shows = [(t(0), t(1), ReadLine(text: "jane@example.com", box: CGRect(x: 0.48, y: 0.495, width: 0.04, height: 0.01)))]
+        let found = try await run(p, reader, to: 1)
+        XCTAssertEqual(found.problems.count, 1)
+        XCTAssertNil(found.problems.first?.fix)
+    }
+
+    func testAnUnprobedImageWithoutTheVideoFlagStillBlocksALowerTitleExemption() async throws {
+        let title = Clip(id: "clip_below", content: .text(TextContent(text: "jane@example.com")), start: .zero, duration: t(1), video: VideoProperties())
+        var p = project(text: [title])
+        p.media[0].kind = .image
+        p.media[0].hasVideo = false
+        p.media[0].width = nil
+        p.media[0].height = nil
+        p.videoTracks.swapAt(0, 1)
+        let reader = FakeReader()
+        reader.shows = [(t(0), t(1), ReadLine(text: "jane@example.com", box: CGRect(x: 0.48, y: 0.495, width: 0.04, height: 0.01)))]
+        let found = try await run(p, reader, to: 1)
+        XCTAssertEqual(found.problems.count, 1)
+        XCTAssertNil(found.problems.first?.fix)
+    }
+
+    func testARotatedTitlesEmptyBoundingBoxCornersDoNotExemptFootage() async throws {
+        let title = Clip(id: "clip_rotated", content: .text(TextContent(text: "jane@example.com", style: TextStyle(size: 100))), start: .zero, duration: t(1), video: VideoProperties(transform: Transform(rotation: 45)))
+        let reader = FakeReader()
+        reader.shows = [(t(0), t(1), ReadLine(text: "jane@example.com", box: CGRect(x: 0.55, y: 0.25, width: 0.1, height: 0.02)))]
+        let found = try await run(project(text: [title]), reader, to: 1)
+        XCTAssertEqual(found.problems.count, 1)
+    }
+
+    func testUnattributedLinesStillRunAddressAndNameListRules() async throws {
+        var p = project()
+        p.media[0].width = nil
+        p.media[0].height = nil
+        let reader = FakeReader()
+        reader.shows = [
+            (t(0), t(1), ReadLine(text: "Collect the keys at 12", box: CGRect(x: 0.7, y: 0.30, width: 0.15, height: 0.02))),
+            (t(0), t(1), ReadLine(text: "Harbour Rise", box: CGRect(x: 0.7, y: 0.325, width: 0.08, height: 0.02))),
+            (t(1), t(2), ReadLine(text: "Sarah Johnson", box: CGRect(x: 0.1, y: 0.1, width: 0.2, height: 0.02))),
+            (t(1), t(2), ReadLine(text: "David Williams", box: CGRect(x: 0.1, y: 0.13, width: 0.2, height: 0.02))),
+            (t(1), t(2), ReadLine(text: "Emily Thompson", box: CGRect(x: 0.1, y: 0.16, width: 0.2, height: 0.02)))
+        ]
+        let found = try await run(p, reader, to: 2)
+        XCTAssertTrue(found.problems.contains { $0.message.contains("12 Harbour Rise") })
+        XCTAssertTrue(found.problems.contains { $0.message.contains("names") })
+        XCTAssertTrue(found.problems.allSatisfy { $0.fix == nil })
+    }
+
     func testFindsAnEmailToTheFrameWithTheRedactThatHidesIt() async throws {
         let reader = FakeReader()
         // Shows from frame 301 (10.033 s) up to frame 453 (15.1 s): between
@@ -86,8 +207,8 @@ final class PrivacyScanTests: XCTestCase {
         XCTAssertEqual(rect.y, 0.29, accuracy: 0.001)
         XCTAssertEqual(rect.width, 0.32, accuracy: 0.001)
         XCTAssertEqual(rect.height, 0.04, accuracy: 0.001)
-        // 120 samples, and a few more to find each edge to the frame.
-        XCTAssertLessThan(reader.asked, 140)
+        // Every output frame, including exposures between the old samples.
+        XCTAssertEqual(reader.asked, 1800)
     }
 
     func testMapsTextOnAPictureInPictureBackToTheFilesFrame() async throws {
@@ -108,7 +229,8 @@ final class PrivacyScanTests: XCTestCase {
         let left = FakeReader()
         left.shows = [(t(5), t(6), ReadLine(text: "jane@example.com", box: CGRect(x: 0.1, y: 0.45, width: 0.1, height: 0.1)))]
         let none = try await run(project(screenVideo: video), left)
-        XCTAssertEqual(none.problems, [])
+        XCTAssertEqual(none.problems.count, 1, "recognised private text must not be discarded when placement attribution fails")
+        XCTAssertNil(none.problems.first?.fix, "an unknown source cannot have a source-specific redaction")
     }
 
     func testTextInsideAPhoneFrameIsThePhonesRecording() async throws {
@@ -237,12 +359,13 @@ final class PrivacyScanTests: XCTestCase {
         XCTAssertEqual(rect.y + rect.height / 2, 0.5, accuracy: 0.002, "the middle of the file, up and down")
     }
 
-    func testTitlesAndCaptionsAreMikesOwnWords() async throws {
-        let title = Clip(id: "clip_title", content: .text(TextContent(text: "Email me at jane@example.com")), start: t(40), duration: t(5))
+    func testAuthoredPrivateLookingTextStillRequiresReview() async throws {
+        let title = Clip(id: "clip_title", content: .text(TextContent(text: "Email me at jane@example.com")), start: t(40), duration: t(5), video: VideoProperties(transform: Transform(position: Point(x: 0.5, y: 0.825))))
         let reader = FakeReader()
         reader.shows = [(t(40), t(45), ReadLine(text: "Email me at jane@example.com", box: CGRect(x: 0.3, y: 0.8, width: 0.4, height: 0.05)))]
         let found = try await run(project(text: [title]), reader)
-        XCTAssertEqual(found.problems, [])
+        XCTAssertEqual(found.problems.count, 1)
+        XCTAssertNil(found.problems.first?.fix, "OCR cannot prove whether the matching glyphs came from the title or footage")
     }
 
     func testAQRCodeAndAListOfNamesAreFlagged() async throws {

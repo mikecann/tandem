@@ -201,6 +201,8 @@ public enum ThroughEdits {
         // Held frames are by media time: a join keeps both sides' holds.
         shape.holds = []
         var video = clip.video ?? VideoProperties()
+        video.redactionSources = nil
+        video.redactionEffectID = nil
         video.effects = video.effects.map { var effect = $0; effect.id = ""; return effect }
         shape.video = video
         var audio = clip.audio ?? AudioProperties()
@@ -606,6 +608,9 @@ public enum ThroughEdits {
             var joined = left
             joined.duration = left.duration + right.duration
             joined.keyframes = keyframes
+            if left.video?.redactionSources != nil || right.video?.redactionSources != nil {
+                joined.video?.redactionSources = TimeRange.union((left.video?.redactionSources ?? []) + (right.video?.redactionSources ?? []))
+            }
             for tag in right.tags where !joined.tags.contains(tag) { joined.tags.append(tag) }
             // Held frames are by media time: each side keeps the holds over
             // what it showed, so one trimmed out of sight doesn't come back.

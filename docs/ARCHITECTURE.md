@@ -166,6 +166,49 @@ IDs) and is announced to observers.
 `expectedRevision` lets an agent refuse to edit a timeline that changed under
 it. `idempotencyKey` makes retries safe.
 
+### Privacy through edits
+
+Schema 3 stores source-region redaction intent on the project, including
+the file identity and source-pixel effect strength. Privacy copies keep the
+source intervals assigned to their piece; a blade partitions those intervals
+and a join unions them. Explicit copy/effect disable or removal relinquishes
+only that selection. Incidental removal through a timeline cut retains the
+project policy, so reintroducing those source frames requires protection.
+
+Every edit passes through `RedactionSafety`: it aligns ordinary changes and
+checks source coverage analytically across source time, holds, freezes,
+formats and track order. Unsupported edits throw before commit. Direct
+`Editing.apply` calls use a copy too. Locked privacy copies cannot be skipped
+by a blade, ripple or angle change. Legacy projects capture their regions and
+linked picture holds on load and before an edit; journal recovery stops on a
+rejected edit instead of silently skipping it and replaying dependent edits.
+
+Rendering applies privacy to source pixels before clip effects, crop,
+placement and transition mixing. Transition handles inherit the protection
+of the participating clip edge, independent of link groups. File aliases
+also receive the protection. The privacy reader uses original media, reads
+every output frame, reuses OCR only for identical pixels, and fails on a
+missing frame or recognition error. Transition findings retain the possible
+contributors, and recognised private text with unknown attribution remains
+a problem without an automatic fix.
+
+Policies retain encountered media IDs, paths and fingerprints even after
+successive file replacements. Sessions and journal replay resolve relative
+paths from the project folder, following folder renames; filesystem identities
+bind symlink and hard-link aliases before relinking. Source filtering replaces the protected pixels,
+including alpha, so transparent footage cannot retain sharp glyphs underneath.
+
+Constant-rate fractional cuts retain whole decoded source-frame intervals.
+Composition assembly expands policies against the actual cached presentation
+table and the compositor checks decoded sample identities. A few dropped
+frames need protection even when the probe still calls the file constant-rate.
+An unreadable presentation table falls back to file-wide region concealment.
+Variable-rate policies conceal the region throughout the file rather than
+trust its modal frame rate, including reintroduced occurrences outside the
+nominal selection and freezes outside it. Model coverage still checks the
+selected spans. This deliberately over-conceals VFR media.
+File timing and dimensions cannot change under a policy.
+
 ### Review
 
 Mike reviews what agents changed instead of watching the whole video

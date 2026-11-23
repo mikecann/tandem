@@ -55,12 +55,14 @@ public final class ProjectCoordinator: @unchecked Sendable {
     private var mediaScanRevisions: Set<Int> = []
     private var observers: [UUID: (ChangeEvent) -> Void] = [:]
     private let journal: ProjectJournal?
+    private let sourceFolder: FolderAnchor?
     private let maxUndo = 500
 
-    public init(project: Project, revision: Int = 0, journal: ProjectJournal? = nil) {
+    public init(project: Project, revision: Int = 0, journal: ProjectJournal? = nil, sourceFolder: URL? = nil) {
         self._project = project
         self._revision = revision
         self.journal = journal
+        self.sourceFolder = sourceFolder.map(FolderAnchor.init)
     }
 
     public var project: Project { queue.sync { _project } }
@@ -126,7 +128,8 @@ public final class ProjectCoordinator: @unchecked Sendable {
                 throw EditError.staleRevision(expected: expected, actual: _revision)
             }
             var working = _project
-            var context = EditContext()
+            var context = EditContext(sourceFolder: sourceFolder?.url)
+            context.defersPrivacyCoverage = true
             for (index, command) in batch.commands.enumerated() {
                 do {
                     try Editing.apply(command, to: &working, context: &context)
@@ -134,6 +137,7 @@ public final class ProjectCoordinator: @unchecked Sendable {
                     throw EditError.invalid("command \(index + 1) of \(batch.commands.count): \(error.description)")
                 }
             }
+            try RedactionSafety.requireCoverage(working, protecting: RedactionSafety.protections(in: working))
             let issues = ProjectValidator.validate(working)
             if let first = issues.first(where: { $0.severity == .error }) {
                 throw EditError.invalid(first.message)

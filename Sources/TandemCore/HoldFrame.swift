@@ -1,5 +1,42 @@
 import Foundation
 
+/// A held picture on the output frame grid. Editing and rendering share
+/// this mapping so a held frame cannot escape at a rounded boundary.
+public struct RenderedHold: Equatable, Sendable {
+    public var timeline: TimeRange
+    public var frame: Time
+
+    public init(timeline: TimeRange, frame: Time) {
+        self.timeline = timeline
+        self.frame = frame
+    }
+}
+
+extension Clip {
+    public func renderedHolds(rate: FrameRate, within visible: TimeRange? = nil) -> [RenderedHold] {
+        guard !freezeFrame else { return [] }
+        return holds.compactMap { hold -> RenderedHold? in
+            let speed = max(speed, 0.0001)
+            let tolerance = Time.flicksPerSample48k * 2
+            let from = start + (hold.source.start - sourceStart).scaled(by: 1 / speed)
+            let to = start + (hold.source.end - sourceStart).scaled(by: 1 / speed)
+            let first = Time.frames(Time(flicks: from.flicks + tolerance).frameIndex(at: rate), at: rate)
+            var end = Time.frames(Time(flicks: to.flicks - tolerance + rate.flicksPerFrame - 1).frameIndex(at: rate), at: rate)
+            if end <= first { end = first + rate.frameDuration }
+            let range = TimeRange(start: first, end: end)
+            if let visible {
+                guard let shown = range.intersection(visible), !shown.isEmpty else { return nil }
+                return RenderedHold(timeline: shown, frame: hold.frame)
+            }
+            return RenderedHold(timeline: range, frame: hold.frame)
+        }.sorted { $0.timeline.start < $1.timeline.start }
+    }
+
+    public func pictureTime(atTimelineTime time: Time, rate: FrameRate) -> Time {
+        renderedHolds(rate: rate).first { $0.timeline.contains(time) }?.frame ?? sourceTime(atTimelineTime: time)
+    }
+}
+
 extension Editing {
     /// `holdFrame`: the picture `clipID` shows a frame before `range`
     /// starts, held over `range`, so a flash there (a stale frame, the

@@ -145,12 +145,12 @@ final class PrivacyAuditLifecycleTests: XCTestCase {
         }
     }
 
-    func testUndoRedoAndReloadPreserveTheLaterTransformGap() throws {
+    func testUndoRedoAndReloadPreserveAlignedRedactions() throws {
         let (c, picture, patch) = try PrivacyAuditAlignmentTests().ready()
         let before = c.project
         try c.run("Move", .updateClip(clipID: picture, patch: .object(["video": .object(["transform": .object(["scale": .number(2)])]) ])))
         let after = c.project
-        XCTAssertNotEqual(after.clip(picture)!.video!.transform, after.clip(patch)!.video!.transform)
+        XCTAssertEqual(after.clip(picture)!.video!.transform, after.clip(patch)!.video!.transform)
         _ = try c.undo()
         XCTAssertEqual(c.project, before)
         _ = try c.redo()
@@ -160,7 +160,7 @@ final class PrivacyAuditLifecycleTests: XCTestCase {
         try ProjectFile.save(c.project, revision: c.revision, to: url)
         let loaded = try ProjectFile.load(from: url)
         XCTAssertEqual(loaded.project, after)
-        XCTAssertNotEqual(loaded.project.clip(picture)!.video!.transform, loaded.project.clip(patch)!.video!.transform)
+        XCTAssertEqual(loaded.project.clip(picture)!.video!.transform, loaded.project.clip(patch)!.video!.transform)
     }
 
     func testHoldInsideRedactedPieceRetainsCoverage() throws {
@@ -173,8 +173,8 @@ final class PrivacyAuditLifecycleTests: XCTestCase {
         let scopes = PrivacyAuditCoverage.capture(c.project)
         XCTAssertEqual(picture.holds, patch.holds)
         try c.run("Hold after", .holdFrame(clipID: picture.id, range: TimeRange(start: t(13), end: t(13.1))))
-        XCTAssertNotEqual(c.project.clip(picture.id)!.holds, c.project.clip(patch.id)!.holds)
+        XCTAssertEqual(c.project.clip(picture.id)!.holds, c.project.clip(patch.id)!.holds)
         pairs(c, protecting: scopes)
-        print("AUDIT hold: later hold is picture-only; geometry still covered, no exposure asserted")
+        print("AUDIT hold: picture and redaction hold the same frame")
     }
 }

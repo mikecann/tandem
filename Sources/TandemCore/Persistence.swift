@@ -24,7 +24,7 @@ public enum ProjectFile {
     public static func load(from url: URL) throws -> (project: Project, revision: Int) {
         let data = try Data(contentsOf: url)
         let envelope = try JSONDecoder().decode(Envelope.self, from: data)
-        let migrated = try migrate(envelope.project)
+        let migrated = try migrate(envelope.project, sourceFolder: url.deletingLastPathComponent())
         return (migrated, envelope.revision)
     }
 
@@ -149,12 +149,14 @@ public enum ProjectFile {
     /// Upgrades older schema versions. Version 1 is the first. The result
     /// is marked current, so it's saved as current and never upgraded twice
     /// (an upgrade would drop the explicit values made since).
-    public static func migrate(_ project: Project) throws -> Project {
+    public static func migrate(_ project: Project, sourceFolder: URL? = nil) throws -> Project {
         guard project.schemaVersion <= Project.currentSchemaVersion else {
             throw EditError.invalid("This project was saved by a newer Tandem (schema \(project.schemaVersion)).")
         }
         var project = project
         if project.schemaVersion < 2 { LegacyTextStyles.upgrade(&project) }
+        RedactionSafety.rememberSources(&project)
+        RedactionSafety.rememberPolicies(&project, sourceFolder: sourceFolder)
         project.schemaVersion = Project.currentSchemaVersion
         return project
     }
@@ -283,9 +285,9 @@ public final class ProjectJournal: @unchecked Sendable {
     /// project before and after it, so an agent's edits that never reached
     /// a save still reach the review log.
     public func recover(
-        project: Project, revision: Int,
+        project: Project, revision: Int, sourceFolder: URL? = nil,
         replayed: ((_ entry: Entry, _ before: Project, _ after: Project) -> Void)? = nil
-    ) -> (project: Project, revision: Int)? {
+    ) throws -> (project: Project, revision: Int)? {
         let pending = entries(after: revision)
         guard !pending.isEmpty else { return nil }
         var current = project
@@ -294,15 +296,18 @@ public final class ProjectJournal: @unchecked Sendable {
             if let snapshot = entry.snapshot {
                 // A snapshot carries its own schema version.
                 let before = current
-                current = (try? ProjectFile.migrate(snapshot)) ?? snapshot
+                current = try ProjectFile.migrate(snapshot, sourceFolder: sourceFolder)
                 replayed?(entry, before, current)
             } else if let batch = entry.batch {
-                var context = EditContext(seed: entry.seed ?? 0)
+                var context = EditContext(seed: entry.seed ?? 0, sourceFolder: sourceFolder)
+                context.defersPrivacyCoverage = true
                 var working = current
                 do {
                     for command in batch.commands {
                         try Editing.apply(command, to: &working, context: &context)
                     }
+                    try RedactionSafety.requireCoverage(working, protecting: RedactionSafety.protections(in: working))
+                    if let error = ProjectValidator.validate(working).first(where: { $0.severity == .error }) { throw EditError.invalid(error.message) }
                     // An older Tandem wrote full styles where it meant
                     // "the preset's". Every edit before this one was that
                     // older Tandem's too, so the whole project reads its way.
@@ -310,9 +315,7 @@ public final class ProjectJournal: @unchecked Sendable {
                     replayed?(entry, current, working)
                     current = working
                 } catch {
-                    // A batch that no longer applies is skipped rather than
-                    // losing everything after it.
-                    continue
+                    throw EditError.invalid("Recovery stopped at edit \(entry.revision) (\(batch.label)): \(error). Your saved project and journal are unchanged.")
                 }
             }
             currentRevision = entry.revision

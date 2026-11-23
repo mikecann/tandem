@@ -91,6 +91,44 @@ asked for a copy itself does the same, so a blur never fills the frame or
 the top half of a short. A locked privacy track stops a layout that would
 leave its copies behind: unlock it first.
 
+The project remembers the selected source regions independently of their
+current copies. Ordinary crop, transform, motion, keyframe, direct timing
+and hold edits keep the copies aligned. A later edit that would expose a
+protected source frame refuses the entire batch: this includes neighbour
+trims/slips, unsafe rolls/slides, track transfers and locked blades. Even a
+cut that removes every current copy retains the source intent, so inserting
+those frames again must still cover them. Changing a protected file's
+picture delay also refuses.
+
+Fractional source cuts retain the whole decoded source frames they show.
+The renderer reads actual presentation timestamps, including isolated dropped
+frames in recordings still classified as constant-rate. If that table cannot
+be read, it conceals the region throughout the file instead of guessing.
+For variable-rate files, the nominal frame rate cannot identify every sample
+a freeze can repeat. The renderer therefore conceals each protected region
+throughout that source file. This can hide the region outside the selected
+timeline range too; convert and probe a constant-rate file before redaction
+when precise source timing is needed. Later edits still require coverage
+where the recorded source selection applies. Every variable-rate occurrence
+also receives the file-wide concealment, including freezes outside that selection.
+
+Templates cannot introduce privacy-copy metadata. Insert their ordinary
+pictures and run `redact` afterwards; a saved segment containing privacy
+copies refuses rather than import unverified ownership of protected frames.
+
+The renderer obscures the source region before effects, placement and
+transition motion or mixing, including transition handles. A still image
+has one source frame at every time. Protection matches a file's saved
+identity as well as its media ID, so another reference to the same file
+cannot evade it. Blur strength is retained in source pixels through later
+zooms. Renaming a privacy track keeps its identity.
+
+Switching a copy or its effect off, hiding its track, or explicitly removing
+it relinquishes that copy's selected source region. Blading partitions that
+selection; joining combines it again. Ordinary cuts that happen to remove
+the copy do not relinquish the source intent. Undo restores the whole edit,
+including its protection. Older projects acquire this intent on load.
+
 Turning a copy's blur off (Mike's "Turn off blur" in the inspector), or
 removing it, leaves the copy hiding nothing, so it isn't drawn: drawn,
 it's the same footage over itself with a faint seam along its crop. Turn
@@ -125,16 +163,20 @@ thread's answer listing Mike's projects (personal errands, travel, an
 internal plan) at three places, another person's quotes
 waiting for his OK, and lines scrolling through a strip above a fixed
 blur. `tandem check --privacy` reads the video as export renders it, a
-frame every half second, with Vision on the Mac, and flags what looks
+frame at the output frame rate, with Vision on the Mac, and flags what looks
 private. Run it on the whole video before every export:
 
 ```
 tandem check --privacy
 ```
 
+Recognised private-looking text stays a finding even where a title contains
+the same words. A title's transparent padding cannot prove where OCR's glyphs
+came from. Public contact details you authored may therefore need review too.
+
 Each `privateText` problem has its edges to the frame, the file the text
 is in, what was read (`crypto ("wallet"); travel plans ("flights")`)
-and a `redact` blurring what was flagged, in that file's frame:
+and, when the source is known, a `redact` blurring what was flagged in that file's frame:
 
 ```
 04:58.700-05:04.067  Private text on screen.mov: crypto ("wallet"); travel plans ("flights") ...
@@ -150,8 +192,14 @@ name that's public) should stay sharp.
 `readableText` notes are every stretch with 40 or more words readable a
 frame, flagged or not. Look through each (`tandem frames` across it): the
 rules can't know that a plan is internal, a quote is someone else's, or a
-list of projects is private. Titles and captions are left out, and so is
-text under a blur. It reads the main layout; a format with its own layout
+list of projects is private. A title or caption is left out only when the
+read text matches its words and drawn position. Recognised private text is
+flagged even when its source has a blur effect. Text in a transition lists
+its possible contributors, with no automatic redaction; an unknown source
+is still a problem to inspect. Missing frames or failed OCR stop the scan
+with an error, so they cannot produce a clean result. The reader uses
+original media and only reuses OCR for byte-identical rendered frames.
+It reads the main layout; a format with its own layout
 (the portrait Short `tandem short` lays out) can show text the main one
 crops off, so scan each one too, in its own frame:
 
@@ -165,10 +213,10 @@ no format: scan it with plain `--privacy`, in that project.
 The redacts it gives are in the file's frame either way, and a redact
 covers every format.
 
-It reads from proxies (1080p) where they're ready, about 3 s of video a
-second, so a 25 minute video takes about 7 minutes. Re-run it after blurring until every flag left is one you've
-looked at. An earlier "leave the blurs off for now" isn't a sign-off on
-what shows.
+Reading every output frame from original media takes longer than the old
+half-second sweep. Re-run it after blurring until every flag left is one
+you've looked at. An earlier "leave the blurs off for now" isn't a sign-off
+on what shows.
 
 ## Grade the camera take
 

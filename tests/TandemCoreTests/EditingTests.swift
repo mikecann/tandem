@@ -595,7 +595,7 @@ final class CoordinatorTests: XCTestCase {
         try c.run("Cut", .blade(at: t(10)), .blade(at: t(20)))
         c.undo()
         try c.run("Tighten", .rippleDeleteRange(range: TimeRange(start: t(5), end: t(6))))
-        let recovered = journal.recover(project: fixture.project, revision: 0)
+        let recovered = try journal.recover(project: fixture.project, revision: 0)
         XCTAssertEqual(recovered?.project, c.project)
         XCTAssertEqual(recovered?.revision, c.revision)
     }

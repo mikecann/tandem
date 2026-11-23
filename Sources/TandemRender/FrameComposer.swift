@@ -29,6 +29,9 @@ struct SceneClip {
     /// keyframe).
     var pictureRecovery: TimeRange?
     var matteRecovery: TimeRange?
+    var redactions: [SourceRedaction] = []
+    var frameRate: FrameRate = .fps30
+    var privacyTiming: SourcePrivacyTiming = .allFrames
 
     /// Media time shown at a timeline time, following speed, freezes and
     /// held frames.
@@ -37,7 +40,7 @@ struct SceneClip {
     /// frame, held. A file whose picture lags its sound shows its picture
     /// that much later (`MediaItem.pictureDelay`), as the plan does.
     func mediaTime(at time: Time) -> CMTime {
-        let t = clip.pictureTime(atTimelineTime: time)
+        let t = clip.pictureTime(atTimelineTime: time, rate: frameRate)
         return max(t + (media?.pictureDelay ?? .zero), .zero).cmTime
     }
 }
@@ -233,7 +236,45 @@ struct FrameComposer {
         let unit = scene.pixelScale / total
         let env = EffectEnvironment(registry: scene.registry, folder: scene.folder, pixelsPerUnit: unit)
         let look = sceneClip.media.flatMap { scene.overrides?.look(for: $0) } ?? sceneClip.media?.look ?? []
-        image = EffectRenderer.apply(look + video.effects, to: image, env)
+
+        // Hide source pixels before crop, placement and transition motion.
+        // A stationary overlay cannot follow a push, nor cover a dissolve's
+        // handles. Protect every occurrence of the selected source frames.
+        var appliedPrivacy = false
+        for protection in sceneClip.redactions {
+            let pictureTime = clip.pictureTime(atTimelineTime: time, rate: sceneClip.frameRate)
+            let shown = RedactionSafety.displayedSource(pictureTime, media: sceneClip.media, frame: scene.frameDuration)
+            let nominal = RedactionSafety.displayedSource(clip.sourceTime(atTimelineTime: time), media: sceneClip.media, frame: scene.frameDuration)
+            let boundary = RedactionSafety.displayedSource(time < clip.start ? clip.sourceStart : clip.sourceEnd - scene.frameDuration.scaled(by: clip.speed), media: sceneClip.media, frame: scene.frameDuration)
+            let handle = !clip.range.contains(time) && protection.sources.contains { $0.contains(boundary) }
+            let held = clip.renderedHolds(rate: sceneClip.frameRate).contains { $0.timeline.contains(time) }
+            let decodedHold = RedactionSafety.heldSource(pictureTime, media: sceneClip.media, frame: scene.frameDuration)
+            let ownCopy = clip.video?.redaction == protection.region && RedactionSafety.effect(on: clip).map { $0.type == protection.effect.type && $0.params == protection.effect.params } == true
+            let decoded = RedactionSafety.frozenSources(pictureTime, media: sceneClip.media, frame: scene.frameDuration).contains { candidate in protection.sources.contains { $0.contains(candidate) } }
+            let delay = sceneClip.media?.pictureDelay ?? .zero
+            var requests = [pictureTime]
+            if clip.freezeFrame { requests.append(pictureTime + Time(seconds: 0.001)) }
+            if held { requests.append(pictureTime - min(Time(seconds: 0.001), scene.frameDuration)) }
+            let actual = requests.compactMap { sceneClip.privacyTiming.source(at: $0, delay: delay) }
+                .contains { source in protection.sources.contains { $0.contains(source) } }
+            guard sceneClip.media?.kind == .image || sceneClip.media?.variableFrameRate == true || protection.sourceVariableFrameRate == true || sceneClip.privacyTiming.protectsEveryFrame || ownCopy || decoded || actual || handle || protection.sources.contains(where: { $0.contains(shown) || $0.contains(nominal) || (held && $0.contains(decodedHold)) }) else { continue }
+            let region = protection.region
+            let patch = CGRect(x: region.x * size.width, y: (1 - region.y - region.height) * size.height, width: region.width * size.width, height: region.height * size.height)
+            let ratio = size.width / CGFloat(max(1, sceneClip.media?.width ?? Int(size.width)))
+            let privacyEnvironment = EffectEnvironment(registry: scene.registry, folder: scene.folder, pixelsPerUnit: max(unit, protection.sourcePixelsPerUnit * ratio))
+            let hidden = EffectRenderer.apply([protection.effect], to: image, privacyEnvironment).cropped(to: patch)
+            // Replace the selected pixels, including alpha. Source-over
+            // would keep sharp opaque glyphs under a translucent blur.
+            image = hidden.applyingFilter("CIBlendWithMask", parameters: [
+                kCIInputBackgroundImageKey: image,
+                kCIInputMaskImageKey: CIImage(color: .white).cropped(to: patch)
+            ])
+            appliedPrivacy = true
+        }
+        let effects = appliedPrivacy && clip.video?.redaction != nil
+            ? video.effects.filter { $0.id != clip.video?.redactionEffectID }
+            : video.effects
+        image = EffectRenderer.apply(look + effects, to: image, env)
 
         if !video.crop.isIdentity {
             let visible = LayerMath.coreImageRect(LayerMath.cropRect(source: size, crop: video.crop), height: size.height)
@@ -492,7 +533,11 @@ struct FrameComposer {
     }
 
     func textImage(_ text: ResolvedText, clipTime: Time, state: TextAnimationState, renderScale: Double, staticScale: Double) -> CIImage? {
-        let px = Double(scene.pixelScale) * renderScale
+        Self.textImage(text, clipTime: clipTime, state: state, renderScale: renderScale, staticScale: staticScale, canvas: scene.canvas)
+    }
+
+    static func textImage(_ text: ResolvedText, clipTime: Time, state: TextAnimationState, renderScale: Double, staticScale: Double, canvas: CGSize) -> CIImage? {
+        let px = Double(LayerMath.pixelScale(canvas: canvas)) * renderScale
         let style = text.style
         var visible: Int?
         if state.visibleFraction < 1 {
@@ -511,7 +556,7 @@ struct FrameComposer {
             alignment: style.alignment,
             shadow: style.shadow,
             lineSpacing: style.lineSpacing,
-            maxWidth: Double(scene.canvas.width) * 0.9 * renderScale / max(staticScale, 0.01),
+            maxWidth: Double(canvas.width) * 0.9 * renderScale / max(staticScale, 0.01),
             highlight: text.highlightColor == nil ? nil : text.currentWord(at: clipTime).flatMap { text.utf16Range(ofWord: $0) },
             highlightColor: (text.highlightColor ?? style.color).components,
             visibleLength: visible,

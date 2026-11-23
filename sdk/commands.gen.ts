@@ -36,6 +36,12 @@ export type Clip = {
   freezeFrame?: boolean;
   /** Lets the clip run past its media's ends, holding the first frame before the file starts (a negative sourceStart) and the last after it ends. */
   holdEdges?: boolean;
+  /** Frames held over stretches of the media (holdFrame), by media time: source shows frame instead. The clip isn't cut, so they follow it through any edit. */
+  holds?: Array<{
+    /** The media time of the frame shown over source. */
+    frame: number;
+    source: TimeRange;
+  }>;
   /** Optional; set one to refer to it in the same batch. */
   id?: string;
   /** By parameter path, like video.transform.scale. */
@@ -243,7 +249,7 @@ export type TextContent = {
   animationIn?: "none" | "fade" | "pop" | "slideUp" | "typewriter" | "fadeIn" | "fadeOut" | "popIn" | "popOut";
   /** fade, pop, slideUp or typewriter, played backwards as animationOut. none switches the preset's off. */
   animationOut?: "none" | "fade" | "pop" | "slideUp" | "typewriter" | "fadeIn" | "fadeOut" | "popIn" | "popOut";
-  /** A title preset: label (Plain label such as JAMIES SCREEN, 8x or VS); callout (Punchy boxed callout such as 14 TIPS or FULL VIDEO LINKED BELOW); sectionHeader (Two lines: a small accent line over a big title, such as TIP 1 / CURSOR DOCS); version (Big version number at the start of a release video, such as v1.46.0); caption (Short-form caption that highlights each word as it's spoken). */
+  /** A title preset: label (Plain label such as JAMIES SCREEN, 8x or VS); callout (Punchy boxed callout such as 14 TIPS or FULL VIDEO LINKED BELOW); sectionHeader (Two lines: a small accent line over a big title, such as TIP 1 / CURSOR DOCS); version (Big version number at the start of a release video, such as v1.46.0); caption (Short-form caption that highlights each word as it's spoken); plainCaption (Short-form caption in plain white Helvetica Neue, with no highlight). */
   preset?: string;
   style?: TextStyle;
   text?: string;
@@ -557,7 +563,7 @@ export type ShowAngleArgs = {
   trackID: string;
 };
 
-/** Hides part of a picture over a range (snapped to frames): a QR code, an email column, a phone's notifications. Every clip of mediaID there (or every clip on trackID) gets a copy of itself on a cut track right above its own, named after it ("Privacy (Screen)" over Screen): the same file, times and placement, cropped to rect (fractions of the source frame from its top left, as zoomToRegion takes, not of the canvas) with a pixelate or blur on, so it follows a phone shown as a PiP. The take is cut at the range's edges and each copy is linked to the piece it hides, so ripple cuts, trims, slips and moves keep it there. The edges are where asked: only an edge under a frame from a clip's edge goes to it, and a clip the range overlaps by under a frame gets no copy (a warning names it), so it never blurs past the time asked for. */
+/** Hides part of a picture over a range (snapped to frames): a QR code, an email column, a phone's notifications. Every clip of mediaID there (or every clip on trackID) gets a copy of itself on a track right above its own, named after it ("Privacy (Screen)" over Screen), with the same ripple mode: the same file, times and placement, cropped to rect (fractions of the source frame from its top left, as zoomToRegion takes, not of the canvas) with a pixelate or blur on, so it follows a phone shown as a PiP. The take is cut at the range's edges and each copy is linked to the piece it hides. Later edits carry its placement, animation and source coverage with it, or refuse the whole edit if coverage cannot be kept. Protection is remembered in source coordinates, including reused frames and transition handles. Turning a privacy copy or its effect off explicitly removes its protection for the source frames that copy owns. For variable-rate media, the selected region is conservatively hidden throughout the source file because its nominal rate cannot identify repeated samples. The edges are where asked: only an edge under a frame from a clip's edge goes to it, and a clip the range overlaps by under a frame gets no copy (a warning names it), so the copy never extends past the time asked for. */
 export type RedactArgs = {
   /** The recording to hide part of, wherever it shows. Give this or trackID. */
   mediaID?: string;
@@ -608,7 +614,7 @@ export type SlideArgs = {
   delta: number;
 };
 
-/** Holds the frame a clip shows a frame before range over range, to cover a flash: a stale frame, or the preview jumping for a frame in a screen recording. Picture only: just this clip is cut, the held piece is a freeze frame, and every piece stays linked to the take, whose sound plays on uncut, so nothing moves. tandem check gives one for each flicker it can fix. The held piece is the clip's own ID when range starts at the clip's start, otherwise the first ID the batch makes. Several in one clip go latest first, as a cut keeps the clip's ID on the piece before it. */
+/** Holds the frame a clip shows a frame before range over range, to cover a flash: a stale frame, or the preview jumping for a frame in a screen recording. Picture only, and nothing is cut: the hold goes in the clip's holds, by media time, so it stays on those frames whatever the clip goes through, and the clip's sound and linked clips play on as they were. Holds that meet become one. tandem check gives one for each flicker it can fix. */
 export type HoldFrameArgs = {
   /** A clip of a video file on a video track. */
   clipID: string;

@@ -365,10 +365,15 @@ final class PrivacyPanelTests: XCTestCase {
                 XCTAssertEqual(c.project, before)
             }
             try c.run("Remove neighbours for a legal isolated patch", .removeClips(clipIDs: c.clips("Screen").filter { $0.id != picture }.map(\.id), includeLinked: false))
-            let oldMask = c.project.clip(mask)!
+            let originalSources = c.project.clip(mask)!.video!.redactionSources
             try c.run("Raw \(field)", .updateClip(clipID: picture, patch: patch))
-            XCTAssertEqual(c.project.clip(mask)!, oldMask, "observed independent raw-patch behavior")
-            print("PANEL raw field \(field): mask unchanged; originally protected source gaps \(PrivacyAuditCoverage.failures(c.project, protecting: scopes))")
+            XCTAssertEqual(c.project.clip(mask)!.range, c.project.clip(picture)!.range)
+            XCTAssertEqual(c.project.clip(mask)!.sourceStart, c.project.clip(picture)!.sourceStart)
+            for original in originalSources ?? [] {
+                XCTAssertTrue(RedactionSafety.protections(in: c.project).contains { $0.sources.contains { $0.start <= original.start && $0.end >= original.end } }, "the project keeps the original intent even when the copy's assigned piece changes")
+            }
+            assertSafe(c, scopes, "raw field \(field)")
+            print("PANEL raw field \(field): mask follows; originally protected source gaps \(PrivacyAuditCoverage.failures(c.project, protecting: scopes))")
         }
     }
 }

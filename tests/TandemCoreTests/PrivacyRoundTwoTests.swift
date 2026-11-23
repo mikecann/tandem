@@ -14,23 +14,23 @@ private func roundTwoFixture(hold: Bool = false, freeze: Bool = false) throws ->
 final class PrivacyOracleRegressionTests: XCTestCase {
     func testPictureOnlyHoldAfterRedactionContributesItsDisplayedFrame() throws {
         let (c, picture, mask) = try roundTwoFixture()
-        try c.run("Hold picture after redact", .holdFrame(clipID: picture, range: TimeRange(start: .zero, end: t(3))))
+        try corruptForOracle(c, .holdFrame(clipID: picture, range: TimeRange(start: .zero, end: t(3))))
         XCTAssertTrue(c.project.clip(mask)!.holds.isEmpty, "the copy still plays normally")
         let held = c.project.clip(picture)!.pictureTime(atTimelineTime: t(1))
         XCTAssertEqual(held.seconds, 29.0/30, accuracy: 1e-8)
         let scopes = PrivacyAuditCoverage.capture(c.project)
         XCTAssertTrue(scopes.contains { $0.source.contains(held) }, "capture must resolve the linked picture, not only the copy")
         XCTAssertTrue(PrivacyAuditCoverage.failures(c.project, protecting: scopes).isEmpty)
-        try c.run("Move held picture", .updateClip(clipID: picture, patch: .object(["video": .object(["transform": .object(["position": .object(["x": .number(0.5), "y": .number(0.8)])])])])))
+        try corruptForOracle(c, .updateClip(clipID: picture, patch: .object(["video": .object(["transform": .object(["position": .object(["x": .number(0.5), "y": .number(0.8)])])])])))
         XCTAssertFalse(PrivacyAuditCoverage.failures(c.project, protecting: scopes).isEmpty)
     }
 
     func testIntentCapturedBeforePictureOnlyHoldStillChecksItsNominalProtectedSpan() throws {
         let (c, picture, _) = try roundTwoFixture()
         let scopes = PrivacyAuditCoverage.capture(c.project)
-        try c.run("Hold after intent", .holdFrame(clipID: picture, range: TimeRange(start: .zero, end: t(3))))
+        try corruptForOracle(c, .holdFrame(clipID: picture, range: TimeRange(start: .zero, end: t(3))))
         XCTAssertTrue(PrivacyAuditCoverage.failures(c.project, protecting: scopes).isEmpty)
-        try c.run("Move after hold", .updateClip(clipID: picture, patch: .object(["video": .object(["transform": .object(["position": .object(["x": .number(0.5), "y": .number(0.8)])])])])))
+        try corruptForOracle(c, .updateClip(clipID: picture, patch: .object(["video": .object(["transform": .object(["position": .object(["x": .number(0.5), "y": .number(0.8)])])])])))
         XCTAssertFalse(PrivacyAuditCoverage.failures(c.project, protecting: scopes).isEmpty, "a new hold must not bypass an already captured protected nominal span")
     }
 
@@ -49,7 +49,7 @@ final class PrivacyOracleRegressionTests: XCTestCase {
         let scopes = PrivacyAuditCoverage.capture(c.project)
         XCTAssertTrue(scopes.contains { $0.source.contains(held) }, "intent must include the held picture actually displayed")
         XCTAssertTrue(PrivacyAuditCoverage.failures(c.project, protecting: scopes).isEmpty)
-        try c.run("Move held picture only", .updateClip(clipID: picture, patch: .object(["video": .object(["transform": .object(["position": .object(["x": .number(0.5), "y": .number(0.8)])])])])))
+        try corruptForOracle(c, .updateClip(clipID: picture, patch: .object(["video": .object(["transform": .object(["position": .object(["x": .number(0.5), "y": .number(0.8)])])])])))
         XCTAssertFalse(PrivacyAuditCoverage.failures(c.project, protecting: scopes).isEmpty, "a held source cannot disappear from coverage checks")
     }
 
@@ -60,7 +60,7 @@ final class PrivacyOracleRegressionTests: XCTestCase {
         XCTAssertTrue(PrivacyAuditCoverage.failures(c.project, protecting: scopes).isEmpty)
         let destination = c.project.track(named: "B-roll")!
         try c.run("Show destination", .updateTrack(trackID: destination.id, patch: .object(["hidden": .bool(false)])))
-        try c.run("Transfer", .moveClips(clipIDs: [picture], delta: .zero, toTrackID: destination.id))
+        try corruptForOracle(c, .moveClips(clipIDs: [picture], delta: .zero, toTrackID: destination.id))
         XCTAssertFalse(PrivacyAuditCoverage.failures(c.project, protecting: scopes).isEmpty)
     }
 
@@ -76,7 +76,7 @@ final class PrivacyOracleRegressionTests: XCTestCase {
         let (c, picture, _, scopes) = try PrivacyPanelTests().screen()
         let destination = c.project.track(named: "B-roll")!
         try c.run("Show destination", .updateTrack(trackID: destination.id, patch: .object(["hidden": .bool(false)])))
-        try c.run("Transfer faint picture", .moveClips(clipIDs: [picture], delta: .zero, toTrackID: destination.id), .updateClip(clipID: picture, patch: .object(["video": .object(["opacity": .number(0.01)])])))
+        try corruptForOracle(c, .moveClips(clipIDs: [picture], delta: .zero, toTrackID: destination.id), .updateClip(clipID: picture, patch: .object(["video": .object(["opacity": .number(0.01)])])))
         XCTAssertFalse(PrivacyAuditCoverage.failures(c.project, protecting: scopes).isEmpty, "geometry checks must not certify a visible source by a brightness threshold")
     }
 
@@ -192,4 +192,29 @@ extension PrivacyPanelTests {
             try roundTrip(c, scopes: scopes, label: "round2 hold following clip")
         }
     }
+}
+
+/// Oracle controls must still see bad states after the app refuses to create
+/// them. Construct the historical corruption directly, not through Editing.apply.
+private func corruptForOracle(_ c: ProjectCoordinator, _ commands: EditCommand...) throws {
+    var p = c.project
+    var context = EditContext()
+    for command in commands {
+        switch command {
+        case .holdFrame(let id, let range):
+            try Editing.holdFrame(&p, clipID: id, range: range, &context)
+        case .updateClip(let id, let patch):
+            let at = p.location(ofClip: id)!
+            p[at.track].clips[at.index] = try JSONValue.applyMergePatch(patch, to: p[at.track].clips[at.index])
+        case .moveClips(let ids, let delta, let destination, _, _):
+            for id in ids {
+                let at = p.location(ofClip: id)!
+                var clip = p[at.track].clips.remove(at: at.index)
+                clip.start += delta ?? .zero
+                p[p.location(ofTrack: destination!)!].add(clip)
+            }
+        default: XCTFail("unsupported oracle corruption")
+        }
+    }
+    c.reload(p)
 }

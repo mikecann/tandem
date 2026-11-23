@@ -28,11 +28,13 @@ public struct ReadFrame: Equatable, Sendable {
     public var time: Time
     public var lines: [ReadLine]
     public var codes: [CGRect]
+    public var recognitionError: String?
 
-    public init(time: Time, lines: [ReadLine], codes: [CGRect] = []) {
+    public init(time: Time, lines: [ReadLine], codes: [CGRect] = [], recognitionError: String? = nil) {
         self.time = time
         self.lines = lines
         self.codes = codes
+        self.recognitionError = recognitionError
     }
 }
 
@@ -50,6 +52,7 @@ public final class FrameTextReader: @unchecked Sendable {
     /// text a viewer of a 1080p video could.
     public init(context: RenderContext, width: Int) {
         var context = context
+        context.useProxies = false
         let canvas = context.renderSize
         let height = Int((Double(width) * canvas.height / max(canvas.width, 1)).rounded())
         size = CGSize(width: width, height: max(2, height))
@@ -145,10 +148,15 @@ public final class FrameTextReader: @unchecked Sendable {
         var lastThumbnail: [UInt8]?
         var lastFrame: ReadFrame?
         let slack = Time(flicks: frame.flicks / 2)
-        while next < wanted.count, let sample = output.copyNextSampleBuffer() {
+        // Drain this finite range to completion. Cancelling immediately
+        // after the last wanted sample forces decoder teardown on every
+        // short scan, while its borrowed sample storage is still in use.
+        while let sample = output.copyNextSampleBuffer() {
             watch.noteProgress()
+            guard next < wanted.count else { continue }
             let time = Time(cmTime: CMSampleBufferGetPresentationTimeStamp(sample))
             guard time + slack >= wanted[next], let pixels = CMSampleBufferGetImageBuffer(sample) else { continue }
+            guard time <= wanted[next] + slack else { throw RenderError.media("The privacy reader skipped an output frame at \(wanted[next]). Retry the scan.") }
             // The frame showing at each time asked for (one frame can be it
             // for more than one, when the composition holds a frame).
             var image: CGImage?
@@ -175,7 +183,7 @@ public final class FrameTextReader: @unchecked Sendable {
     /// Reads `image`, unless it's the same picture as the last one read.
     func read(_ image: CGImage, at time: Time, last: inout [UInt8]?, lastFrame: inout ReadFrame?) -> ReadFrame {
         let thumbnail = Self.thumbnail(image)
-        if let last, let previous = lastFrame, Self.alike(last, thumbnail) {
+        if !thumbnail.isEmpty, let last, let previous = lastFrame, Self.alike(last, thumbnail) {
             var frame = previous
             frame.time = time
             return frame
@@ -198,7 +206,8 @@ public final class FrameTextReader: @unchecked Sendable {
         text.recognitionLanguages = ["en-US"]
         let codes = VNDetectBarcodesRequest()
         let handler = VNImageRequestHandler(cgImage: image, options: [:])
-        try? handler.perform([text, codes])
+        do { try handler.perform([text, codes]) }
+        catch { return ReadFrame(time: time, lines: [], recognitionError: error.localizedDescription) }
         // Vision's boxes are from the bottom left.
         func flipped(_ box: CGRect) -> CGRect { CGRect(x: box.minX, y: 1 - box.maxY, width: box.width, height: box.height) }
         let lines = (text.results ?? []).compactMap { observation -> ReadLine? in
@@ -209,38 +218,36 @@ public final class FrameTextReader: @unchecked Sendable {
         return ReadFrame(time: time, lines: lines, codes: found)
     }
 
-    /// A 64 by 36 grey thumbnail, to tell a frame that's changed.
+    /// Exact rendered pixels. A grey thumbnail can erase a brief line of
+    /// private text, so only byte-identical frames may reuse OCR results.
     static func thumbnail(_ image: CGImage) -> [UInt8] {
-        let width = 64, height = 36
-        var pixels = [UInt8](repeating: 0, count: width * height)
-        pixels.withUnsafeMutableBytes { buffer in
+        let width = image.width, height = image.height
+        var pixels = [UInt8](repeating: 0, count: width * height * 4)
+        let drawn = pixels.withUnsafeMutableBytes { buffer -> Bool in
             guard let context = CGContext(
-                data: buffer.baseAddress, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width,
-                space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.none.rawValue
-            ) else { return }
+                data: buffer.baseAddress, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
+                space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            ) else { return false }
             context.interpolationQuality = .medium
             context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+            return true
         }
-        return pixels
+        return drawn ? pixels : []
     }
 
-    /// Whether two thumbnails are the same picture: no pixel more than a
-    /// little off. A line of text scrolling in moves far more than that.
+    /// Only identical rendered pixels may reuse an OCR result.
     static func alike(_ a: [UInt8], _ b: [UInt8]) -> Bool {
-        guard a.count == b.count else { return false }
-        return zip(a, b).allSatisfy { abs(Int($0) - Int($1)) <= 3 }
+        return a == b
     }
 }
 
-/// `tandem check --privacy`: reads the video's frames (every half second,
-/// as export renders them) and finds text a viewer could read that looks
+/// `tandem check --privacy`: reads every output frame of the video,
+/// as export renders it, and finds text a viewer could read that looks
 /// private (`PrivateText`), with when and where it shows and the `redact`
 /// that hides it. A human sweep of the Threadbear launch video missed a
 /// thread's answer listing Mike's projects three times over, readable for
 /// 8 s each, and lines scrolling through a strip above a fixed blur.
 public enum PrivacyCheck {
-    /// How often a frame is read. Edges are then found to the frame.
-    public static let step = Time(seconds: 0.5)
     /// Words of text a frame needs before its stretch is worth a look,
     /// private-looking or not.
     public static let readableWords = 40
@@ -277,19 +284,31 @@ public enum PrivacyCheck {
         project: Project, ranges: [TimeRange], folder: ProjectFolder?, format: String? = nil, read: Reader
     ) async throws -> (problems: [CheckProblem], notes: [CheckProblem]) {
         let probe = folder.map(AlphaProbe.init)
-        let look = Look(probe: probe, format: format)
+        let look = Look(probe: probe, format: format, plan: RenderPlanner.plan(project, format: format, assets: nil))
         let rate = project.settings.frameRate
+        let step = rate.frameDuration
+        let ranges = TimeRange.union(ranges.map { range in
+            let from = max(.zero, Time.frames(range.start.frameIndex(at: rate), at: rate))
+            let to = Time.frames((range.end + step - Time(flicks: 1)).frameIndex(at: rate), at: rate)
+            return TimeRange(start: from, end: max(from, to))
+        })
         var times: [Time] = []
         var segment: [Int] = []
         for (index, range) in ranges.enumerated() {
-            var time = range.start.roundedToFrame(rate)
+            var time = Time(flicks: (max(0, range.start.flicks) / rate.flicksPerFrame) * rate.flicksPerFrame)
             while time < range.end {
                 times.append(time)
                 segment.append(index)
-                time = (time + step).roundedToFrame(rate)
+                time += step
             }
         }
         let frames = try await read(times, true)
+        guard frames.map(\.time).sorted() == times.sorted() else {
+            throw RenderError.media("The privacy scan did not read every requested output frame. No clean result was recorded; retry the scan.")
+        }
+        if let failure = frames.first(where: { $0.recognitionError != nil }) {
+            throw RenderError.media("Text recognition failed at \(failure.time): \(failure.recognitionError!). No clean privacy result was recorded.")
+        }
         let seen = frames.map { see($0, in: project, look: look) }
         // Which stretch each frame read is in (a frame that failed to
         // render is missing, so it's by time).
@@ -304,16 +323,7 @@ public enum PrivacyCheck {
                 // To the frame each end: where the first one shows, and
                 // the frame after the last one does.
                 let first = seen[run.first!].time, last = seen[run.last!].time
-                let range = ranges[segments[run.first!]]
-                let before = first - step, after = last + step
-                let start = try await edge(
-                    from: max(range.start, before), to: first, mediaID: mediaID, rising: true, unread: before < range.start, project: project, look: look, read: read
-                )
-                let lastShown = try await edge(
-                    from: last, to: min(range.end - rate.frameDuration, after), mediaID: mediaID, rising: false,
-                    unread: after > range.end - rate.frameDuration, project: project, look: look, read: read
-                )
-                problems.append(problem(spots, mediaID: mediaID, range: TimeRange(start: start, end: lastShown + rate.frameDuration), project: project))
+                problems.append(problem(spots, mediaID: mediaID, range: TimeRange(start: first, end: last + step), project: project))
             }
         }
 
@@ -352,28 +362,6 @@ public enum PrivacyCheck {
         return runs
     }
 
-    /// The frame where `mediaID`'s private text starts showing (`rising`:
-    /// the first with it, between `from`, without, and `to`, with) or stops
-    /// (the last with it, between `from`, with, and `to`), found by halves.
-    /// `unread`: the far end is the stretch's edge rather than a frame read
-    /// without it, so it's read first.
-    static func edge(from: Time, to: Time, mediaID: String, rising: Bool, unread: Bool, project: Project, look: Look, read: Reader) async throws -> Time {
-        let frame = project.settings.frameRate.frameDuration
-        var without = rising ? from : to, with = rising ? to : from
-        func shows(_ time: Time) async throws -> Bool {
-            guard let frame = try await read([time], false).first else { return false }
-            return see(frame, in: project, look: look).spots.contains { $0.mediaID == mediaID }
-        }
-        guard without != with else { return with }
-        if unread, try await shows(without) { return without }
-        while abs((with - without).flicks) > frame.flicks {
-            let middle = Time(flicks: (with.flicks + without.flicks) / 2).roundedToFrame(project.settings.frameRate)
-            guard middle != with, middle != without else { break }
-            if try await shows(middle) { with = middle } else { without = middle }
-        }
-        return with
-    }
-
     static func problem(_ spots: [Spot], mediaID: String, range: TimeRange, project: Project) -> CheckProblem {
         var byCategory: [(PrivateText.Category, [String])] = []
         for spot in spots {
@@ -393,10 +381,21 @@ public enum PrivacyCheck {
             .intersection(CGRect(x: 0, y: 0, width: 1, height: 1))
         let rect = Rect(x: union.minX, y: union.minY, width: union.width, height: union.height)
         let file = name(of: mediaID, in: project)
-        let fix = EditCommand.redact(range: range, rect: rect, mediaID: mediaID, style: .blur, name: "private text")
+        let unknownSource = project.media(mediaID) == nil
+        let duringTransition = project.videoTracks.contains { track in
+            track.transitions.contains { transition in
+                transition.window(on: track)?.overlaps(range) == true
+            }
+        }
+        let fix: EditCommand? = duringTransition || unknownSource ? nil : .redact(range: range, rect: rect, mediaID: mediaID, style: .blur, name: "private text")
+        let message = unknownSource
+            ? "Private text in the rendered frame: \(found). Its source could not be identified; inspect this frame before exporting."
+            : duringTransition
+            ? "Private text during a transition involving \(file): \(found). Inspect every contributing picture; the mixed frame cannot identify a single source for an automatic redaction."
+            : "Private text on \(file): \(found). Look at a frame, then hide it (the redact below covers what was flagged; widen it to anything private round it)."
         return CheckProblem(
             kind: .privateText, start: range.start, end: range.end,
-            message: "Private text on \(file): \(found). Look at a frame, then hide it (the redact below covers what was flagged; widen it to anything private round it).",
+            message: message,
             clipIDs: clipIDs(of: mediaID, in: range, project: project), fix: fix
         )
     }
@@ -408,15 +407,29 @@ public enum PrivacyCheck {
         var seen = Seen(time: frame.time, spots: [], words: [:], sample: [:])
         var linesBy: [String: [(line: ReadLine, rect: CGRect)]] = [:]
         for line in frame.lines where line.confidence >= minimumConfidence {
-            guard let source = source(of: line.box, text: line.text, at: frame.time, in: project, look: look) else { continue }
-            linesBy[source.mediaID, default: []].append((line, source.rect))
-            for hit in PrivateText.hits(in: line.text) {
-                seen.spots.append(Spot(category: hit.category, text: hit.text, mediaID: source.mediaID, rect: source.rect))
+            let candidates = sources(of: line.box, text: line.text, at: frame.time, in: project, look: look)
+            // Authored text cannot prove where OCR's glyphs came from: a
+            // title's transparent padding can sit over private footage.
+            // Keep recognised private-looking text for review either way.
+            if candidates.isEmpty {
+                linesBy["unattributed", default: []].append((line, line.box))
+                for hit in PrivateText.hits(in: line.text) {
+                    seen.spots.append(Spot(category: hit.category, text: hit.text, mediaID: "unattributed", rect: line.box))
+                }
+            }
+            for source in candidates {
+                linesBy[source.mediaID, default: []].append((line, source.rect))
+                for hit in PrivateText.hits(in: line.text) {
+                    seen.spots.append(Spot(category: hit.category, text: hit.text, mediaID: source.mediaID, rect: source.rect))
+                }
             }
         }
         for box in frame.codes {
-            guard let source = source(of: box, text: nil, at: frame.time, in: project, look: look) else { continue }
-            seen.spots.append(Spot(category: .code, text: "QR code", mediaID: source.mediaID, rect: source.rect))
+            let candidates = sources(of: box, text: nil, at: frame.time, in: project, look: look)
+            if candidates.isEmpty { seen.spots.append(Spot(category: .code, text: "QR code", mediaID: "unattributed", rect: box)) }
+            for source in candidates {
+                seen.spots.append(Spot(category: .code, text: "QR code", mediaID: source.mediaID, rect: source.rect))
+            }
         }
         for (mediaID, lines) in linesBy {
             // A line and the one under it, read as one: a narrow card wraps
@@ -479,11 +492,98 @@ public enum PrivacyCheck {
         return found
     }
 
+    static func authored(_ clip: Clip, content: TextContent, text: String, box: CGRect, at time: Time, canvas: CGSize, format: String?) -> Bool {
+        let resolved = ResolvedText(content)
+        guard resolved.text.caseInsensitiveCompare(text) == .orderedSame,
+              resolved.style.color.a >= 0.999,
+              var video = clip.resolvedVideo(at: time - clip.start, format: format), video.effects.isEmpty else { return false }
+        let state = TextAnimationState.at(time - clip.start, clipDuration: clip.duration, text: resolved)
+        guard state.opacity * video.opacity >= 0.999, state.visibleFraction >= 1,
+              let image = FrameComposer.textImage(resolved, clipTime: time - clip.start, state: state, renderScale: 1, staticScale: clip.video?.transform.scale ?? 1, canvas: canvas) else { return false }
+        if clip.video == nil, let position = resolved.position { video.transform.position = position }
+        video.transform.scale *= state.scale
+        video.transform.position.y += state.offsetY
+        let placed = LayerMath.placement(source: image.extent.size, canvas: canvas, transform: video.transform, fitToCanvas: false)
+        let bounds = LayerMath.cropRect(source: image.extent.size, crop: video.crop)
+        let readBox = CGRect(x: box.minX * canvas.width, y: box.minY * canvas.height, width: box.width * canvas.width, height: box.height * canvas.height)
+        guard !bounds.isEmpty, abs(placed.a * placed.d - placed.b * placed.c) > 1e-9 else { return false }
+        let inverse = placed.inverted()
+        return [CGPoint(x: readBox.minX, y: readBox.minY), CGPoint(x: readBox.maxX, y: readBox.minY),
+                CGPoint(x: readBox.minX, y: readBox.maxY), CGPoint(x: readBox.maxX, y: readBox.maxY)]
+            .allSatisfy { bounds.insetBy(dx: -2, dy: -2).contains($0.applying(inverse)) }
+    }
+
+    /// During a mix, OCR alone cannot name which contributor supplied a
+    /// glyph. Retain all plausible contributors, including extended handles,
+    /// and don't offer a source-specific automatic fix for the mixed frame.
+    static func sources(of box: CGRect, text: String?, at time: Time, in p: Project, look: Look) -> [(mediaID: String, rect: CGRect)] {
+        let plan = look.plan ?? RenderPlanner.plan(p, format: look.format, assets: nil)
+        guard let instruction = plan.instructions.first(where: { $0.range.contains(time) }),
+              instruction.stack.contains(where: { if case .transition = $0 { return true }; return false }) else {
+            return source(of: box, text: text, at: time, in: p, look: look).map { [$0] } ?? []
+        }
+        let canvas = look.canvas(p)
+        let pixels = CGRect(x: box.minX * canvas.width, y: box.minY * canvas.height, width: box.width * canvas.width, height: box.height * canvas.height)
+        func layers(_ node: StackNode, outer: CGAffineTransform = .identity) -> [(LayerRef, CGAffineTransform)] {
+            switch node {
+            case .layer(let ref): return [(ref, outer)]
+            case .transition(let ref, let from, let to):
+                let progress = min(1, max(0, (time - ref.window.start).seconds / max(1e-9, ref.window.duration.seconds)))
+                let type = ref.transition.type
+                let offsets = TransitionRenderer.offsets(type, direction: ref.transition.direction, progress: progress)
+                func side(_ node: StackNode?, incoming: Bool) -> [(LayerRef, CGAffineTransform)] {
+                    guard let node else { return [] }
+                    if type == .dissolve, incoming ? progress <= 0 : progress >= 1 { return [] }
+                    if type == .fadeToBlack || type == .fadeFromBlack {
+                        let levels = TransitionRenderer.dipLevels(progress: progress, hasFrom: from != nil, hasTo: to != nil)
+                        if (incoming ? levels.to : levels.from) <= 0 { return [] }
+                    }
+                    var motion = CGAffineTransform.identity
+                    if type == .push || type == .slide || type == .cutSlide {
+                        let offset = incoming ? offsets.to : offsets.from
+                        motion = CGAffineTransform(translationX: offset.dx * canvas.width, y: offset.dy * canvas.height)
+                    } else if type == .zoom {
+                        let e = TransitionRenderer.eased(type, progress)
+                        let scale = CGFloat(incoming ? 2 - e : 1 + e)
+                        motion = CGAffineTransform(translationX: -canvas.width / 2, y: -canvas.height / 2)
+                            .concatenating(CGAffineTransform(scaleX: scale, y: scale))
+                            .concatenating(CGAffineTransform(translationX: canvas.width / 2, y: canvas.height / 2))
+                    }
+                    return layers(node, outer: motion.concatenating(outer))
+                }
+                return side(from, incoming: false) + side(to, incoming: true)
+            }
+        }
+        var found: [(mediaID: String, rect: CGRect)] = []
+        for node in instruction.stack {
+            for (ref, motion) in layers(node) {
+                guard let clip = p.clip(ref.clipID), let id = clip.mediaID,
+                      let item = p.media(id), let width = item.width, let height = item.height,
+                      let video = clip.resolvedVideo(at: time - clip.start, format: look.format), video.opacity > 0 else { continue }
+                let size = CGSize(width: width, height: height)
+                let placement = LayerMath.placement(source: size, canvas: canvas, transform: video.transform).concatenating(motion)
+                guard abs(placement.a * placement.d - placement.b * placement.c) > 1e-9 else { continue }
+                let mapped = pixels.applying(placement.inverted()).intersection(LayerMath.cropRect(source: size, crop: video.crop))
+                guard !mapped.isNull, !mapped.isEmpty else { continue }
+                let region = CGRect(x: mapped.minX / size.width, y: mapped.minY / size.height, width: mapped.width / size.width, height: mapped.height / size.height)
+                found.append((id, region))
+            }
+        }
+        return found
+    }
+
     /// The picture a box of text read on the frame at `time` is part of: the
     /// file on top there (under any frame with alpha round it), and where
     /// in its frame the box is. Nil for a title or caption Tandem draws
     /// (Mike wrote those), or a box over nothing.
     static func source(of box: CGRect, text: String?, at time: Time, in project: Project, look: Look = Look()) -> (mediaID: String, rect: CGRect)? {
+        attribution(of: box, text: text, at: time, in: project, look: look).source
+    }
+
+    /// A title only exempts OCR when no higher contributor can supply the
+    /// glyphs. A picture whose bounds are unknown is uncertainty, never
+    /// evidence that the title below it was visible.
+    static func attribution(of box: CGRect, text: String?, at time: Time, in project: Project, look: Look) -> (source: (mediaID: String, rect: CGRect)?, authored: Bool) {
         let canvas = look.canvas(project)
         let centre = CGPoint(x: box.midX * canvas.width, y: box.midY * canvas.height)
         // A picture with alpha over the text (a phone frame round a phone
@@ -498,21 +598,23 @@ public enum PrivacyCheck {
                 // A caption or a title: its own words are Mike's. Only a
                 // line that's part of its text, so a caption reading "email"
                 // doesn't hide "Email: someone@example.com" elsewhere.
-                if let text, content.text.localizedCaseInsensitiveContains(text) { return nil }
+                if let text, authored(clip, content: content, text: text, box: box, at: time, canvas: canvas, format: look.format) {
+                    return (seeThrough, seeThrough == nil)
+                }
             case .graphic:
-                // A section card's wipe covers part of the frame, and what
-                // shows round it is still the picture under it.
-                continue
+                // Generated graphics can obscure a lower title. Without
+                // pixel attribution, retain the OCR as unattributed text.
+                if let video = clip.resolvedVideo(at: time - clip.start, format: look.format), video.opacity > 0 { return (seeThrough, false) }
             case .solid, .adjustment:
-                continue
+                if let video = clip.resolvedVideo(at: time - clip.start, format: look.format), video.opacity > 0 { return (seeThrough, false) }
             case .media(let mediaID):
                 // Read through a blur, it isn't readable; and the copy under
                 // it is the same file anyway. A privacy copy with its blur
                 // off isn't drawn.
-                guard !clip.isObscured, !track.isSwitchedOffRedaction(clip), let item = project.media(mediaID), item.hasVideo,
-                      let width = item.width, let height = item.height, width > 0, height > 0 else { continue }
+                guard !track.isSwitchedOffRedaction(clip), let item = project.media(mediaID), item.hasVideo || item.kind == .image else { continue }
                 // The format's own layout where it has one (a Short's top window).
-                guard let video = clip.resolvedVideo(at: time - clip.start, format: look.format) else { continue }
+                guard let video = clip.resolvedVideo(at: time - clip.start, format: look.format), video.opacity > 0 else { continue }
+                guard let width = item.width, let height = item.height, width > 0, height > 0 else { return (seeThrough, false) }
                 let display = CGSize(width: width, height: height)
                 let placement = LayerMath.placement(source: display, canvas: canvas, transform: video.transform)
                 let crop = video.crop
@@ -520,25 +622,25 @@ public enum PrivacyCheck {
                     x: crop.left * display.width, y: crop.top * display.height,
                     width: (1 - crop.left - crop.right) * display.width, height: (1 - crop.top - crop.bottom) * display.height
                 )
-                guard shown.width > 0, shown.height > 0, video.opacity > 0.05, shown.applying(placement).contains(centre) else { continue }
+                guard shown.width > 0, shown.height > 0, video.opacity > 0, shown.applying(placement).contains(centre) else { continue }
                 let pixels = CGRect(x: box.minX * canvas.width, y: box.minY * canvas.height, width: box.width * canvas.width, height: box.height * canvas.height)
                 let inFile = pixels.applying(placement.inverted()).intersection(shown)
                 guard !inFile.isNull else { continue }
                 let found = (mediaID, CGRect(x: inFile.minX / display.width, y: inFile.minY / display.height, width: inFile.width / display.width, height: inFile.height / display.height))
                 // A camera cut out over the screen is see-through round the
                 // person, like a frame with alpha.
-                if item.hasAlpha || video.cutout?.enabled == true {
+                if item.hasAlpha || video.cutout?.enabled == true || video.opacity < 1 {
                     // A still is looked at where the text is: an opaque card
                     // with alpha round it holds its own text.
                     let centre = CGPoint(x: found.1.midX, y: found.1.midY)
-                    if video.cutout?.enabled != true, let opaque = look.probe?.isOpaque(item, at: centre), opaque { return found }
+                    if video.opacity >= 1, video.cutout?.enabled != true, let opaque = look.probe?.isOpaque(item, at: centre), opaque { return (found, false) }
                     if seeThrough == nil { seeThrough = found }
                     continue
                 }
-                return found
+                return (found, false)
             }
         }
-        return seeThrough
+        return (seeThrough, false)
     }
 
     static func name(of mediaID: String, in project: Project) -> String {
@@ -547,7 +649,7 @@ public enum PrivacyCheck {
 
     /// The clips of `mediaID` there, not the privacy copies over them.
     static func clipIDs(of mediaID: String, in range: TimeRange, project: Project) -> [String] {
-        project.videoTracks.filter { !$0.isPrivacy }.flatMap(\.clips).filter { $0.mediaID == mediaID && !$0.isObscured && $0.range.overlaps(range) }.map(\.id)
+        project.videoTracks.filter { !$0.isPrivacy }.flatMap(\.clips).filter { $0.mediaID == mediaID && $0.range.overlaps(range) }.map(\.id)
     }
 }
 
@@ -556,10 +658,12 @@ public enum PrivacyCheck {
 struct Look {
     var probe: AlphaProbe?
     var format: String?
+    var plan: RenderPlan?
 
-    init(probe: AlphaProbe? = nil, format: String? = nil) {
+    init(probe: AlphaProbe? = nil, format: String? = nil, plan: RenderPlan? = nil) {
         self.probe = probe
         self.format = format
+        self.plan = plan
     }
 
     /// The frame the text was read in: the format's, or the project's.

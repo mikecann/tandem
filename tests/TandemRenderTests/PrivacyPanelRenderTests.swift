@@ -22,21 +22,21 @@ extension PrivacyAuditRenderTests {
         c.project.videoTracks.filter { !$0.isPrivacy }.flatMap(\.clips).first { $0.start == t(1) }!
     }
 
-    func panelExposure(_ c: ProjectCoordinator, _ media: TestMedia, at time: Double, name: String, encode: Bool = false) async throws {
+    func panelCovered(_ c: ProjectCoordinator, _ media: TestMedia, at time: Double, name: String, encode: Bool = false) async throws {
         let directory = try store(c, media, as: name)
         let reopened = ProjectCoordinator(project: try ProjectFile.load(from: directory.appendingPathComponent("Synthetic.tandem")).project)
         let frame = try await image(reopened, media, at: time)
         try png(frame, name + "-after-reload")
         let lines = recognise(frame)
         print("PANEL pixels \(name) at \(time): \(lines)")
-        XCTAssertTrue(lines.contains { $0.contains("@example.com") }, "readable pixels required: \(name)")
+        XCTAssertFalse(lines.contains { $0.contains("@example.com") }, "private text must stay hidden: \(name)")
         if encode {
             let out = directory.appendingPathComponent("export.mp4")
             let preset = ExportPreset(name: "Audit", codec: .h264, videoBitrate: 8_000_000, audioBitrate: 192_000, loudnessTarget: nil, truePeakCeiling: nil)
             _ = try await Exporter(context: RenderContext(project: reopened.project, folder: media.projectFolder), preset: preset, output: out).run()
             let encoded = try await exportedImage(out, at: time)
             try png(encoded, name + "-export")
-            XCTAssertTrue(recognise(encoded).contains { $0.contains(email) })
+            XCTAssertFalse(recognise(encoded).contains { $0.contains(email) })
         }
     }
 
@@ -46,7 +46,7 @@ extension PrivacyAuditRenderTests {
             let before = try await scan(c, media, to: 4)
             XCTAssertTrue(before.isEmpty)
             try apply(c, .slide(clipID: panelPicture(c).id, delta: t(delta)))
-            try await panelExposure(c, media, at: delta > 0 ? 1.1 : 2.9, name: delta > 0 ? "slide-positive" : "slide-negative", encode: true)
+            try await panelCovered(c, media, at: delta > 0 ? 1.1 : 2.9, name: delta > 0 ? "slide-positive" : "slide-negative", encode: true)
             let after = try await scan(c, media, to: c.project.duration.seconds)
             print("PANEL slide \(delta) scan: \(after.map(\.message))")
         }
@@ -61,7 +61,7 @@ extension PrivacyAuditRenderTests {
             let before = try await scan(c, media, to: 4)
             XCTAssertTrue(before.isEmpty)
             try apply(c, .roll(leftClipID: edge == "head" ? neighbour.id : picture.id, rightClipID: edge == "head" ? picture.id : neighbour.id, delta: t(edge == "head" ? 0.2 : -0.2)))
-            try await panelExposure(c, media, at: edge == "head" ? 1.1 : 2.9, name: "roll-\(edge)-different-placement", encode: edge == "head")
+            try await panelCovered(c, media, at: edge == "head" ? 1.1 : 2.9, name: "roll-\(edge)-different-placement", encode: edge == "head")
         }
         // The panel's continuous negative-head-roll example adds source
         // before the originally protected interval. It must not be reported
@@ -85,14 +85,14 @@ extension PrivacyAuditRenderTests {
             let before = try await scan(c, media, to: 4)
             XCTAssertTrue(before.isEmpty)
             try apply(c, .insertTime(at: t(2), duration: t(0.4), trackIDs: ["trk_control"]))
-            try await panelExposure(c, media, at: 2.2, name: "ripple-insert-\(mode.rawValue)", encode: true)
+            try await panelCovered(c, media, at: 2.2, name: "ripple-insert-\(mode.rawValue)", encode: true)
         }
     }
 
     func testPanelTargetedBrollRippleLeavesMaskBehind() async throws {
         let (media, c) = try await panelReady(mode: .follow)
         try apply(c, .rippleDeleteRange(range: TimeRange(start: .zero, end: t(0.5)), trackIDs: ["trk_screen"]))
-        try await panelExposure(c, media, at: 0.7, name: "ripple-targeted-broll")
+        try await panelCovered(c, media, at: 0.7, name: "ripple-targeted-broll")
     }
 
     func testPanelTrackTransferAndReorderExposeAboveTheMask() async throws {
@@ -105,7 +105,7 @@ extension PrivacyAuditRenderTests {
             } else {
                 try apply(c, .moveTrack(trackID: "trk_screen", index: c.project.videoTracks.count-1))
             }
-            try await panelExposure(c, media, at: 2, name: "track-\(move)", encode: move == "transfer")
+            try await panelCovered(c, media, at: 2, name: "track-\(move)", encode: move == "transfer")
         }
     }
 
@@ -123,7 +123,7 @@ extension PrivacyAuditRenderTests {
                 try apply(c, .updateClip(clipID: mask.id, patch: .object(["enabled": .bool(false)])))
                 try apply(c, .updateClip(clipID: picture.id, patch: .object(["enabled": .bool(true)])))
             }
-            try await panelExposure(c, media, at: change == "start" ? 3.2 : 2, name: "direct-\(change)", encode: change == "start")
+            try await panelCovered(c, media, at: change == "start" ? 3.2 : 2, name: "direct-\(change)", encode: change == "start")
         }
     }
 
@@ -144,7 +144,7 @@ extension PrivacyAuditRenderTests {
         XCTAssertTrue(track.clips.allSatisfy { !$0.enabled })
         try apply(c, .updateTrack(trackID: track.id, patch: .object(["locked": .bool(true)])))
         try apply(c, .showAngle(range: TimeRange(start: t(1.5), end: t(2.5)), trackID: "Angle 2"))
-        try await panelExposure(c, media, at: 2, name: "locked-angle-switch")
+        try await panelCovered(c, media, at: 2, name: "locked-angle-switch")
     }
 
     func testPanelOneSidedTransitionsMovePictureOutsideItsMask() async throws {
@@ -178,12 +178,12 @@ extension PrivacyAuditRenderTests {
                 let outside = (610..<700).reduce(0) { count, y in
                     count + (250..<950).filter { bitmap.luma($0, y) < 220 }.count
                 }
-                XCTAssertGreaterThan(outside, 500, "the transformed private glyphs draw below the stationary crop")
+                XCTAssertLessThan(outside, 500, "source redaction hides the private glyphs before zoom motion")
                 let lines = recognise(frame)
                 XCTAssertFalse(lines.contains { $0.contains(email) })
                 print("PANEL zoom: \(outside) nonwhite pixels outside patch; OCR \(lines); readable email NOT demonstrated")
             } else {
-                try await panelExposure(c, media, at: at, name: "transition-one-sided-\(type.rawValue)", encode: type == .push)
+                try await panelCovered(c, media, at: at, name: "transition-one-sided-\(type.rawValue)", encode: type == .push)
             }
         }
     }

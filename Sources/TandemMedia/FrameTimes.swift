@@ -13,7 +13,7 @@ import TandemCore
 /// milliseconds.
 public enum FrameTimes {
     /// Bump when what's stored changes.
-    static let version = 1
+    static let version = 2
 
     /// The file's frame times, sorted, from the cache or the file. Nil when
     /// it has no video or can't be read.
@@ -30,10 +30,8 @@ public enum FrameTimes {
     /// The frame times read from the file's sample table.
     public static func read(_ url: URL) async -> [Time]? {
         guard let track = try? await AVURLAsset(url: url).loadTracks(withMediaType: .video).first,
-              let timescale = try? await track.load(.naturalTimeScale), timescale > 0,
-              let ticks = MediaProbe.presentationTimes(of: track) else { return nil }
-        let scale = Double(timescale)
-        return ticks.map { Time(seconds: Double($0) / scale) }
+              let ticks = MediaProbe.presentationTimes(of: track, timescale: CMTimeScale(Time.flicksPerSecond)) else { return nil }
+        return ticks.map { Time(flicks: $0) }
     }
 
     static func cacheKey(_ item: MediaItem, url: URL) -> String? {

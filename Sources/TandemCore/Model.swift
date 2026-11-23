@@ -17,8 +17,8 @@ import Foundation
 
 public struct Project: Codable, Equatable, Sendable {
     /// 2: a text style field that's set always wins over the preset (see
-    /// `LegacyTextStyles`).
-    public static let currentSchemaVersion = 2
+    /// `LegacyTextStyles`). 3: source-region privacy intent survives edits.
+    public static let currentSchemaVersion = 3
 
     public var schemaVersion: Int
     public var id: String
@@ -30,6 +30,9 @@ public struct Project: Codable, Equatable, Sendable {
     public var markers: [Marker]
     /// Free-form notes for people and agents, for example the script source.
     public var metadata: [String: String]
+    /// Source-region intent survives cuts that remove its current copies.
+    /// Only an explicit privacy control relinquishes that protection.
+    public var sourceRedactions: [SourceRedaction]?
 
     public init(
         id: String = IDs.make("prj"),
@@ -50,6 +53,7 @@ public struct Project: Codable, Equatable, Sendable {
         self.audioTracks = audioTracks
         self.markers = markers
         self.metadata = metadata
+        self.sourceRedactions = nil
     }
 
     /// A new project with Mike's usual track layout: screen on V1, camera on
@@ -513,6 +517,11 @@ public struct VideoProperties: Codable, Equatable, Sendable {
     /// what its picture's crop hid at the time, so this is what it's cut
     /// to again when the picture is laid out afresh and shows more.
     public var redaction: Rect?
+    /// Source frames selected for protection, independent of later slips,
+    /// speed changes and timeline moves of the copy. Nil on older projects.
+    public var redactionSources: [TimeRange]?
+    /// The copy's privacy effect, separate from looks on its source.
+    public var redactionEffectID: String?
 
     public init(
         transform: Transform = Transform(),
@@ -522,7 +531,9 @@ public struct VideoProperties: Codable, Equatable, Sendable {
         effects: [Effect] = [],
         layoutPreset: String? = nil,
         formatOverrides: [String: FormatOverride] = [:],
-        redaction: Rect? = nil
+        redaction: Rect? = nil,
+        redactionSources: [TimeRange]? = nil,
+        redactionEffectID: String? = nil
     ) {
         self.transform = transform
         self.crop = crop
@@ -532,6 +543,8 @@ public struct VideoProperties: Codable, Equatable, Sendable {
         self.layoutPreset = layoutPreset
         self.formatOverrides = formatOverrides
         self.redaction = redaction
+        self.redactionSources = redactionSources
+        self.redactionEffectID = redactionEffectID
     }
 }
 
@@ -1112,7 +1125,7 @@ extension KeyedDecodingContainer {
 extension Project {
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        schemaVersion = try c.decode(.schemaVersion, or: Project.currentSchemaVersion)
+        schemaVersion = try c.decode(.schemaVersion, or: 1)
         id = try c.decode(.id, or: IDs.make("prj"))
         name = try c.decode(.name, or: "Untitled")
         settings = try c.decode(.settings, or: ProjectSettings())
@@ -1121,6 +1134,7 @@ extension Project {
         audioTracks = try c.decode(.audioTracks, or: [])
         markers = try c.decode(.markers, or: [])
         metadata = try c.decode(.metadata, or: [:])
+        sourceRedactions = try c.decodeIfPresent([SourceRedaction].self, forKey: .sourceRedactions)
     }
 }
 
@@ -1271,6 +1285,8 @@ extension VideoProperties {
         layoutPreset = try c.decodeIfPresent(String.self, forKey: .layoutPreset)
         formatOverrides = try c.decode(.formatOverrides, or: [:])
         redaction = try c.decodeIfPresent(Rect.self, forKey: .redaction)
+        redactionSources = try c.decodeIfPresent([TimeRange].self, forKey: .redactionSources)
+        redactionEffectID = try c.decodeIfPresent(String.self, forKey: .redactionEffectID)
     }
 }
 

@@ -365,6 +365,24 @@ enum CompositionAssembler {
 
         // The compositor's view of the clips.
         var sceneClips = RenderEngine.sceneClips(project, folder: context.folder)
+        let protectedMedia = Set(sceneClips.values.filter { !$0.redactions.isEmpty && $0.media?.kind == .video }.compactMap { $0.media?.id })
+        for mediaID in protectedMedia {
+            guard let item = project.media(mediaID), !item.variableFrameRate,
+                  let times = await FrameTimes.read(item, in: context.folder), !times.isEmpty,
+                  times[0] >= .zero,
+                  zip(times, times.dropFirst()).allSatisfy({ $0 < $1 }) else { continue }
+            let timing = SourcePrivacyTiming.samples(times)
+            for id in Array(sceneClips.keys) where sceneClips[id]?.media?.id == mediaID {
+                guard var clip = sceneClips[id] else { continue }
+                clip.privacyTiming = timing
+                clip.redactions = clip.redactions.map { scope in
+                    var expanded = scope
+                    expanded.sources = timing.expanding(scope.sources, media: item, frame: frameDuration)
+                    return expanded
+                }
+                sceneClips[id] = clip
+            }
+        }
         for (id, transform) in pictureTransforms { sceneClips[id]?.pictureTransform = transform }
         for (id, transform) in matteTransforms { sceneClips[id]?.matteTransform = transform }
         for (id, source) in pictureSources { sceneClips[id]?.picture = source }
