@@ -10,7 +10,11 @@ permissions:
 jobs:
   test:
     runs-on: macos-latest
-    timeout-minutes: 30
+    # The privacy audit's render tests export and read back dozens of short
+    # films, about 5 minutes on a Mac and over 10 on a runner, which took
+    # the suite past 30 minutes (24 Nov 2026). The repo is public, so the
+    # minutes are free.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - uses: maxim-lobanov/setup-xcode@v1
