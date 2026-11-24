@@ -8,8 +8,8 @@ import TandemMedia
 
 extension PrivacyAuditRenderTests {
     func testAProbedDroppedFrameCannotExposeTheSameDecodedSampleInAnotherFreeze() async throws {
+        guard let ffmpeg = FFmpeg.locate() else { throw XCTSkip("ffmpeg isn't installed") }
         let (media, c) = try await fixture(video: true)
-        let ffmpeg = try XCTUnwrap(FFmpeg.locate())
         let dropped = media.folder.appendingPathComponent("dropped.mov")
         try ffmpeg.run(["-v", "error", "-i", media.folder.appendingPathComponent("dummy.mov").path,
                         "-vf", "select=not(eq(n\\,30))", "-fps_mode", "vfr", "-c:v", "libx264", "-bf", "0", dropped.path])

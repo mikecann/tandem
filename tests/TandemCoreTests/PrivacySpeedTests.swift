@@ -25,6 +25,8 @@ final class PrivacySpeedTests: XCTestCase {
         let started = Date()
         try c.apply(EditBatch(label: "Trim", commands: [.trim(clipID: "clip_Camera_500", edge: .end, to: t(50.05))]))
         let elapsed = Date().timeIntervalSince(started)
-        XCTAssertLessThan(elapsed, 1, "a trim on a 3,000 clip timeline with a redaction took \(elapsed) s")
+        // About 0.1 s on a Mac and 1 s on a shared CI runner; it took 250 s
+        // when the checks scanned each track once per clip.
+        XCTAssertLessThan(elapsed, 5, "a trim on a 3,000 clip timeline with a redaction took \(elapsed) s")
     }
 }
