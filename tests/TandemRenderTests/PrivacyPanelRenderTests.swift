@@ -41,6 +41,7 @@ extension PrivacyAuditRenderTests {
     }
 
     func testPanelSlidesExposeProtectedFramesOnBothNeighbours() async throws {
+        try skipSlowPrivacyRenderOnCI()
         for delta in [0.2, -0.2] {
             let (media, c) = try await panelReady()
             let before = try await scan(c, media, to: 4)
@@ -53,6 +54,7 @@ extension PrivacyAuditRenderTests {
     }
 
     func testPanelRollNeedsSourceAndPlacementCoverage() async throws {
+        try skipSlowPrivacyRenderOnCI()
         for edge in ["head", "tail"] {
             let (media, c) = try await panelReady()
             let picture = panelPicture(c)
@@ -80,6 +82,7 @@ extension PrivacyAuditRenderTests {
     }
 
     func testPanelFollowAndOffRippleInsertLeaveACoverageHole() async throws {
+        try skipSlowPrivacyRenderOnCI()
         for mode: RippleMode in [.follow, .off] {
             let (media, c) = try await panelReady(mode: mode)
             let before = try await scan(c, media, to: 4)

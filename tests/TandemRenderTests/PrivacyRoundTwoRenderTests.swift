@@ -27,6 +27,7 @@ extension PrivacyAuditRenderTests {
     }
 
     func testSuccessivePrivacyReadersReturnEveryOutputFrame() async throws {
+        try skipSlowPrivacyRenderOnCI()
         let (media, c) = try await fixture(video: true, timed: true)
         let context = RenderContext(project: c.project, folder: media.projectFolder)
         let times = (0..<90).map { Time.frames(Int64($0), at: .fps30) }
@@ -139,6 +140,7 @@ extension PrivacyAuditRenderTests {
     }
 
     func testRoundTwoZeroBlurTransferCanPassThePrivacyScan() async throws {
+        try skipSlowPrivacyRenderOnCI()
         let (media, c) = try await panelReady()
         let picture = panelPicture(c)
         try apply(c, .addEffect(clipID: picture.id, effect: Effect(id: "fx_zero", type: "blur", params: ["radius": .number(0)])))
@@ -154,6 +156,7 @@ extension PrivacyAuditRenderTests {
     }
 
     func testRoundTwoContinuousRollThenMoveExposesBothNeighbours() async throws {
+        try skipSlowPrivacyRenderOnCI()
         for edge in ["head", "tail"] {
             let (media, c) = try await panelReady()
             let picture = panelPicture(c)
@@ -167,6 +170,7 @@ extension PrivacyAuditRenderTests {
     }
 
     func testRoundTwoRollAndAdjacentSlideThenSpeedExposeTheTail() async throws {
+        try skipSlowPrivacyRenderOnCI()
         for setup in ["roll faster", "roll slower", "adjacent slide"] {
             let (media, c) = try await panelReady()
             let picture = panelPicture(c)

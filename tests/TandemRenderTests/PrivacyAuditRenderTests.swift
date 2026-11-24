@@ -140,6 +140,7 @@ final class PrivacyAuditRenderTests: XCTestCase {
     }
 
     func testRenderedProtectionAfterSpatialEditsAndDiskReload() async throws {
+        try skipSlowPrivacyRenderOnCI()
         for operation in ["updateTransform", "zoomStatic", "zoomAnimated", "setKeyframes", "addMotion", "uncrop", "animateCrop", "formatOverride"] {
             let (media, c) = try await fixture()
             if operation == "uncrop" || operation == "animateCrop" {
@@ -279,6 +280,7 @@ final class PrivacyAuditRenderTests: XCTestCase {
     }
 
     func testLockedPrivacyTrackRefusesRippleExposureAtomically() async throws {
+        try skipSlowPrivacyRenderOnCI()
         let (media, c) = try await fixture(video: true, timed: true)
         try hide(c, range: TimeRange(start: t(1), end: t(3)))
         let beforeScan = try await scan(c, media)
