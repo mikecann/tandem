@@ -136,6 +136,13 @@ public final class FrameTextReader: @unchecked Sendable {
         return frame
     }
 
+    /// Where the video this reads ends, which is where its export does:
+    /// the project's end, or later when a picture runs on past it
+    /// (`RenderPlanner.plan`).
+    public func renderedEnd() async throws -> Time {
+        try await composition().duration
+    }
+
     private func composition() async throws -> BuiltComposition {
         let task: Task<BuiltComposition, Error> = lock.withLock {
             if let built { return built }
@@ -325,8 +332,16 @@ public enum PrivacyCheck {
     /// `format` reads an alternate output format (a Short's 9:16 layout)
     /// in its own frame, through each clip's layout for it; the frames
     /// `read` returns must be rendered in that format too.
+    ///
+    /// `renderedEnd` is where the export ends (`FrameTextReader.renderedEnd`).
+    /// A stretch that reaches the project's end is read on to there: a
+    /// transition plays its outgoing clip for its whole length, past a last
+    /// clip shorter than half of it, so the export runs on after the
+    /// project's end with that clip still showing (a 1 s dissolve into a
+    /// last clip of 0.2 s: 9 more frames at 30 fps), and whatever is on
+    /// those frames is in the file.
     public static func run(
-        project: Project, ranges: [TimeRange], folder: ProjectFolder?, format: String? = nil, read: Reader
+        project: Project, ranges: [TimeRange], folder: ProjectFolder?, format: String? = nil, renderedEnd: Time? = nil, read: Reader
     ) async throws -> (problems: [CheckProblem], notes: [CheckProblem]) {
         let probe = folder.map(AlphaProbe.init)
         let look = Look(probe: probe, format: format, plan: RenderPlanner.plan(project, format: format, assets: nil))
@@ -334,7 +349,8 @@ public enum PrivacyCheck {
         let step = rate.frameDuration
         let ranges = TimeRange.union(ranges.map { range in
             let from = max(.zero, Time.frames(range.start.frameIndex(at: rate), at: rate))
-            let to = Time.frames((range.end + step - Time(flicks: 1)).frameIndex(at: rate), at: rate)
+            let end = range.end >= project.duration ? max(range.end, renderedEnd ?? .zero) : range.end
+            let to = Time.frames((end + step - Time(flicks: 1)).frameIndex(at: rate), at: rate)
             return TimeRange(start: from, end: max(from, to))
         })
         var times: [Time] = []

@@ -532,7 +532,7 @@ extension TandemService {
                 return CheckResult(ranges: [], frames: 0, seconds: 0, problems: [], clipNames: [:], note: note, warnings: notices, privacy: true)
             }
             let reader = FrameTextReader(context: renderContext, width: width)
-            let found = try await PrivacyCheck.run(project: project, ranges: ranges, folder: projectFolder, format: format) { times, sequential in
+            let found = try await PrivacyCheck.run(project: project, ranges: ranges, folder: projectFolder, format: format, renderedEnd: try await reader.renderedEnd()) { times, sequential in
                 try await reader.read(times, sequential: sequential)
             }
             var names: [String: String] = [:]

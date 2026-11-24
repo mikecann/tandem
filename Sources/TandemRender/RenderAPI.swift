@@ -187,9 +187,19 @@ public final class FrameRenderer: @unchecked Sendable {
         generator.requestedTimeToleranceAfter = .zero
         generator.appliesPreferredTrackTransform = false
         if let maxSize { generator.maximumSize = maxSize }
-        let last = max(.zero, built.duration - context.project.settings.frameRate.frameDuration)
+        let last = Self.lastFrameStart(before: built.duration, rate: context.project.settings.frameRate)
         let (image, _) = try await generator.image(at: min(max(time, .zero), last).cmTime)
         return image
+    }
+
+    /// When the last frame of a video `duration` long starts: the latest
+    /// time a still is drawn at. A whole frame before the end only when the
+    /// video ends on a frame. One that ends part way through its last
+    /// frame (2.981 s at 30 fps) still shows that frame, and a frame back
+    /// from the end is inside the one before it, so stills of the end
+    /// showed the wrong frame.
+    static func lastFrameStart(before duration: Time, rate: FrameRate) -> Time {
+        max(.zero, Time.frames((duration - Time(flicks: 1)).frameIndex(at: rate), at: rate))
     }
 
     /// The frames at `times`, in order, from one generator, so frames near
@@ -205,7 +215,7 @@ public final class FrameRenderer: @unchecked Sendable {
         generator.requestedTimeToleranceAfter = .zero
         generator.appliesPreferredTrackTransform = false
         if let maxSize { generator.maximumSize = maxSize }
-        let last = max(.zero, built.duration - context.project.settings.frameRate.frameDuration)
+        let last = Self.lastFrameStart(before: built.duration, rate: context.project.settings.frameRate)
         let clamped = times.map { min(max($0, .zero), last) }
         var byTime: [Int64: CGImage] = [:]
         for await result in generator.images(for: clamped.map(\.cmTime)) {
