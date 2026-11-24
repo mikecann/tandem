@@ -163,6 +163,13 @@ to another picture refuses; create that picture's own redaction. An old
 ambiguous group needs its original owner established before source edits.
 A blur control acts on the picture's source selection at that command,
 including within a batch.
+A redaction is recorded on its file's frame timing and the project's frame
+rate, so once one exists, `updateSettings` can't change the frame rate and
+`updateMedia` can't change a protected file's frame rate, duration, size,
+picture delay or variable-rate flag, not even for one command of a batch.
+Set the frame rate before redacting. A new camera take still imports into
+a redacted project; it just doesn't set the frame rate. A privacy copy
+stays on video tracks; moving it to an audio track refuses.
 Strengthening a blur keeps its recorded source timing and all earlier file
 identities, including an offline original after relinking. A locked privacy
 copy cannot be rewritten when adopting a format, even when unlinked or off;
