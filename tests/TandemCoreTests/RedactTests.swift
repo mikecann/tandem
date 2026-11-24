@@ -313,11 +313,17 @@ final class RedactTests: XCTestCase {
         // Copies made before the region was kept, laid out by the old short:
         // a whole-frame crop in the portrait format.
         let (c, screen, copy) = try shortReady()
-        try c.run("Old short", .updateClip(clipID: copy.id, patch: .object(["video": .object([
+        var legacy = c.project
+        let at = legacy.location(ofClip: copy.id)!
+        legacy[at.track].clips[at.index] = try JSONValue.applyMergePatch(.object(["video": .object([
             "redaction": .null,
             "formatOverrides": .object(["portrait": .object(["crop": .object(["left": .number(0)]), "transform": .object(["position": .object(["x": .number(0.5), "y": .number(0.25)]), "scale": .number(1)])])])
-        ])])))
-        XCTAssertNil(c.project.clip(copy.id)?.video?.redaction)
+        ])]), to: copy)
+        legacy[at.track].clips[at.index].video?.redactionSources = nil
+        legacy.sourceRedactions = nil
+        legacy.schemaVersion = 2
+        c.reload(legacy)
+        XCTAssertNil(c.project.clip(copy.id)?.video?.redaction, "construct the historical saved state directly")
         try c.run("Short", .setFormatLayout(clipIDs: [screen.id], format: "portrait", slot: .top))
         try c.run("Adopt", .adoptFormat(format: "portrait"))
         let adopted = try XCTUnwrap(c.project.clip(copy.id)?.video)
@@ -351,11 +357,11 @@ final class RedactTests: XCTestCase {
 
     func testABlurFollowsThePictureItWasMadeOverNotAnotherOfTheSameFile() throws {
         // The same recording twice: full frame on "Screen", and as a PiP
-        // on a track above. Only the PiP is redacted.
+        // on a track above. Both occurrences of the private source are protected.
         let (_, c) = try Fixture.edited()
         try c.run("Track", .addTrack(kind: .video, name: "Screen PiP", index: c.project.videoTracks.count, id: "trk_pip"))
-        try c.run("PiP", .placeMedia(mediaIDs: ["med_screen"], at: .zero, duration: t(60), videoTrackID: "trk_pip", includeAudio: false))
-        try c.run("Hide", .redact(range: TimeRange(start: t(10), end: t(15)), rect: email, trackID: "trk_pip"))
+        try c.run("PiP", .placeMedia(mediaIDs: ["med_screen"], at: .zero, sourceStart: c.clips("Screen")[0].sourceStart, duration: t(60), videoTrackID: "trk_pip", includeAudio: false))
+        try c.run("Hide", .redact(range: TimeRange(start: t(10), end: t(15)), rect: email, mediaID: "med_screen"))
         let pip = try XCTUnwrap(c.clips("Screen PiP").first { $0.range.start == t(10) })
         let copy = try XCTUnwrap(c.clips("Privacy (Screen PiP)").first)
         try c.run("Corner", .applyLayout(clipIDs: [pip.id], preset: .pipLeft))
@@ -365,7 +371,6 @@ final class RedactTests: XCTestCase {
 
         // The full-frame one redacted too, its privacy track then dragged
         // above the PiP's: it still follows its own picture, by its link.
-        try c.run("Hide", .redact(range: TimeRange(start: t(10), end: t(15)), rect: email, trackID: c.project.track(named: "Screen")!.id))
         let full = try XCTUnwrap(c.clips("Screen").first { $0.range.start == t(10) })
         let fullCopy = try XCTUnwrap(c.clips("Privacy (Screen)").first)
         try c.run("Drag", .moveTrack(trackID: c.project.track(named: "Privacy (Screen)")!.id, index: c.project.videoTracks.count - 1))
@@ -399,11 +404,10 @@ final class RedactTests: XCTestCase {
         let (c, _, copy) = try shortReady()
         let privacy = try XCTUnwrap(c.project.track(named: "Privacy (Screen)"))
         try c.run("Lock", .updateTrack(trackID: privacy.id, patch: .object(["locked": .bool(true)])))
-        try c.run("Blade", .blade(at: t(12), trackIDs: [c.project.track(named: "Screen")!.id]))
-        XCTAssertEqual(c.project.clip(copy.id)?.range, TimeRange(start: t(10), end: t(15)), "the copy wasn't cut")
-        let right = try XCTUnwrap(c.clips("Screen").first { $0.range.start == t(12) })
-        XCTAssertThrowsError(try c.run("Short", .setFormatLayout(clipIDs: [right.id], format: "portrait", slot: .top)))
-        XCTAssertNil(c.project.clip(right.id)?.video?.formatOverrides["portrait"], "nothing moved")
+        let before = c.project
+        XCTAssertThrowsError(try c.run("Blade", .blade(at: t(12), trackIDs: [c.project.track(named: "Screen")!.id])))
+        XCTAssertEqual(c.project, before, "the locked blade refuses atomically")
+        XCTAssertEqual(c.project.clip(copy.id)?.range, TimeRange(start: t(10), end: t(15)))
     }
 
     func testABlurShowsItsRegionWhereThePicturesAnimatedCropDoes() throws {

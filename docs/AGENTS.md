@@ -272,7 +272,7 @@ follows.
 - `tandem check --privacy` before every export: private text a viewer
   could read (emails, phone numbers, addresses, references, ID, money,
   crypto, travel, keys, notes marked private, family, lists of names, QR
-  codes), each with a `redact` to look at and widen, and every stretch
+  codes), with a `redact` suggestion when its source is known, and every stretch
   of readable text to look through ([recipe](agents/layout-and-colour.md#find-private-text-before-export)).
 - `tandem claims` once the take is cut: every line that names something
   or makes a claim, with what's on screen over it. Answer each in

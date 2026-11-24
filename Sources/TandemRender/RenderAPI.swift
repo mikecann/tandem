@@ -44,6 +44,8 @@ public struct RenderContext: Sendable {
     /// Plays every audio segment at 1 (no levelling, gain, keyframes or
     /// fades), so the gain check can divide the real render by it.
     var flatAudioGain = false
+    /// Set only by the privacy reader; ordinary playback/export keeps none.
+    var collectPrivacyEvidence = false
 
     public init(
         project: Project,

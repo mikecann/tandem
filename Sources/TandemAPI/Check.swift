@@ -25,7 +25,7 @@ public struct CheckRequest: ServiceCall {
     /// under 640.
     public var width: Int?
     /// Only private text a viewer could read (`PrivacyCheck`): reads a frame
-    /// every half second, as export renders it, with Vision on this Mac.
+    /// every output frame, as export renders it, with Vision on this Mac.
     public var privacy: Bool?
     /// With `privacy`: an alternate output format to read instead of the
     /// main layout, like `portrait` (a Short), in its own frame.
@@ -103,7 +103,8 @@ public struct CheckResult: Codable, Sendable {
     /// With `listen`: what was heard across each join.
     public var listened: ListenSummary?
     /// A privacy check: `frames` counts the frames read (a still screen is
-    /// read once), and each problem's `fix` is a redact to look at first.
+    /// read once). Where the source is known, a problem's `fix` is a redact
+    /// to look at first.
     public var privacy: Bool?
 
     public var ok: Bool { problems.isEmpty }
@@ -494,10 +495,8 @@ extension TandemService {
     }
 
     /// `check --privacy`: reads the frames as export renders them, and finds
-    /// private text. From proxies where they're ready: they're 1080p, as
-    /// sharp as a 1920 wide read, and decode several times faster than a 4K
-    /// screen recording, which is most of a scan's time (Vision reads a
-    /// frame in a tenth of a second).
+    /// private text. Reads original media at every output frame; a proxy
+    /// can lose the small text that this check needs to see.
     ///
     /// `format` reads an alternate layout (a Short) in its own frame, as its
     /// export renders it: the screen in a Short's top window can show text
@@ -516,9 +515,7 @@ extension TandemService {
         // A Short's own width (1080) by default, the main layout's 1920.
         let width = requested ?? max(640, min(1920, layout?.width ?? 1920))
         guard (640...3840).contains(width) else { throw ServiceError(.badRequest, "width is 640 to 3840 pixels for a privacy check.") }
-        // Wider than the proxies, the files themselves: a 4K read of 1080p
-        // proxies would only upscale away the small text it's for.
-        var context = RenderContext(project: project, folder: folder, analysis: session.analysis, useProxies: width <= 1920)
+        var context = RenderContext(project: project, folder: folder, analysis: session.analysis, useProxies: false)
         context.format = format
         var warnings: [String] = []
         if format == nil, !formats.isEmpty {

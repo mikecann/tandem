@@ -31,6 +31,7 @@ final class TestMedia {
         seconds: Double,
         size: CGSize = CGSize(width: 320, height: 180),
         fps: Int32 = 30,
+        offset: Time = .zero,
         codec: AVVideoCodecType = .h264,
         hlg: Bool = false,
         tenBit: Bool = true,
@@ -60,6 +61,13 @@ final class TestMedia {
             ]
         ])
         video.expectsMediaDataInRealTime = false
+        if offset != .zero {
+            video.mediaTimeScale = 60_000
+            writer.movieTimeScale = 60_000
+        } else if fps > 600 {
+            video.mediaTimeScale = fps
+            writer.movieTimeScale = fps
+        }
         let adaptor = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: video, sourcePixelBufferAttributes: [
             kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
             kCVPixelBufferWidthKey as String: Int(size.width),
@@ -135,7 +143,8 @@ final class TestMedia {
                     CVBufferSetAttachment(buffer, kCVImageBufferColorPrimariesKey, hlg ? kCVImageBufferColorPrimaries_ITU_R_2020 : kCVImageBufferColorPrimaries_ITU_R_709_2, .shouldPropagate)
                     CVBufferSetAttachment(buffer, kCVImageBufferTransferFunctionKey, hlg ? kCVImageBufferTransferFunction_ITU_R_2100_HLG : kCVImageBufferTransferFunction_ITU_R_709_2, .shouldPropagate)
                     CVBufferSetAttachment(buffer, kCVImageBufferYCbCrMatrixKey, hlg ? kCVImageBufferYCbCrMatrix_ITU_R_2020 : kCVImageBufferYCbCrMatrix_ITU_R_709_2, .shouldPropagate)
-                    adaptor.append(buffer, withPresentationTime: CMTime(value: CMTimeValue(progress.frame), timescale: fps))
+                    let time = CMTime(value: CMTimeValue(progress.frame), timescale: fps)
+                    adaptor.append(buffer, withPresentationTime: offset == .zero ? time : CMTimeAdd(time, offset.cmTime))
                     progress.frame += 1
                 }
             }
@@ -167,13 +176,14 @@ final class TestMedia {
             DispatchQueue.global().async { done.resume(returning: group.wait(timeout: .now() + 60) == .success) }
         }
         guard written else { throw MediaError.failed("writing \(name) stalled") }
-        writer.endSession(atSourceTime: CMTime(value: CMTimeValue(frames), timescale: fps))
+        let end = CMTime(value: CMTimeValue(frames), timescale: fps)
+        writer.endSession(atSourceTime: offset == .zero ? end : CMTimeAdd(end, offset.cmTime))
         try await writer.finishWriting(within: 60)
         // The 10-bit HEVC encoder fails now and then (-12902) on a busy
         // machine; another go writes it.
         if hlg, writer.status != .completed, attempt < 3 {
             try? FileManager.default.removeItem(at: url)
-            return try await movie(name, seconds: seconds, size: size, fps: fps, codec: codec, hlg: hlg, tenBit: tenBit, attempt: attempt + 1, draw: draw, sound: sound)
+            return try await movie(name, seconds: seconds, size: size, fps: fps, offset: offset, codec: codec, hlg: hlg, tenBit: tenBit, attempt: attempt + 1, draw: draw, sound: sound)
         }
         XCTAssertEqual(writer.status, .completed, "\(writer.error as Any)")
         return url

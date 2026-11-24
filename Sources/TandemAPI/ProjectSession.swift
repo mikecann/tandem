@@ -76,7 +76,7 @@ public final class ProjectSession: @unchecked Sendable {
         self.folder = ProjectFolder(projectFile: fileURL)
         self.journal = journal
         self.lockHandle = lock
-        self.coordinator = ProjectCoordinator(project: project, revision: revision, journal: journal)
+        self.coordinator = ProjectCoordinator(project: project, revision: revision, journal: journal, sourceFolder: fileURL.deletingLastPathComponent())
         self.review = ReviewRecorder(coordinator: coordinator, url: ProjectFile.reviewURL(for: fileURL))
         self.history = HistoryRecorder(coordinator: coordinator, url: ProjectFile.historyURL(for: fileURL), replayed: replays)
         self.analysis = MediaAnalysis(folder: folder)
@@ -121,7 +121,7 @@ public final class ProjectSession: @unchecked Sendable {
             var recovered = false
             var start = (project, revision)
             var replays: [(entry: ProjectJournal.Entry, before: Project, after: Project)] = []
-            if let replayed = journal.recover(project: project, revision: revision, replayed: { replays.append(($0, $1, $2)) }) {
+            if let replayed = try journal.recover(project: project, revision: revision, sourceFolder: url.deletingLastPathComponent(), replayed: { replays.append(($0, $1, $2)) }) {
                 start = replayed
                 recovered = true
             }
@@ -357,7 +357,10 @@ public final class ProjectSession: @unchecked Sendable {
             let addedItems = report.items.filter { ids.contains($0.id) }
             let foundTake = addedItems.contains { $0.role == .camera && $0.kind == .video && $0.hasVideo }
             var frameRate: FrameRate?
-            if foundTake, queue.sync(execute: { _takesCameraFrameRate }), let rate = Self.cameraFrameRate(addedItems), rate != current.settings.frameRate {
+            // Redactions are timed on the project's frame rate, so it stays
+            // put once one exists (RedactionSafety.requireUnchangedClocks).
+            if foundTake, queue.sync(execute: { _takesCameraFrameRate }), let rate = Self.cameraFrameRate(addedItems), rate != current.settings.frameRate,
+               RedactionSafety.protections(in: current).isEmpty {
                 commands.append(.updateSettings(patch: .object(["frameRate": try JSONValue.from(rate)])))
                 frameRate = rate
             }

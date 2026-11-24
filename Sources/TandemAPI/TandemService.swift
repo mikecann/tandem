@@ -820,20 +820,10 @@ public final class TandemService: @unchecked Sendable {
         }
         try checkExpected(batch.expectedRevision, at: revision)
         var working = project
-        var context = EditContext()
-        for (index, command) in batch.commands.enumerated() {
-            do {
-                try Editing.apply(command, to: &working, context: &context)
-            } catch let error as EditError where batch.commands.count > 1 {
-                throw ServiceError.wrap(EditError.invalid("command \(index + 1) of \(batch.commands.count): \(error.description)"))
-            } catch {
-                throw ServiceError.wrap(error)
-            }
-        }
-        let issues = ProjectValidator.validate(working)
-        if let first = issues.first(where: { $0.severity == .error }) {
-            throw ServiceError(.invalid, "Invalid edit: \(first.message)")
-        }
+        var context = EditContext(sourceFolder: folder.root)
+        let issues: [ValidationIssue]
+        do { issues = try Editing.apply(batch, to: &working, context: &context) }
+        catch { throw ServiceError.wrap(error) }
         let diff = ClipDiff(project, working)
         // Applied, it measures them (`ApplyRequest.run`); a dry run says.
         let unmeasured = Self.unlevelled(in: working, analysis: analysis)

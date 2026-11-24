@@ -103,6 +103,8 @@ final class RenderPlanTests: XCTestCase {
         // copy, the copy still drew the same footage over itself, and its
         // crop edges left a faint seam (up to 30 levels off along a row).
         var video = VideoProperties()
+        // Current privacy copies carry their managed role explicitly.
+        video.redaction = Rect(x: 0.2, y: 0.2, width: 0.6, height: 0.6)
         video.crop = Crop(left: 0.2, top: 0.2, right: 0.2, bottom: 0.2)
         video.effects = [Effect(type: "blur", enabled: false, params: ["radius": .number(24)])]
         let off = Clip(id: "clip_off", name: "Privacy: email", content: .media(mediaID: "med_scr"), start: t(0), duration: t(4), sourceStart: t(10), video: video)

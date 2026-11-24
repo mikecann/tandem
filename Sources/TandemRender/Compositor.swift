@@ -147,8 +147,10 @@ class TandemCompositor: NSObject, AVVideoCompositing {
             return
         }
         let time = Time(cmTime: request.compositionTime)
+        FramePrivacyEvidence.clear(output)
+        let evidence = instruction.scene.collectPrivacyEvidence ? FramePrivacyEvidence() : nil
         let sources = RequestSources(request: request, trackIDs: instruction.trackIDs)
-        var image = FrameComposer(scene: instruction.scene, stills: type(of: self).rendersStills).compose(instruction.stack, at: time, sources: sources)
+        var image = FrameComposer(scene: instruction.scene, stills: type(of: self).rendersStills, privacyEvidence: evidence).compose(instruction.stack, at: time, sources: sources)
 
         // A player or frame grab may ask for a smaller frame than the canvas.
         let canvas = instruction.scene.canvas
@@ -175,6 +177,7 @@ class TandemCompositor: NSObject, AVVideoCompositing {
             if let space = Self.outputColorSpace {
                 CVBufferSetAttachment(output, kCVImageBufferCGColorSpaceKey, space, .shouldPropagate)
             }
+            evidence?.attach(to: output)
             request.finish(withComposedVideoFrame: output)
         } catch {
             request.finish(with: error)

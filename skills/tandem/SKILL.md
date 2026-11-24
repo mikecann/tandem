@@ -772,11 +772,15 @@ From his review comments on the Daytona and Build Your Own Convex videos
   --privacy` over the whole video, as the last edit before exporting, and
   again with `--format <id>` for each format the project exports (its
   warning names them). It
-  reads a frame every half second as export renders it (blurs in place,
+  reads every output frame from original media as export renders it (blurs in place,
   so text scrolling past a fixed blur shows up) and flags emails, phone
   numbers, addresses, booking references, ID, money, crypto, travel, keys,
-  "before they go public" notes, lists of names and QR codes, each with a
-  `redact` to look at, widen to everything private round it, and apply on
+  "before they go public" notes, lists of names and QR codes, with a
+  `redact` when its source is known. Transition or unknown-source findings
+  need a frame inspection; missing frames or OCR errors fail the scan.
+  Private-looking authored text is still flagged: a matching title cannot
+  prove that text in the underlying footage is safe.
+  For each suggested `redact`, look at it, widen to everything private round it, and apply on
   its own. Then look through every readableText note too, with `tandem
   frames` across it: the rules can't know a plan is internal or a quote is
   someone else's. Don't treat an earlier "leave the blurs off for now" or

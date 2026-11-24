@@ -91,6 +91,97 @@ asked for a copy itself does the same, so a blur never fills the frame or
 the top half of a short. A locked privacy track stops a layout that would
 leave its copies behind: unlock it first.
 
+The project remembers the selected source regions independently of their
+current copies. Ordinary crop, transform, motion, keyframe, direct timing
+and hold edits keep the copies aligned. A later edit that would expose a
+protected source frame refuses the entire batch: this includes neighbour
+trims/slips, unsafe rolls/slides, track transfers and locked blades. Even a
+cut that removes every current copy retains the source intent, so inserting
+those frames again must still cover them. Changing a protected file's
+picture delay also refuses.
+
+A timing edit to a copy cannot release its protected tail, including an
+animated blur. Adding another effect keeps the active privacy effect's
+identity; removing it uses another effective blur or pixelate if one remains.
+Clearing the copy's whole `video` object refuses rather than clear ownership.
+Repointing a privacy copy to different content also refuses; redact the other
+source to create its own request. Stills do not need a video flag to be
+redacted. A one-pixel mosaic is ineffective, so pixelate size must be above1
+(blur radius above0).
+An automatic privacy fix needs source evidence from the actual composed
+frame. An alpha-capable or unknown video format stays a finding to inspect,
+even when its project entry says it has no alpha. A loaded video that fails
+to supply a frame cannot take attribution from the picture visible below it.
+If a replacement file's rendered dimensions differ from its saved dimensions,
+the scan retains findings without an automatic fix until the media is refreshed.
+Privacy copies need their own tracks: mixing them with ordinary footage
+refuses the edit, so that footage remains available to redact and scan.
+Naming an ordinary track Privacy does not give it this role.
+
+Fractional source cuts retain the whole decoded source frames they show.
+The renderer reads actual presentation timestamps, including isolated dropped
+frames in recordings still classified as constant-rate. If that table cannot
+be read, it conceals the region throughout the file instead of guessing.
+For variable-rate files, the nominal frame rate cannot identify every sample
+a freeze can repeat. The renderer therefore conceals each protected region
+throughout that source file. This can hide the region outside the selected
+timeline range too; convert and probe a constant-rate file before redaction
+when precise source timing is needed. Later edits still require coverage
+where the recorded source selection applies. Every variable-rate occurrence
+also receives the file-wide concealment, including freezes outside that selection.
+
+Templates cannot introduce privacy-copy metadata. Insert their ordinary
+pictures and run `redact` afterwards; a saved segment containing privacy
+copies refuses rather than import unverified ownership of protected frames.
+
+The renderer obscures the source region before effects, placement and
+transition motion or mixing, including transition handles. A still image
+has one source frame at every time. Protection matches a file's saved
+identity as well as its media ID, so another reference to the same file
+cannot evade it. Blur strength is retained in source pixels through later
+zooms. Renaming a privacy track keeps its identity.
+
+Switching a copy or its last effective privacy effect off, hiding its track, or explicitly removing
+it relinquishes that copy's selected source region. Blading partitions that
+selection; joining combines it again. Ordinary cuts that happen to remove
+the copy do not relinquish the source intent. Undo restores the whole edit,
+including its protection. Older projects acquire this intent on load.
+Old copies with disabled or removed effects keep their identity too, so they
+stay undrawn until an effect is restored. A copy deliberately disabled stays
+off when its picture is hidden and shown again or the camera angle changes,
+including after reload. An inactive copy on a locked track does not block
+picture transforms or layout changes.
+Removing or editing an already inactive copy cannot relinquish another
+copy's retained protection. Separate redaction requests retain separate
+ownership even over the same pixels; a later copy cannot turn off an older
+request that a cut retained. A new redaction uses a visible privacy track.
+Editing a copy's speed or source start cannot claim its request's cut-away
+frames. Those frames return to its controls when its linked picture shows
+them again, including after a trim is extended or a picture is slipped.
+A copy keeps its picture partners when links are regrouped. Assigning it
+to another picture refuses; create that picture's own redaction. An old
+ambiguous group needs its original owner established before source edits.
+A blur control acts on the picture's source selection at that command,
+including within a batch.
+A redaction is recorded on its file's frame timing and the project's frame
+rate, so once one exists, `updateSettings` can't change the frame rate and
+`updateMedia` can't change a protected file's frame rate, duration, size,
+picture delay or variable-rate flag, not even for one command of a batch.
+Set the frame rate before redacting. A new camera take still imports into
+a redacted project; it just doesn't set the frame rate. A privacy copy
+stays on video tracks; moving it to an audio track refuses.
+Strengthening a blur keeps its recorded source timing and all earlier file
+identities, including an offline original after relinking. A locked privacy
+copy cannot be rewritten when adopting a format, even when unlinked or off;
+unlock the track first. Locked tracks cannot be reordered.
+Originless policies from unreleased development versions retain separate
+historical protection: their old merged rows cannot prove who owns them.
+Disabling a surviving copy can refuse if it would expose that history.
+Released schema1/2 projects acquire ordinary ownership when loaded.
+At a file's opening, the recovery decoder can hold a later frame within
+250 ms of the track start. Protection covers that possible held frame too,
+which can conceal an opening region earlier than the selected time.
+
 Turning a copy's blur off (Mike's "Turn off blur" in the inspector), or
 removing it, leaves the copy hiding nothing, so it isn't drawn: drawn,
 it's the same footage over itself with a faint seam along its crop. Turn
@@ -125,16 +216,20 @@ thread's answer listing Mike's projects (personal errands, travel, an
 internal plan) at three places, another person's quotes
 waiting for his OK, and lines scrolling through a strip above a fixed
 blur. `tandem check --privacy` reads the video as export renders it, a
-frame every half second, with Vision on the Mac, and flags what looks
+frame at the output frame rate, with Vision on the Mac, and flags what looks
 private. Run it on the whole video before every export:
 
 ```
 tandem check --privacy
 ```
 
+Recognised private-looking text stays a finding even where a title contains
+the same words. A title's transparent padding cannot prove where OCR's glyphs
+came from. Public contact details you authored may therefore need review too.
+
 Each `privateText` problem has its edges to the frame, the file the text
 is in, what was read (`crypto ("wallet"); travel plans ("flights")`)
-and a `redact` blurring what was flagged, in that file's frame:
+and, when the source is known, a `redact` blurring what was flagged in that file's frame:
 
 ```
 04:58.700-05:04.067  Private text on screen.mov: crypto ("wallet"); travel plans ("flights") ...
@@ -150,8 +245,23 @@ name that's public) should stay sharp.
 `readableText` notes are every stretch with 40 or more words readable a
 frame, flagged or not. Look through each (`tandem frames` across it): the
 rules can't know that a plan is internal, a quote is someone else's, or a
-list of projects is private. Titles and captions are left out, and so is
-text under a blur. It reads the main layout; a format with its own layout
+list of projects is private. A title or caption is left out only when the
+read text matches its words and drawn position. Recognised private text is
+flagged even when its source has a blur effect. Text in a transition lists
+its possible contributors, with no automatic redaction. Overlapping cutouts,
+mixed or unknown transparency, and translucent titles can also leave the
+source uncertain. Those findings still need inspection and have no automatic
+redaction. Adjustment layers and graphics outside the text do not hide its
+source. Missing frames or failed OCR stop the scan
+with an error, so they cannot produce a clean result. The reader uses
+original media and only reuses OCR for byte-identical rendered frames.
+Source attribution checks each rendered media layer over the whole text
+rectangle, after filtering and scaling. Downscaled 4K, Shorts and PiP can
+keep their source fixes; an unrelated still does not invalidate the frame.
+Mixed pixels or unknown source geometry still require manual inspection.
+Recovery reads start on the output frame grid. A nearby frame across a cut
+cannot stand in for the one requested.
+It reads the main layout; a format with its own layout
 (the portrait Short `tandem short` lays out) can show text the main one
 crops off, so scan each one too, in its own frame:
 
@@ -165,10 +275,10 @@ no format: scan it with plain `--privacy`, in that project.
 The redacts it gives are in the file's frame either way, and a redact
 covers every format.
 
-It reads from proxies (1080p) where they're ready, about 3 s of video a
-second, so a 25 minute video takes about 7 minutes. Re-run it after blurring until every flag left is one you've
-looked at. An earlier "leave the blurs off for now" isn't a sign-off on
-what shows.
+Reading every output frame from original media takes longer than the old
+half-second sweep. Re-run it after blurring until every flag left is one
+you've looked at. An earlier "leave the blurs off for now" isn't a sign-off
+on what shows.
 
 ## Grade the camera take
 

@@ -22,10 +22,16 @@ public struct EditContext: Sendable {
     /// The clip each clip cut off another came from, by the new clip's
     /// ID, so a transition's sound that a cut split can be put back whole.
     var cutFrom: [String: String] = [:]
+    /// The coordinator validates its private working copy at batch end,
+    /// allowing an insert and its redaction to commit as one safe edit.
+    var defersPrivacyCoverage = false
+    /// Relative media paths resolve here when discovering privacy aliases.
+    public var sourceFolder: URL?
 
-    public init(seed: UInt64 = UInt64.random(in: 0...UInt64.max)) {
+    public init(seed: UInt64 = UInt64.random(in: 0...UInt64.max), sourceFolder: URL? = nil) {
         self.seed = seed
         self.generator = SplitMix64(seed: seed)
+        self.sourceFolder = sourceFolder
     }
 
     public mutating func makeID(_ prefix: String) -> String {
@@ -57,6 +63,14 @@ extension Clip {
         right.id = rightID
         left.moveTail(to: time)
         right.moveHead(to: time)
+        if let sources = video?.redactionSources, !freezeFrame {
+            let original = TimeRange(start: sourceStart, duration: sourceDuration)
+            let outside = RedactionSafety.subtract([original], from: sources)
+            let leftSource = TimeRange(start: left.sourceStart, duration: left.sourceDuration)
+            let rightSource = TimeRange(start: right.sourceStart, duration: right.sourceDuration)
+            left.video?.redactionSources = TimeRange.union(outside + sources.compactMap { $0.intersection(leftSource) })
+            right.video?.redactionSources = TimeRange.union(outside + sources.compactMap { $0.intersection(rightSource) })
+        }
         if var audio = left.audio {
             audio.fadeOut = .zero
             left.audio = audio

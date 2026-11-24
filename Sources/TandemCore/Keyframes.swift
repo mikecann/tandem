@@ -295,3 +295,27 @@ extension Clip {
         return audio
     }
 }
+
+extension Clip {
+    /// Video properties for an output format at a clip-relative time, with
+    /// keyframes applied, or nil when the clip is hidden in that format.
+    ///
+    /// A format override's transform or crop replaces the main one, and the
+    /// matching keyframes are ignored in that format (they animate the main
+    /// layout). Other animation, such as opacity, still applies.
+    public func resolvedVideo(at clipTime: Time, format: String?) -> VideoProperties? {
+        var video = resolvedVideo(at: clipTime)
+        guard let format, let override = self.video?.formatOverrides[format] else { return video }
+        if override.hidden { return nil }
+        if let transform = override.transform { video.transform = transform }
+        if let crop = override.crop { video.crop = crop }
+        if let cutout = override.cutout, video.cutout != nil { video.cutout?.enabled = cutout }
+        return video
+    }
+
+    /// True when a format override hides this clip.
+    public func isHidden(inFormat format: String?) -> Bool {
+        guard let format else { return false }
+        return video?.formatOverrides[format]?.hidden ?? false
+    }
+}

@@ -166,6 +166,131 @@ IDs) and is announced to observers.
 `expectedRevision` lets an agent refuse to edit a timeline that changed under
 it. `idempotencyKey` makes retries safe.
 
+### Privacy through edits
+
+Privacy copies record visibility as `followingPicture` or `disabled`,
+independent of a picture's temporary visibility. Only an explicit copy
+toggle changes that intent. Legacy disabled-effect copies acquire their
+region and source selection before schema migration finishes. Effect
+ownership prefers the existing effective blur/pixelate and falls back to
+another effective effect when it is removed or disabled. Policy controls
+compare the stored effect and its keyframes, so changing clip duration
+cannot masquerade as relinquishing a source region. Unused effects cannot
+replace policies. Each privacy request has a durable origin, shared by its
+bladed pieces and retained through effect changes. Strength edits update
+existing records without replacing their source clocks or identity history,
+so an intervening batch/relink cannot re-anchor protected pixels. Controls replace or
+relinquish only that origin's selection, so independent requests over the
+same pixels survive. Returning from a trim/slip restores only that origin's
+remembered selection; new holds/freezes cannot adopt another request's intent.
+Source-pixel calibration follows
+the shared file identity through aliases. A copy retains its own source
+selection and cannot absorb another piece's durable ranges through timing
+edits. Empty selections do not
+create policies, including for file-wide conservative render fallbacks.
+One ownership check governs capture, controls and locks. Automatically hidden
+copies retain ownership; already relinquished copies cannot erase independent
+policies. A disabled legacy copy without a linked disabled picture stays
+explicitly disabled. Restoring a picture or uncropping an adopted format can
+reactivate a following copy, while locked dormant ownership still refuses
+edits that would strand it. New redactions never reuse hidden tracks.
+Locked privacy clips cannot be rewritten by global format adoption, even
+when unlinked or disabled. Reordering a locked track also refuses.
+
+Copies cannot share a track with ordinary media clips. Managed clip metadata
+determines a track's privacy role; names are used only to migrate legacy
+copies. An ordinary picture on a track named Privacy stays ordinary footage.
+Identity expansion
+through resolved paths/device-and-inode precedes the timing guard, so a new
+alias with conflicting metadata refuses before it poisons later edits. The
+guard runs on the complete coordinator/journal batch, allowing an invalid
+alias's clip and media entry to be removed together.
+Transition boundary holds and `Clip.holds` choose a slice inside one actual
+sample's presentation interval, including sources faster than 1,000 fps.
+The cached file clock is shared by composition holds and privacy rendering.
+Sample times include a simple leading edit's offset. Unreadable, ambiguous
+or more complex edit mappings keep the conservative file-wide fallback.
+Privacy also includes the decoder's opening fallback window: when leading
+samples cannot decode, it may hold a frame up to 250 ms after the track's
+start. This can conceal a selected opening region earlier than requested.
+Originless policies from unreleased development builds retain separate
+historical ownership. Their old merged rows cannot prove which surviving
+copy owns them, even when effect IDs/settings match. Controls refuse if
+releasing a copy would expose that ambiguous history. Released schema1/2
+projects have no such rows and acquire ordinary request ownership on load.
+Scanner attribution passes through coordinate-preserving adjustment grades and ignores
+nonoverlapping or transparent solids/graphics. An automatic source fix needs
+proof across the whole recognised text rectangle. Mixed or unknown alpha,
+cutouts, translucent titles and effects of unknown coverage keep the finding
+but withhold an automatic fix when its source is uncertain. Built-in grades
+preserve attribution on opaque pictures.
+Spatial/custom adjustment effects retain findings without automatic fixes.
+The privacy reader collects input evidence from each actual composed frame.
+Only a successfully drawn video input with a known opaque loaded format can
+receive an automatic source fix; project alpha flags cannot prove opacity.
+Alpha-capable/unknown formats retain findings without a speculative fix.
+Missing decoded inputs are recorded even when the file itself loaded.
+Inputs rejected later by opacity, scale or crop guards are also omitted;
+successful decoding alone does not establish a rendered contribution.
+Rendered source dimensions must agree with saved geometry before a scan can
+offer a source fix; path-only replacements can leave that geometry stale.
+Crop bounds use the renderer's clamped `LayerMath.cropRect`, including raw
+out-of-range values and rotated pictures.
+Effect attestation includes durable source redactions before their managed
+effect is omitted from the copy's ordinary effect pass.
+Durable concealment uses the standard blur/pixelate definitions, so a custom
+display-effect registry cannot weaken or remove privacy protection.
+Opacity attribution includes the reconstruction footprint: OCR boxes must
+stay inside the cropped source by the Lanczos kernel's three-pixel radius,
+and still alpha probes include that same support. Durable filtering of a
+still invalidates raw-file alpha evidence. Unknown resampling paths retain
+findings without automatic fixes; ordinary zoomed interior text stays actionable.
+Still-image opacity is probed over the complete OCR rectangle regardless of
+its optional alpha flag. Other viewers and exports collect no scan evidence.
+Dry-run batches use the project folder and the same final source-coverage
+gate as commits, so relative aliases and later repairs are validated alike.
+
+Schema 3 stores source-region redaction intent on the project, including
+the file identity and source-pixel effect strength. Privacy copies keep the
+source intervals assigned to their piece; a blade partitions those intervals
+and a join unions them. Explicit copy/effect disable or removal relinquishes
+only that selection. Incidental removal through a timeline cut retains the
+project policy, so reintroducing those source frames requires protection.
+
+Every edit passes through `RedactionSafety`: it aligns ordinary changes and
+checks source coverage analytically across source time, holds, freezes,
+formats and track order. Unsupported edits throw before commit. Direct
+`Editing.apply` calls use a copy too. Locked privacy copies cannot be skipped
+by a blade, ripple or angle change. Legacy projects capture their regions and
+linked picture holds on load and before an edit; journal recovery stops on a
+rejected edit instead of silently skipping it and replaying dependent edits.
+
+Rendering applies privacy to source pixels before clip effects, crop,
+placement and transition mixing. Transition handles inherit the protection
+of the participating clip edge, independent of link groups. File aliases
+also receive the protection. The privacy reader uses original media, reads
+every output frame, reuses OCR only for identical pixels, and fails on a
+missing frame or recognition error. Transition findings retain the possible
+contributors, and recognised private text with unknown attribution remains
+a problem without an automatic fix.
+
+Policies retain encountered media IDs, paths and fingerprints even after
+successive file replacements. Sessions and journal replay resolve relative
+paths from the project folder, following folder renames; filesystem identities
+bind symlink and hard-link aliases before relinking. Source filtering replaces the protected pixels,
+including alpha, so transparent footage cannot retain sharp glyphs underneath.
+
+Constant-rate fractional cuts retain whole decoded source-frame intervals.
+Composition assembly expands policies against the actual cached presentation
+table and the compositor checks decoded sample identities. A few dropped
+frames need protection even when the probe still calls the file constant-rate.
+An unreadable presentation table falls back to file-wide region concealment.
+Variable-rate policies conceal the region throughout the file rather than
+trust its modal frame rate, including reintroduced occurrences outside the
+nominal selection and freezes outside it. Model coverage still checks the
+selected spans. This deliberately over-conceals VFR media.
+File timing and dimensions cannot change under a policy.
+
 ### Review
 
 Mike reviews what agents changed instead of watching the whole video

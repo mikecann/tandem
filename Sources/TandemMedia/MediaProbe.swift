@@ -125,7 +125,7 @@ struct MediaProbe: Sendable {
             }
 
             var timing: FrameTiming?
-            if canCursor, let times = presentationTimes(of: track) {
+            if canCursor, let times = presentationTimes(of: track, timescale: timescale) {
                 timing = FrameTiming(presentationTimes: times, timescale: timescale)
                 probe.frameCount = times.count
             }
@@ -153,14 +153,14 @@ struct MediaProbe: Sendable {
 
     /// Presentation time stamps of every sample, in the track's timescale,
     /// read from the sample table without touching the media data.
-    static func presentationTimes(of track: AVAssetTrack) -> [Int64]? {
+    static func presentationTimes(of track: AVAssetTrack, timescale requested: CMTimeScale? = nil) -> [Int64]? {
         guard let cursor = track.makeSampleCursorAtFirstSampleInDecodeOrder() else { return nil }
-        let timescale = cursor.presentationTimeStamp.timescale
+        let timescale = requested ?? cursor.presentationTimeStamp.timescale
         guard timescale > 0 else { return nil }
         var times: [Int64] = []
         repeat {
             let pts = cursor.presentationTimeStamp
-            guard pts.isNumeric else { break }
+            guard pts.isNumeric else { return nil }
             times.append(pts.timescale == timescale ? pts.value : CMTimeConvertScale(pts, timescale: timescale, method: .roundHalfAwayFromZero).value)
         } while cursor.stepInDecodeOrder(byCount: 1) == 1
         return times.isEmpty ? nil : times.sorted()

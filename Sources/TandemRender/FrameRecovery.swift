@@ -2,6 +2,7 @@ import AVFoundation
 import CoreMedia
 import CoreVideo
 import Foundation
+import TandemCore
 
 /// A media track the compositor can decode frames from itself.
 struct SourceTrack: @unchecked Sendable {
@@ -16,6 +17,7 @@ struct SourceTrack: @unchecked Sendable {
     /// The picture has transparency (a sticker in HEVC with alpha, ProRes
     /// 4444, a converted QuickTime Animation): decoded with alpha.
     var alpha = false
+    var opaque = false
 }
 
 /// Decodes a source frame when AVFoundation hands the compositor nothing.
@@ -94,13 +96,30 @@ final class FrameRecovery: @unchecked Sendable {
     /// before it.
     private static let firstFrameSlack = CMTime(value: 1, timescale: 4)
 
+    static func clampedTime(_ requested: CMTime, within range: CMTimeRange) -> CMTime {
+        CMTimeMaximum(range.start, CMTimeMinimum(requested, CMTimeSubtract(range.end, tolerance)))
+    }
+
+    /// Privacy must follow the same boundary clamp and look-ahead as the
+    /// decoder, including negative transition handles on fast source files.
+    static func sampleLimit(at requested: CMTime, within range: CMTimeRange) -> CMTime {
+        CMTimeAdd(clampedTime(requested, within: range), tolerance)
+    }
+
+    /// A reader with no decodable opening image can hold a later frame in
+    /// this window. Privacy must include every sample it could choose.
+    static func openingWindow(at requested: CMTime, within range: CMTimeRange) -> TimeRange? {
+        let end = CMTimeMinimum(range.end, CMTimeAdd(range.start, firstFrameSlack))
+        guard CMTimeCompare(clampedTime(requested, within: range), end) <= 0 else { return nil }
+        return TimeRange(start: Time(cmTime: range.start), end: Time(cmTime: end) + Time(flicks: 1))
+    }
+
     /// The frame shown at media time `time`: the last one at or before it.
     /// Times past the end hold the last frame; before the start, the first.
     func frame(_ source: SourceTrack, at requested: CMTime) -> CVPixelBuffer? {
         let range = source.timeRange
         guard enabled, range.duration > .zero, requested.isNumeric else { return nil }
-        let latest = CMTimeSubtract(range.end, Self.tolerance)
-        let time = CMTimeMaximum(range.start, CMTimeMinimum(requested, latest))
+        let time = Self.clampedTime(requested, within: range)
         return lock.withLock {
             requests += 1
             if let frame = continueSession(source, to: time) { return frame }

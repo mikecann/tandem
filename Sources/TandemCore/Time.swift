@@ -124,8 +124,32 @@ public struct FrameRate: Codable, Hashable, Sendable {
     /// Flicks per frame. Exact for integer rates. NTSC rates (1001
     /// denominators) round to the nearest flick, which is fine for display
     /// but the project should use an integer rate.
+    ///
+    /// Never traps: a non-positive rate reads as one frame a second, and a
+    /// frame is at most an hour long, so a bad `updateSettings` or
+    /// `updateMedia` patch reaches validation (which refuses anything
+    /// outside `usableRange`) rather than overflowing time maths and
+    /// crashing the editor.
     public var flicksPerFrame: Int64 {
-        (Time.flicksPerSecond * denominator + numerator / 2) / numerator
+        guard numerator > 0, denominator > 0 else { return Time.flicksPerSecond }
+        let longest = Time.flicksPerSecond * 3600
+        let (scaled, overflow) = Time.flicksPerSecond.multipliedReportingOverflow(by: denominator)
+        let (rounded, carry) = scaled.addingReportingOverflow(numerator / 2)
+        guard !overflow, !carry else {
+            let exact = (Double(Time.flicksPerSecond) * Double(denominator) / Double(numerator)).rounded()
+            return exact >= Double(longest) ? longest : max(1, Int64(exact))
+        }
+        return min(longest, max(1, rounded / numerator))
+    }
+
+    /// Rates a project or file may have: a frame every 100 s up to 10,000 fps.
+    public static let usableRange: ClosedRange<Double> = 0.01...10_000
+
+    public var isUsable: Bool {
+        // AVFoundation keeps rates as 32-bit timescales, so an unreduced
+        // fraction like 3000000000/100000000 is refused even though it's 30.
+        numerator > 0 && denominator > 0 && numerator <= Int64(Int32.max) && denominator <= Int64(Int32.max)
+            && FrameRate.usableRange.contains(framesPerSecond)
     }
 
     public var frameDuration: Time { Time(flicks: flicksPerFrame) }

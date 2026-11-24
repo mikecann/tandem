@@ -13,7 +13,7 @@ import TandemCore
 /// milliseconds.
 public enum FrameTimes {
     /// Bump when what's stored changes.
-    static let version = 1
+    static let version = 3
 
     /// The file's frame times, sorted, from the cache or the file. Nil when
     /// it has no video or can't be read.
@@ -29,11 +29,28 @@ public enum FrameTimes {
 
     /// The frame times read from the file's sample table.
     public static func read(_ url: URL) async -> [Time]? {
-        guard let track = try? await AVURLAsset(url: url).loadTracks(withMediaType: .video).first,
-              let timescale = try? await track.load(.naturalTimeScale), timescale > 0,
-              let ticks = MediaProbe.presentationTimes(of: track) else { return nil }
-        let scale = Double(timescale)
-        return ticks.map { Time(seconds: Double($0) / scale) }
+        guard let track = try? await AVURLAsset(url: url).loadTracks(withMediaType: .video).first else { return nil }
+        return await read(track)
+    }
+
+    public static func read(_ track: AVAssetTrack) async -> [Time]? {
+        guard (try? await track.load(.canProvideSampleCursors)) == true,
+              let ticks = MediaProbe.presentationTimes(of: track, timescale: CMTimeScale(Time.flicksPerSecond)),
+              let segments = try? await track.load(.segments) else { return nil }
+        let populated = segments.filter { !$0.isEmpty }
+        guard populated.count == 1 else { return nil }
+        let mapping = populated[0].timeMapping
+        // Sample cursors use the unedited media clock. A leading empty
+        // edit shifts decoded timestamps, even for a constant-rate movie.
+        // Only a simple translation is certain enough for privacy timing.
+        guard mapping.source.start == .zero, mapping.source.duration.isNumeric,
+              mapping.source.duration > .zero, mapping.target.start.isNumeric,
+              mapping.source.duration == mapping.target.duration else { return nil }
+        let scale = CMTimeScale(Time.flicksPerSecond)
+        let duration = CMTimeConvertScale(mapping.source.duration, timescale: scale, method: .roundHalfAwayFromZero).value
+        guard ticks.allSatisfy({ $0 >= 0 && $0 < duration }) else { return nil }
+        let shift = CMTimeConvertScale(mapping.target.start, timescale: scale, method: .roundHalfAwayFromZero).value
+        return ticks.map { Time(flicks: $0 + shift) }
     }
 
     static func cacheKey(_ item: MediaItem, url: URL) -> String? {

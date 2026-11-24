@@ -53,10 +53,7 @@ struct PlannedSegment: Equatable {
     var levelDB = 0.0
 }
 
-struct PlannedHold: Equatable {
-    var timeline: TimeRange
-    var frame: Time
-}
+typealias PlannedHold = RenderedHold
 
 struct GainPoint: Equatable {
     var time: Time
@@ -223,24 +220,8 @@ enum RenderPlanner {
                 )
                 // Frames held over a flash, where they land on the timeline.
                 if !clip.freezeFrame {
-                    picture.holds = clip.holds.compactMap { hold in
-                        let speed = max(clip.speed, 0.0001)
-                        // Out to the project's frames, so every frame showing
-                        // any of it is held from its very start (29.97 fps
-                        // frames fall between the samples times are kept in,
-                        // and a slip can leave a hold between frames).
-                        let rate = project.settings.frameRate
-                        let perFrame = rate.flicksPerFrame
-                        // A couple of samples: a frame more held is harmless,
-                        // a frame of the flash missed isn't.
-                        let tolerance = Time.flicksPerSample48k * 2
-                        let rawFrom = clip.start + (hold.source.start - clip.sourceStart).scaled(by: 1 / speed)
-                        let rawTo = clip.start + (hold.source.end - clip.sourceStart).scaled(by: 1 / speed)
-                        let from = Time(flicks: (rawFrom.flicks + tolerance).floorDivided(by: perFrame) * perFrame)
-                        var to = Time(flicks: (rawTo.flicks - tolerance + perFrame - 1).floorDivided(by: perFrame) * perFrame)
-                        if to <= from { to = from + rate.frameDuration }
-                        guard let shown = TimeRange(start: from, end: to).intersection(visible), !shown.isEmpty else { return nil }
-                        return PlannedHold(timeline: shown, frame: hold.frame + delay)
+                    picture.holds = clip.renderedHolds(rate: project.settings.frameRate, within: visible).map { hold in
+                        PlannedHold(timeline: hold.timeline, frame: hold.frame + delay)
                     }
                 }
                 videoSegments.append(picture)

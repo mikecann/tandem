@@ -35,7 +35,10 @@ public enum ProjectValidator {
         func warning(_ message: String, _ id: String? = nil) { issues.append(ValidationIssue(.warning, message, objectID: id)) }
 
         if p.settings.width <= 0 || p.settings.height <= 0 { error("Canvas size must be positive.") }
-        if p.settings.frameRate.numerator <= 0 || p.settings.frameRate.denominator <= 0 { error("Frame rate must be positive.") }
+        if !p.settings.frameRate.isUsable { error("Frame rate must be between 0.01 and 10,000 fps.") }
+        for item in p.media where item.frameRate.map({ !$0.isUsable }) == true {
+            error("\(item.path)'s frame rate must be between 0.01 and 10,000 fps.", item.id)
+        }
 
         // IDs are unique across the project.
         var seen = Set<String>()
@@ -87,7 +90,7 @@ public enum ProjectValidator {
                         if clip.sourceStart < -frame {
                             error("Clip \(clip.id) starts before the beginning of \(item.path).", clip.id)
                         }
-                        if let length = item.duration, clip.sourceEnd > length + frame {
+                        if let length = item.duration, clip.sourceEnd.flicks - frame.flicks > length.flicks {
                             error("Clip \(clip.id) runs past the end of \(item.path).", clip.id)
                         }
                     }

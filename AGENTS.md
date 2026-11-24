@@ -30,6 +30,9 @@ this repo root. It requires macOS 15 or newer and Xcode 26 or newer with Swift 6
   unit tests but no longer works from the UI fails there.
 - A few frame-timing and slow-Vision tests call `skipTimingSensitiveTestOnCI()`:
   they run by default on a Mac and skip when `CI=true` unless `TANDEM_TIMING_TESTS=1`.
+- The privacy audit's longest render tests call `skipSlowPrivacyRenderOnCI()` the
+  same way, with `TANDEM_PRIVACY_RENDER_TESTS=1`: they export whole films and
+  take about half an hour on a shared runner. Run them on tinker-desk.
 - Preserve the bundle IDs and stable ad-hoc signing requirement in
   `build-app.sh`, so rebuilds retain macOS privacy permissions.
 - `setup_mac.sh` builds the release app. `install.sh` links the `tandem`

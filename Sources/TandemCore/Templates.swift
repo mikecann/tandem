@@ -197,6 +197,9 @@ extension Editing {
         guard at >= .zero else { throw EditError.invalid("templates can't start before 0") }
         guard !template.clips.isEmpty else { throw EditError.invalid("template \(template.id) has no clips") }
         let items = template.filled(with: values)
+        guard !items.contains(where: { $0.clip.isRedaction }) else {
+            throw EditError.invalid("Templates cannot carry managed privacy ownership. Insert the source pictures, then use redact to protect their regions.")
+        }
         let group = items.count > 1 ? context.makeID("lnk") : nil
         var planned: [(TrackLocation, Clip)] = []
         for item in items {

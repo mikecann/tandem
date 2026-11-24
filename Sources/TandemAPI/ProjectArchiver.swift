@@ -288,7 +288,7 @@ public final class ProjectArchiver: @unchecked Sendable {
             do {
                 let (project, revision) = try ProjectFile.load(from: url)
                 let journal = ProjectJournal(url: ProjectFile.journalURL(for: url))
-                let latest = journal.recover(project: project, revision: revision) ?? (project, revision)
+                let latest = try journal.recover(project: project, revision: revision, sourceFolder: folder.root) ?? (project, revision)
                 entries.append(ProjectEntry(url: url, project: latest.project, revision: latest.revision, isMain: false))
             } catch {
                 warnings.append("\(url.lastPathComponent) couldn't be read, so it's left as it is: \(ServiceError.wrap(error).message)")
