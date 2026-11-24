@@ -153,6 +153,9 @@ public final class FrameTextReader: @unchecked Sendable {
     /// Reads from the first of `wanted` to the last, and Vision reads the
     /// frame showing at each.
     private func readNow(_ built: BuiltComposition, tracks: [AVAssetTrack], wanted: [Time]) throws -> [ReadFrame] {
+        // No frame starts at or after the timeline's end, so one asked for
+        // there comes back missing and the scan says it didn't read it.
+        let wanted = wanted.filter { $0 < built.duration }
         guard let first = wanted.first, let last = wanted.last else { return [] }
         let rate = context.project.settings.frameRate
         let frame = rate.frameDuration
@@ -162,7 +165,14 @@ public final class FrameTextReader: @unchecked Sendable {
         // A held file edge can fall between output frames. Starting there
         // shifts the reader's entire frame grid across cuts and animations.
         let from = max(.zero, onFrame(recovery))
-        reader.timeRange = CMTimeRange(start: from.cmTime, end: (last + frame).cmTime)
+        // To the end of the last frame wanted, but never past the
+        // timeline's own end, as export stops there (`exportRange`). A
+        // timeline can end part way through its last frame (1008.981 s at
+        // 30 fps is 30269.43 frames), and a read running past the last
+        // instruction fails whole with AVErrorInvalidVideoComposition
+        // (-11841): `check --privacy` on the Sammy cam video, 24 Nov 2026.
+        // The part frame still comes out, as it does in the exported file.
+        reader.timeRange = CMTimeRange(start: from.cmTime, end: min(last + frame, built.duration).cmTime)
         let output = AVAssetReaderVideoCompositionOutput(videoTracks: tracks, videoSettings: [
             kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
         ])
