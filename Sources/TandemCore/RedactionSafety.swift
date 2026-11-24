@@ -636,7 +636,9 @@ public enum RedactionSafety {
         // The project's frame grid times held frames and files without a
         // rate of their own, so changing it can move what a copy owns
         // without any picture changing. Keep it fixed while redactions exist.
-        if project.settings.frameRate != before.settings.frameRate, !scopes.isEmpty {
+        // A project saved with an unusable rate may still be repaired: no
+        // batch can end on one, so this can't be used to launder a mapping.
+        if project.settings.frameRate != before.settings.frameRate, before.settings.frameRate.isUsable, !scopes.isEmpty {
             throw EditError.invalid("The project's frame rate can't change while it has redactions: it times their held frames and source mapping. Set the frame rate before redacting.")
         }
     }

@@ -703,4 +703,16 @@ final class PrivacyRound2OwnershipTests: XCTestCase {
         XCTAssertFalse(try applyOrRefuse([flip, disable(mask)], to: c))
         assertTail(c)
     }
+
+    func testAProjectSavedWithAnUnusableRateCanBeRepairedAfterRedacting() throws {
+        // Round-2 review r7 (Codex): the lock would leave it uneditable.
+        let (base, _, _) = try ready(.trim)
+        var p = base.project
+        p.settings.frameRate = FrameRate(1, 200)
+        let c = ProjectCoordinator(project: p)
+        let fix = EditCommand.updateSettings(patch: .object(["frameRate": .object(["numerator": .number(30), "denominator": .number(1)])]))
+        XCTAssertNoThrow(try commit(c, [fix]))
+        XCTAssertEqual(c.project.settings.frameRate, .fps30)
+        assertTail(c)
+    }
 }

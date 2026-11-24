@@ -90,7 +90,7 @@ public enum ProjectValidator {
                         if clip.sourceStart < -frame {
                             error("Clip \(clip.id) starts before the beginning of \(item.path).", clip.id)
                         }
-                        if let length = item.duration, clip.sourceEnd > length + frame {
+                        if let length = item.duration, clip.sourceEnd.flicks - frame.flicks > length.flicks {
                             error("Clip \(clip.id) runs past the end of \(item.path).", clip.id)
                         }
                     }

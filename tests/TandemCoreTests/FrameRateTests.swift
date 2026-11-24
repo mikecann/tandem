@@ -38,4 +38,16 @@ final class FrameRateTests: XCTestCase {
         XCTAssertEqual(c.project.settings.frameRate, .fps30)
         XCTAssertEqual(c.project.media.first?.frameRate, .fps30)
     }
+
+    func testRatesAVFoundationCantHoldAreRefusedAndHugeFilesStillValidate() throws {
+        // Round-2 review r7 (Codex).
+        XCTAssertFalse(FrameRate(3_000_000_000, 100_000_000).isUsable, "exactly 30 fps, but its numerator overflows a CMTimeScale")
+        XCTAssertTrue(FrameRate(30000, 1001).isUsable)
+        var p = Project(name: "Long file", media: [MediaItem(id: "med_clip", path: "clip.mov", kind: .video, role: .screen,
+            duration: Time(seconds: 13_071_672_300), frameRate: .fps30, width: 1280, height: 720, hasVideo: true)],
+            videoTracks: [Track(id: "trk_v", kind: .video, name: "Screen",
+                clips: [Clip(id: "clip_one", content: .media(mediaID: "med_clip"), start: .zero, duration: Time(seconds: 5))])])
+        p.settings.frameRate = FrameRate(1, 100)
+        _ = ProjectValidator.validate(p)  // used to trap adding a 100 s frame to the length
+    }
 }

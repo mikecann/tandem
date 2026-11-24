@@ -146,7 +146,10 @@ public struct FrameRate: Codable, Hashable, Sendable {
     public static let usableRange: ClosedRange<Double> = 0.01...10_000
 
     public var isUsable: Bool {
-        numerator > 0 && denominator > 0 && FrameRate.usableRange.contains(framesPerSecond)
+        // AVFoundation keeps rates as 32-bit timescales, so an unreduced
+        // fraction like 3000000000/100000000 is refused even though it's 30.
+        numerator > 0 && denominator > 0 && numerator <= Int64(Int32.max) && denominator <= Int64(Int32.max)
+            && FrameRate.usableRange.contains(framesPerSecond)
     }
 
     public var frameDuration: Time { Time(flicks: flicksPerFrame) }
