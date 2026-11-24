@@ -124,8 +124,20 @@ public struct FrameRate: Codable, Hashable, Sendable {
     /// Flicks per frame. Exact for integer rates. NTSC rates (1001
     /// denominators) round to the nearest flick, which is fine for display
     /// but the project should use an integer rate.
+    ///
+    /// Never traps: a non-positive rate reads as one frame a second, and a
+    /// rate slower than a frame every ~13 s saturates instead of
+    /// overflowing, so a bad `updateSettings` or `updateMedia` patch reaches
+    /// validation (which refuses it) rather than crashing the editor.
     public var flicksPerFrame: Int64 {
-        (Time.flicksPerSecond * denominator + numerator / 2) / numerator
+        guard numerator > 0, denominator > 0 else { return Time.flicksPerSecond }
+        let (scaled, overflow) = Time.flicksPerSecond.multipliedReportingOverflow(by: denominator)
+        let (rounded, carry) = scaled.addingReportingOverflow(numerator / 2)
+        guard !overflow, !carry else {
+            let exact = (Double(Time.flicksPerSecond) * Double(denominator) / Double(numerator)).rounded()
+            return exact >= Double(Int64.max) ? Int64.max : max(1, Int64(exact))
+        }
+        return max(1, rounded / numerator)
     }
 
     public var frameDuration: Time { Time(flicks: flicksPerFrame) }

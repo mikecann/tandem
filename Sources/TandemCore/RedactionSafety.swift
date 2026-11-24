@@ -439,8 +439,9 @@ public enum RedactionSafety {
         // Media timing is part of every privacy mapping. Check it after each
         // command, not only at batch end, so a batch can't change a frame
         // rate, let later commands remember wider sources, then change it
-        // back. A mapping that was already invalid may still be repaired.
-        if (try? requireSourceMappings(before)) != nil { try requireSourceMappings(project) }
+        // back. Each changed file is judged on its own, so it may still be
+        // repaired onto its recorded mapping.
+        try requireUnchangedClocks(project, before: before, protecting: old)
         // A clip cut off another (a blade, an overwrite) has a new ID. Judge
         // it, and its picture partners, by the clip it was cut from.
         func ancestor(_ id: String) -> String {
@@ -599,11 +600,41 @@ public enum RedactionSafety {
         }
     }
 
+    static func mappingDiffers(_ scope: SourceRedaction, _ item: MediaItem) -> Bool {
+        (item.pictureDelay ?? .zero) != (scope.pictureDelay ?? .zero) || item.duration != scope.sourceDuration || item.frameRate != scope.sourceFrameRate
+            || item.variableFrameRate != (scope.sourceVariableFrameRate ?? item.variableFrameRate) || item.kind != scope.sourceKind
+            || item.width != scope.sourceWidth || item.height != scope.sourceHeight
+    }
+
+    static let mappingMessage = "A protected file's frame timing, boundaries and dimensions cannot change while it has redactions. Keep its privacy source mapping unchanged."
+
     static func requireSourceMappings(_ project: Project) throws {
         for scope in protections(in: project) {
-            if project.media.contains(where: { matches(scope, $0, in: project) && (($0.pictureDelay ?? .zero) != (scope.pictureDelay ?? .zero) || $0.duration != scope.sourceDuration || $0.frameRate != scope.sourceFrameRate || $0.variableFrameRate != (scope.sourceVariableFrameRate ?? $0.variableFrameRate) || $0.kind != scope.sourceKind || $0.width != scope.sourceWidth || $0.height != scope.sourceHeight) }) {
-                throw EditError.invalid("A protected file's frame timing, boundaries and dimensions cannot change while it has redactions. Keep its privacy source mapping unchanged.")
+            if project.media.contains(where: { matches(scope, $0, in: project) && mappingDiffers(scope, $0) }) {
+                throw EditError.invalid(mappingMessage)
             }
+        }
+    }
+
+    /// The per-command half of `requireSourceMappings`. It judges each file
+    /// on its own, so another file's broken mapping (an alias waiting to be
+    /// removed) can't switch the check off for the rest of a batch.
+    static func requireUnchangedClocks(_ project: Project, before: Project, protecting scopes: [SourceRedaction]) throws {
+        for item in project.media {
+            let prior = before.media(item.id)
+            let changed = prior.map { ($0.pictureDelay ?? .zero) != (item.pictureDelay ?? .zero) || $0.duration != item.duration || $0.frameRate != item.frameRate
+                || $0.variableFrameRate != item.variableFrameRate || $0.kind != item.kind || $0.width != item.width || $0.height != item.height } ?? true
+            guard changed else { continue }
+            // A changed file may only move onto the mapping its redactions recorded.
+            if scopes.contains(where: { matches($0, item, in: project) && mappingDiffers($0, item) }) {
+                throw EditError.invalid(mappingMessage)
+            }
+        }
+        // The project's frame grid times held frames and files without a
+        // rate of their own, so changing it can move what a copy owns
+        // without any picture changing. Keep it fixed while redactions exist.
+        if project.settings.frameRate != before.settings.frameRate, !scopes.isEmpty {
+            throw EditError.invalid("The project's frame rate can't change while it has redactions: it times their held frames and source mapping. Set the frame rate before redacting.")
         }
     }
 

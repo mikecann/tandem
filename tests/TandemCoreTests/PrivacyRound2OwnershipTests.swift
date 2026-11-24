@@ -42,9 +42,9 @@ final class PrivacyRound2OwnershipTests: XCTestCase {
         }
     }
 
-    private func ready(_ cut: Cut) throws -> (ProjectCoordinator, String, String) {
+    private func ready(_ cut: Cut, frameRate: FrameRate? = .fps30) throws -> (ProjectCoordinator, String, String) {
         let item = MediaItem(id: "med_screen", path: "screen.mov", kind: .video, role: .screen,
-                             duration: time(20), frameRate: .fps30, width: 1280, height: 720, hasVideo: true)
+                             duration: time(20), frameRate: frameRate, width: 1280, height: 720, hasVideo: true)
         let picture = Clip(id: "clip_screen", content: .media(mediaID: item.id), start: .zero, duration: time(20))
         let c = ProjectCoordinator(project: Project(name: "Same request ownership", media: [item],
             videoTracks: [Track(id: "trk_screen", kind: .video, name: "Screen", clips: [picture])]))
@@ -637,6 +637,53 @@ final class PrivacyRound2OwnershipTests: XCTestCase {
         try commit(c, [.updateClip(clipID: protected, patch: .object(["freezeFrame": .bool(true)]))])
         let slow = EditCommand.updateMedia(mediaID: "med_screen", patch: .object(["frameRate": .object(["numerator": .number(1), "denominator": .number(20)])]))
         let back = EditCommand.updateMedia(mediaID: "med_screen", patch: .object(["frameRate": .object(["numerator": .number(30), "denominator": .number(1)])]))
+        XCTAssertFalse(try applyOrRefuse([slow, disable(mask), back, .updateClip(clipID: mask, patch: .object(["enabled": .bool(true)]))], to: c))
+        assertTail(c)
+        XCTAssertFalse(try applyOrRefuse([reinsert()], to: c))
+    }
+
+    func testABrokenAliasCannotSwitchOffTheFrameRateCheckMidBatch() throws {
+        // Round-2 review r5 (Codex): an alias with a mismatched mapping made
+        // the batch's earlier state invalid, which skipped the per-command check.
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("alias-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        try Data("screen".utf8).write(to: folder.appendingPathComponent("screen.mov"))
+        try FileManager.default.createSymbolicLink(atPath: folder.appendingPathComponent("alias.mov").path, withDestinationPath: "screen.mov")
+        let (start, protected, mask) = try ready(.trim)
+        let c = ProjectCoordinator(project: start.project, sourceFolder: folder)
+        try commit(c, [.updateClip(clipID: protected, patch: .object(["freezeFrame": .bool(true)]))])
+        let alias = MediaItem(id: "med_alias", path: "alias.mov", kind: .video, role: .screen,
+                              duration: time(20), frameRate: FrameRate(60), width: 1280, height: 720, hasVideo: true)
+        let slow = EditCommand.updateMedia(mediaID: "med_screen", patch: .object(["frameRate": .object(["numerator": .number(1), "denominator": .number(20)])]))
+        let back = EditCommand.updateMedia(mediaID: "med_screen", patch: .object(["frameRate": .object(["numerator": .number(30), "denominator": .number(1)])]))
+        let batch: [EditCommand] = [.addMedia(item: alias), slow, disable(mask), back, .removeMedia(mediaID: alias.id),
+                                    .updateClip(clipID: mask, patch: .object(["enabled": .bool(true)]))]
+        XCTAssertFalse(try applyOrRefuse(batch, to: c))
+        assertTail(c)
+        XCTAssertFalse(try applyOrRefuse([reinsert()], to: c))
+    }
+
+    func testAProjectFrameRateCannotRetimeAProtectedFileWithoutItsOwnRate() throws {
+        // Round-2 review r5 (Codex): a file with no frame rate is read on the
+        // project's clock, which the mapping check didn't record.
+        let (c, protected, mask) = try ready(.trim, frameRate: nil)
+        try commit(c, [.updateClip(clipID: protected, patch: .object(["freezeFrame": .bool(true)]))])
+        let slow = EditCommand.updateSettings(patch: .object(["frameRate": .object(["numerator": .number(1), "denominator": .number(20)])]))
+        let back = EditCommand.updateSettings(patch: .object(["frameRate": .object(["numerator": .number(30), "denominator": .number(1)])]))
+        XCTAssertFalse(try applyOrRefuse([slow, disable(mask), back, .updateClip(clipID: mask, patch: .object(["enabled": .bool(true)]))], to: c))
+        assertTail(c)
+        XCTAssertFalse(try applyOrRefuse([reinsert()], to: c))
+    }
+
+    func testAProjectFrameRateCannotMoveAHeldFrameOntoTheCutTail() throws {
+        // Round-2 review r5 (Gemini): held frames snap to the project grid
+        // even for a file with its own rate.
+        let (c, protected, mask) = try ready(.trim)
+        try commit(c, [.holdFrame(clipID: protected, range: TimeRange(start: time(4), end: time(4.5)))])
+        let slow = EditCommand.updateSettings(patch: .object(["frameRate": .object(["numerator": .number(1), "denominator": .number(10)])]))
+        let back = EditCommand.updateSettings(patch: .object(["frameRate": .object(["numerator": .number(30), "denominator": .number(1)])]))
+        XCTAssertFalse(try applyOrRefuse([slow], to: c))
         XCTAssertFalse(try applyOrRefuse([slow, disable(mask), back, .updateClip(clipID: mask, patch: .object(["enabled": .bool(true)]))], to: c))
         assertTail(c)
         XCTAssertFalse(try applyOrRefuse([reinsert()], to: c))
