@@ -357,7 +357,10 @@ public final class ProjectSession: @unchecked Sendable {
             let addedItems = report.items.filter { ids.contains($0.id) }
             let foundTake = addedItems.contains { $0.role == .camera && $0.kind == .video && $0.hasVideo }
             var frameRate: FrameRate?
-            if foundTake, queue.sync(execute: { _takesCameraFrameRate }), let rate = Self.cameraFrameRate(addedItems), rate != current.settings.frameRate {
+            // Redactions are timed on the project's frame rate, so it stays
+            // put once one exists (RedactionSafety.requireUnchangedClocks).
+            if foundTake, queue.sync(execute: { _takesCameraFrameRate }), let rate = Self.cameraFrameRate(addedItems), rate != current.settings.frameRate,
+               RedactionSafety.protections(in: current).isEmpty {
                 commands.append(.updateSettings(patch: .object(["frameRate": try JSONValue.from(rate)])))
                 frameRate = rate
             }

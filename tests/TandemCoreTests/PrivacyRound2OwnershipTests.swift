@@ -688,4 +688,19 @@ final class PrivacyRound2OwnershipTests: XCTestCase {
         assertTail(c)
         XCTAssertFalse(try applyOrRefuse([reinsert()], to: c))
     }
+
+    func testAnOldScopeWithoutAVariableRateFlagKeepsTheFilesFlag() throws {
+        // Round-2 review r6 (Codex): with no saved flag, the mapping check
+        // compared the file's flag with itself, so it could be switched.
+        let (base, _, mask) = try ready(.trim)
+        var p = base.project
+        let mi = try XCTUnwrap(p.media.firstIndex { $0.id == "med_screen" })
+        p.media[mi].variableFrameRate = true
+        p.sourceRedactions = p.sourceRedactions?.map { var scope = $0; scope.sourceVariableFrameRate = nil; return scope }
+        let c = ProjectCoordinator(project: p)
+        let flip = EditCommand.updateMedia(mediaID: "med_screen", patch: .object(["variableFrameRate": .bool(false)]))
+        XCTAssertFalse(try applyOrRefuse([flip], to: c))
+        XCTAssertFalse(try applyOrRefuse([flip, disable(mask)], to: c))
+        assertTail(c)
+    }
 }

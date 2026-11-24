@@ -297,8 +297,8 @@ public enum Editing {
         let old = p.settings
         let settings = try JSONValue.applyMergePatch(patch, to: p.settings)
         guard settings.width > 0, settings.height > 0 else { throw EditError.invalid("canvas size must be positive") }
-        guard settings.frameRate.numerator > 0, settings.frameRate.denominator > 0 else {
-            throw EditError.invalid("frame rate must be positive")
+        guard settings.frameRate.isUsable else {
+            throw EditError.invalid("frame rate must be between 0.01 and 10,000 fps")
         }
         if settings.frameRate != old.frameRate {
             context.warn("Frame rate changed to \(settings.frameRate.framesPerSecond) fps. Existing cuts keep their times, so some may fall between frames.")

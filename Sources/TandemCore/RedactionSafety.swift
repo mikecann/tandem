@@ -626,7 +626,10 @@ public enum RedactionSafety {
                 || $0.variableFrameRate != item.variableFrameRate || $0.kind != item.kind || $0.width != item.width || $0.height != item.height } ?? true
             guard changed else { continue }
             // A changed file may only move onto the mapping its redactions recorded.
-            if scopes.contains(where: { matches($0, item, in: project) && mappingDiffers($0, item) }) {
+            // A scope saved before the variable-rate flag was recorded keeps
+            // the flag the file had, rather than accepting any new value.
+            let flagMoved = prior.map { $0.variableFrameRate != item.variableFrameRate } ?? false
+            if scopes.contains(where: { matches($0, item, in: project) && (mappingDiffers($0, item) || ($0.sourceVariableFrameRate == nil && flagMoved)) }) {
                 throw EditError.invalid(mappingMessage)
             }
         }

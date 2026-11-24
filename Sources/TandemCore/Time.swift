@@ -126,18 +126,27 @@ public struct FrameRate: Codable, Hashable, Sendable {
     /// but the project should use an integer rate.
     ///
     /// Never traps: a non-positive rate reads as one frame a second, and a
-    /// rate slower than a frame every ~13 s saturates instead of
-    /// overflowing, so a bad `updateSettings` or `updateMedia` patch reaches
-    /// validation (which refuses it) rather than crashing the editor.
+    /// frame is at most an hour long, so a bad `updateSettings` or
+    /// `updateMedia` patch reaches validation (which refuses anything
+    /// outside `usableRange`) rather than overflowing time maths and
+    /// crashing the editor.
     public var flicksPerFrame: Int64 {
         guard numerator > 0, denominator > 0 else { return Time.flicksPerSecond }
+        let longest = Time.flicksPerSecond * 3600
         let (scaled, overflow) = Time.flicksPerSecond.multipliedReportingOverflow(by: denominator)
         let (rounded, carry) = scaled.addingReportingOverflow(numerator / 2)
         guard !overflow, !carry else {
             let exact = (Double(Time.flicksPerSecond) * Double(denominator) / Double(numerator)).rounded()
-            return exact >= Double(Int64.max) ? Int64.max : max(1, Int64(exact))
+            return exact >= Double(longest) ? longest : max(1, Int64(exact))
         }
-        return max(1, rounded / numerator)
+        return min(longest, max(1, rounded / numerator))
+    }
+
+    /// Rates a project or file may have: a frame every 100 s up to 10,000 fps.
+    public static let usableRange: ClosedRange<Double> = 0.01...10_000
+
+    public var isUsable: Bool {
+        numerator > 0 && denominator > 0 && FrameRate.usableRange.contains(framesPerSecond)
     }
 
     public var frameDuration: Time { Time(flicks: flicksPerFrame) }
