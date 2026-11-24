@@ -165,7 +165,8 @@ public enum RedactionSafety {
         if let remembered = project.sourceRedactions { return remembered.filter { !$0.sources.isEmpty } }
         var captured = project
         rememberSources(&captured)
-        return copies(in: captured)
+        rememberPolicies(&captured)
+        return captured.sourceRedactions ?? []
     }
 
     /// A temporarily hidden picture still owns privacy. An explicit copy,
@@ -328,9 +329,33 @@ public enum RedactionSafety {
         p.sourceRedactions = policies.filter { !$0.sources.isEmpty } + replacements
     }
 
+    private static func picturePartners(of copy: Clip, in project: Project) -> [Clip] {
+        guard let group = copy.linkGroup else { return [] }
+        return project.videoTracks.flatMap { track in track.clips.filter {
+            !$0.isRedaction && Editing.redactionRegion(of: $0, on: track, inferLegacy: project.schemaVersion < 3) == nil
+                && $0.mediaID == copy.mediaID && $0.linkGroup == group
+        } }
+    }
+
+    private static func sourceMappingChanged(from prior: Clip, to picture: Clip) -> Bool {
+        prior.range != picture.range || prior.sourceStart != picture.sourceStart || prior.speed != picture.speed
+            || prior.freezeFrame != picture.freezeFrame || prior.holdEdges != picture.holdEdges || prior.holds != picture.holds
+    }
+
+    private static func visibleSources(of picture: Clip, over range: TimeRange, in project: Project) -> [TimeRange] {
+        guard let shared = picture.range.intersection(range) else { return [] }
+        var shown = picture
+        shown.sourceStart = picture.sourceTime(atTimelineTime: shared.start)
+        shown.start = shared.start
+        shown.duration = shared.duration
+        let item = picture.mediaID.flatMap(project.media)
+        let frame = item?.frameRate?.frameDuration ?? project.settings.frameRate.frameDuration
+        return sources(of: shown, frame: frame, media: item, rate: project.settings.frameRate)
+    }
+
     /// Old projects are captured before their first edit, including copies
     /// made before `video.redaction` existed. Journal replay uses this too.
-    static func rememberSources(_ project: inout Project) {
+    static func rememberSources(_ project: inout Project, restoringFrom previous: Project? = nil) {
         for ti in project.videoTracks.indices where project.videoTracks[ti].isPrivacy || (project.schemaVersion < 3 && project.videoTracks[ti].name.lowercased().hasPrefix(Editing.privacyTrackPrefix)) {
             for ci in project.videoTracks[ti].clips.indices {
                 let copy = project.videoTracks[ti].clips[ci]
@@ -345,17 +370,48 @@ public enum RedactionSafety {
                 let frame = project.media(mediaID)?.frameRate?.frameDuration ?? project.settings.frameRate.frameDuration
                 let item = project.media(mediaID)
                 let origin = copy.video?.redactionOriginID ?? copy.id
-                var visible = sources(of: copy, frame: frame, media: item, rate: project.settings.frameRate)
-                var ranges = copy.video?.redactionSources ?? visible
-                ranges += (project.sourceRedactions ?? []).filter { $0.originID == origin && $0.region == region && item.map($0.matches) == true }.flatMap(\.sources)
-                // Capture picture-only holds as well as the copy's mapping.
-                for picture in project.videoTracks.flatMap(\.clips)
-                    where picture.video?.redaction == nil && picture.mediaID == mediaID && picture.linkGroup != nil && picture.linkGroup == copy.linkGroup {
+                let ownSources = sources(of: copy, frame: frame, media: item, rate: project.settings.frameRate)
+                let pictures = picturePartners(of: copy, in: project)
+                let visibility = copy.video?.redactionVisibility ?? (!copy.enabled && pictures.first?.enabled != false ? .disabled : .followingPicture)
+                if copy.video?.redactionSources == nil {
+                    // The original copy is evidence of its whole selection,
+                    // even if an old picture partner was already trimmed or
+                    // slipped. Persist that intent once before bounding the
+                    // copy's later controls to the picture it now protects.
+                    var original = copy
+                    original.video?.redaction = region
+                    original.video?.redactionOriginID = origin
+                    original.video?.redactionVisibility = visibility
+                    var capture = project
+                    capture.videoTracks = [project.videoTracks[ti]]
+                    capture.videoTracks[0].clips = [original]
+                    let initial = copies(in: capture)
+                    if !initial.isEmpty { project.sourceRedactions = (project.sourceRedactions ?? []) + initial }
+                }
+                var visible = pictures.isEmpty ? ownSources : []
+                var ranges = copy.video?.redactionSources ?? ownSources
+                var history: [TimeRange] = []
+                if let previous, let oldCopy = previous.clip(copy.id), pictures.count == 1, let picture = pictures.first {
+                    let priorPictures = picturePartners(of: oldCopy, in: previous)
+                    if priorPictures.count == 1, let prior = priorPictures.first, prior.id == picture.id,
+                       sourceMappingChanged(from: prior, to: picture) {
+                        history = (project.sourceRedactions ?? []).filter { $0.originID == origin && $0.region == region && item.map($0.matches) == true }.flatMap(\.sources)
+                    }
+                }
+                // Only the actual picture can bring a request's historical
+                // selection back through a source or timing edit. Link
+                // membership, reloads and copy edits cannot grant ownership.
+                for picture in pictures {
                     guard let shared = picture.range.intersection(copy.range) else { continue }
+                    let pictureSources = visibleSources(of: picture, over: copy.range, in: project)
+                    visible += pictureSources
+                    ranges += history.flatMap { range in pictureSources.compactMap { range.intersection($0) } }
+                    // A picture-only hold may show a frame outside the
+                    // nominal selection, so capture that frame too.
                     if picture.freezeFrame {
                         let frames = [displayedSource(picture.sourceStart, media: item, frame: frame)] + frozenSources(picture.sourceStart, media: item, frame: frame)
                         let extras = frames.map { TimeRange(start: $0, duration: frame) }
-                        ranges += extras
+                        if pictures.count == 1 { ranges += extras }
                         visible += extras
                     } else {
                         let source = TimeRange(start: picture.sourceTime(atTimelineTime: shared.start), end: picture.sourceTime(atTimelineTime: shared.end))
@@ -363,17 +419,14 @@ public enum RedactionSafety {
                         let extras = picture.renderedHolds(rate: project.settings.frameRate, within: shared).flatMap { hold in
                             [displayedSource(hold.frame, media: item, frame: frame), heldSource(hold.frame, media: item, frame: frame)].map { TimeRange(start: $0, duration: frame) }
                         }
-                        ranges += extras
+                        if pictures.count == 1 { ranges += extras }
                         visible += extras
                     }
                 }
                 project.videoTracks[ti].clips[ci].video?.redaction = region
                 project.videoTracks[ti].clips[ci].video?.redactionOriginID = origin
                 project.videoTracks[ti].clips[ci].video?.redactionSources = TimeRange.union(ranges.flatMap { range in visible.compactMap { range.intersection($0) } })
-                if copy.video?.redactionVisibility == nil {
-                    let picture = project.videoTracks.flatMap(\.clips).first { !$0.isRedaction && $0.linkGroup != nil && $0.linkGroup == copy.linkGroup && $0.mediaID == copy.mediaID }
-                    project.videoTracks[ti].clips[ci].video?.redactionVisibility = !copy.enabled && picture?.enabled != false ? .disabled : .followingPicture
-                }
+                project.videoTracks[ti].clips[ci].video?.redactionVisibility = visibility
                 rememberEffect(&project.videoTracks[ti].clips[ci])
             }
         }
@@ -381,13 +434,69 @@ public enum RedactionSafety {
 
     /// Repairs the one-picture partners. More complicated changes must pass
     /// the same coverage check; an unsupported edit is refused atomically.
-    static func reconcile(_ project: inout Project, before: Project, command: EditCommand, validateCoverage: Bool, sourceFolder: URL?) throws {
+    static func reconcile(_ project: inout Project, before: Project, command: EditCommand, validateCoverage: Bool, sourceFolder: URL?, cutFrom: [String: String] = [:]) throws {
         let old = protections(in: before)
+        // Media timing is part of every privacy mapping. Check it after each
+        // command, not only at batch end, so a batch can't change a frame
+        // rate, let later commands remember wider sources, then change it
+        // back. A mapping that was already invalid may still be repaired.
+        if (try? requireSourceMappings(before)) != nil { try requireSourceMappings(project) }
+        // A clip cut off another (a blade, an overwrite) has a new ID. Judge
+        // it, and its picture partners, by the clip it was cut from.
+        func ancestor(_ id: String) -> String {
+            var current = id
+            var seen: Set<String> = []
+            while before.clip(current) == nil, let origin = cutFrom[current], seen.insert(current).inserted { current = origin }
+            return current
+        }
+        // Privacy guards compare each copy with its prior video-track self.
+        // A copy that crossed track kinds would escape that comparison.
+        let priorVideo = Set(before.videoTracks.flatMap(\.clips).map(\.id))
+        let priorAudio = Set(before.audioTracks.flatMap(\.clips).map(\.id))
+        for clip in project.audioTracks.flatMap(\.clips) where clip.isRedaction && !priorAudio.contains(clip.id) {
+            throw EditError.invalid("Privacy copy \(clip.id) can't move to an audio track; it stays on its privacy track.")
+        }
+        for clip in project.videoTracks.flatMap(\.clips) where clip.isRedaction && priorAudio.contains(clip.id) && !priorVideo.contains(clip.id) {
+            throw EditError.invalid("Privacy copy \(clip.id) can't return from an audio track. Remove it and redact the picture again.")
+        }
         for ti in project.videoTracks.indices {
             for ci in project.videoTracks[ti].clips.indices {
                 rememberEffect(&project.videoTracks[ti].clips[ci])
                 if project.videoTracks[ti].clips[ci].video?.redactionVisibility == .disabled {
                     project.videoTracks[ti].clips[ci].enabled = false
+                }
+                let copy = project.videoTracks[ti].clips[ci]
+                if copy.isRedaction, let prior = before.clip(ancestor(copy.id)), prior.isRedaction {
+                    let priorPartners = picturePartners(of: prior, in: before)
+                    let existing = Set(priorPartners.map(\.id))
+                    let partners = picturePartners(of: copy, in: project)
+                    // The copy's range participates in the ownership proof.
+                    // Keep that evidence fixed until ambiguity is resolved,
+                    // including commands that narrow the group at once.
+                    if (priorPartners.count > 1 || partners.count > 1), sourceMappingChanged(from: prior, to: copy) {
+                        throw EditError.invalid("This privacy copy has ambiguous picture partners. Unlink the extra pictures before changing the copy's source or timing.")
+                    }
+                    guard partners.allSatisfy({ existing.contains(ancestor($0.id)) }) else {
+                        throw EditError.invalid("A privacy copy must keep its existing picture partners. Redact another picture to create its own privacy request instead of assigning it through links.")
+                    }
+                    if priorPartners.count > 1, partners.count < priorPartners.count, !partners.isEmpty {
+                        // Narrowing a group cannot promote a dummy into the
+                        // original owner's place. Establish that identity
+                        // from the selection before any partners disappear.
+                        let owned = prior.video?.redactionSources ?? []
+                        let owners: [Clip] = owned.isEmpty ? [] : priorPartners.filter { picture in
+                            let visible = visibleSources(of: picture, over: prior.range, in: before)
+                            return owned.allSatisfy { selection in visible.contains { $0.start <= selection.start && $0.end >= selection.end } }
+                        }
+                        guard owners.count == 1, partners.contains(where: { ancestor($0.id) == owners[0].id }) else {
+                            throw EditError.invalid("This privacy copy's original picture is ambiguous. Keep its original picture, or unlink all partners and redact the intended picture again.")
+                        }
+                    }
+                    if partners.count > 1, partners.contains(where: { picture in
+                        before.clip(ancestor(picture.id)).map { sourceMappingChanged(from: $0, to: picture) } == true
+                    }) {
+                        throw EditError.invalid("A privacy copy has multiple picture partners, so their source timing is ambiguous. Unlink the extra pictures and redact each picture separately before changing its timing.")
+                    }
                 }
             }
             if project.videoTracks[ti].clips.contains(where: \.isRedaction),
@@ -421,8 +530,8 @@ public enum RedactionSafety {
             for ci in project.videoTracks[ti].clips.indices {
                 var copy = project.videoTracks[ti].clips[ci]
                 guard copy.video?.redactionVisibility != .disabled,
-                      let region = Editing.redactionRegion(of: copy, on: project.videoTracks[ti]), let group = copy.linkGroup else { continue }
-                let pictures = project.videoTracks.flatMap(\.clips).filter { $0.video?.redaction == nil && $0.linkGroup == group && $0.mediaID == copy.mediaID }
+                      let region = Editing.redactionRegion(of: copy, on: project.videoTracks[ti]) else { continue }
+                let pictures = picturePartners(of: copy, in: project)
                 guard pictures.count == 1, let picture = pictures.first else { continue }
                 var placed = Editing.aligned(copy, over: picture, region: region, format: nil)
                 placed.enabled = picture.enabled
@@ -473,7 +582,7 @@ public enum RedactionSafety {
                 }
             }
         }
-        rememberSources(&project)
+        rememberSources(&project, restoringFrom: before)
         for track in before.videoTracks where track.isPrivacy && track.locked {
             if let after = project.track(track.id), after.clips != track.clips {
                 throw EditError.invalid("Privacy track \(track.name) is locked; its copies cannot change.")

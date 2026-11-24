@@ -138,7 +138,7 @@ extension PrivacyAuditRenderTests {
         let frames = try await reader.read([t(0.2)], sequential: true)
         XCTAssertEqual(frames.count, 1)
         XCTAssertFalse(frames.flatMap(\.lines).contains { $0.text.contains(email) }, "a replacement effect cannot turn durable concealment into a transparent hole")
-        XCTAssertTrue(frames.allSatisfy { $0.visibleClipIDs.isEmpty && $0.opaqueVideoClipIDs.isEmpty }, "managed effect overrides also invalidate standard attribution evidence")
+        XCTAssertTrue(frames.allSatisfy { $0.visibleClipIDs.contains("clip_overlay") && $0.visibleClipIDs.contains("clip_dummy") }, "the canonical privacy filter stays attestable when display effects are replaced")
         let found = try await PrivacyCheck.run(project: coordinator.project, ranges: [TimeRange(start: .zero, end: t(1))], folder: media.projectFolder) { times, sequential in try await reader.read(times, sequential: sequential) }
         XCTAssertTrue(found.problems.isEmpty, "the standard privacy effect keeps the lower screen concealed")
     }
@@ -244,7 +244,14 @@ extension PrivacyAuditRenderTests {
             XCTAssertTrue(frames.flatMap(\.lines).contains { $0.text.contains(email) }, "the square overlay leaves the screen's left margin readable")
             let found = try await PrivacyCheck.run(project: coordinator.project, ranges: [TimeRange(start: .zero, end: t(1))], folder: media.projectFolder) { times, sequential in try await reader.read(times, sequential: sequential) }
             XCTAssertFalse(found.problems.isEmpty)
-            XCTAssertTrue(found.problems.allSatisfy { $0.fix == nil }, "stale dimensions cannot establish which source contains the recognised text")
+            for problem in found.problems {
+                guard case .redact(_, _, let mediaID, _, _, _, _)? = problem.fix else {
+                    XCTFail("actual transparent margins must preserve the lower screen's actionable finding")
+                    continue
+                }
+                XCTAssertEqual(mediaID, screen.id)
+                XCTAssertEqual(problem.clipIDs, ["clip_screen"])
+            }
         }
     }
 
@@ -318,7 +325,14 @@ extension PrivacyAuditRenderTests {
         XCTAssertTrue(frames.flatMap(\.lines).contains { $0.text.contains(email) }, "the real rendered frame shows the screen through the overlay")
         let found = try await PrivacyCheck.run(project: p, ranges: [TimeRange(start: .zero, end: t(1))], folder: media.projectFolder) { times, sequential in try await reader.read(times, sequential: sequential) }
         XCTAssertFalse(found.problems.isEmpty)
-        XCTAssertTrue(found.problems.allSatisfy { $0.fix == nil }, "without per-frame alpha proof the scanner cannot choose either file automatically")
+        for problem in found.problems {
+            guard case .redact(_, _, let mediaID, _, _, _, _)? = problem.fix else {
+                XCTFail("the actual transparent video region must preserve the lower screen's actionable finding")
+                continue
+            }
+            XCTAssertEqual(mediaID, screen.id)
+            XCTAssertEqual(problem.clipIDs, ["clip_screen"])
+        }
     }
 
     func testAnOmittedVideoCannotStealPrivacyAttributionFromTheScreen() async throws {

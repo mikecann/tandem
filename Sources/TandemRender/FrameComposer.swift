@@ -151,13 +151,8 @@ struct FrameComposer {
     var stills = false
     var privacyEvidence: FramePrivacyEvidence? = nil
 
-    private func attestEffects(_ effects: [Effect]) {
-        guard let privacyEvidence else { return }
-        if effects.contains(where: { $0.enabled && scene.registry.definition($0.type) != EffectRegistry.standard.definition($0.type) }) {
-            // A pack can replace defaults or bindings under a built-in name.
-            // The scanner's standard bounds cannot attest those coordinates.
-            privacyEvidence.uncertain()
-        }
+    private func standardEffects(_ effects: [Effect]) -> Bool {
+        !effects.contains { $0.enabled && scene.registry.definition($0.type) != EffectRegistry.standard.definition($0.type) }
     }
 
     func compose(_ stack: [StackNode], at time: Time, sources: FrameSources) -> CIImage {
@@ -187,12 +182,14 @@ struct FrameComposer {
     func layer(_ ref: LayerRef, below: CIImage, at time: Time, sources: FrameSources) -> CIImage? {
         guard let sceneClip = scene.clips[ref.clipID] else { return nil }
         let clip = sceneClip.clip
-        var renderedMedia = false
+        var renderedMedia: CIImage?
+        var coordinatesKnown = true
         var opaqueVideo = sceneClip.picture?.opaque == true && FramePrivacyEvidence.preservesPixelGrid(sceneClip.pictureTransform)
         defer {
             if case .media = clip.content {
-                if renderedMedia {
-                    privacyEvidence?.visible(ref.clipID, opaqueVideo: ref.pictureTrack != nil && opaqueVideo)
+                if let renderedMedia {
+                    privacyEvidence?.visible(ref.clipID, opaqueVideo: ref.pictureTrack != nil && opaqueVideo,
+                                             layer: .init(image: renderedMedia, canvas: scene.canvas, coordinatesKnown: coordinatesKnown))
                 } else {
                     privacyEvidence?.missing(ref.clipID)
                 }
@@ -202,7 +199,7 @@ struct FrameComposer {
         guard var video = clip.resolvedVideo(at: clipTime, format: scene.format) else { return nil }
         if let live = scene.overrides?.video(for: ref.clipID) {
             video = live
-            privacyEvidence?.uncertain()
+            coordinatesKnown = false
         }
         let canvas = scene.canvas
         let rect = CGRect(origin: .zero, size: canvas)
@@ -210,7 +207,9 @@ struct FrameComposer {
         // An adjustment layer applies its effects to everything below it,
         // mixed in by its opacity.
         if case .adjustment = clip.content {
-            attestEffects(video.effects)
+            // An unknown adjustment can move every lower picture. A
+            // media-local uncertainty only affects that media's pixels.
+            if !standardEffects(video.effects) || !coordinatesKnown { privacyEvidence?.uncertain() }
             let env = EffectEnvironment(registry: scene.registry, folder: scene.folder, pixelsPerUnit: scene.pixelScale)
             return EffectRenderer.apply(video.effects, to: below, env).cropped(to: rect).tandemOpacity(video.opacity)
         }
@@ -262,7 +261,7 @@ struct FrameComposer {
            sceneClip.media?.width.map(CGFloat.init) != size.width || sceneClip.media?.height.map(CGFloat.init) != size.height {
             // Attribution places OCR rectangles using the saved dimensions.
             // A path-only replacement can render at a different size.
-            privacyEvidence?.uncertain()
+            coordinatesKnown = false
         }
         let total = LayerMath.totalScale(source: size, canvas: canvas, transform: video.transform, fitToCanvas: fitToCanvas)
         guard total > 1e-4 else { return nil }
@@ -271,7 +270,7 @@ struct FrameComposer {
         let unit = scene.pixelScale / total
         let env = EffectEnvironment(registry: scene.registry, folder: scene.folder, pixelsPerUnit: unit)
         let liveLook = sceneClip.media.flatMap { scene.overrides?.look(for: $0) }
-        if liveLook != nil { privacyEvidence?.uncertain() }
+        if liveLook != nil { coordinatesKnown = false }
         let look = liveLook ?? sceneClip.media?.look ?? []
 
         // Hide source pixels before crop, placement and transition motion.
@@ -305,7 +304,6 @@ struct FrameComposer {
             // Privacy intent keeps its built-in meaning even when a caller
             // replaces a display effect's defaults or Core Image binding.
             let privacyEnvironment = EffectEnvironment(registry: .standard, folder: scene.folder, pixelsPerUnit: max(unit, protection.sourcePixelsPerUnit * ratio))
-            attestEffects([protection.effect])
             let hidden = EffectRenderer.apply([protection.effect], to: image, privacyEnvironment).cropped(to: patch)
             // Replace the selected pixels, including alpha. Source-over
             // would keep sharp opaque glyphs under a translucent blur.
@@ -315,15 +313,11 @@ struct FrameComposer {
             ])
             appliedPrivacy = true
         }
-        if appliedPrivacy, sceneClip.media?.kind == .image {
-            // A durable blur/pixelate can mix a still's alpha even on an
-            // occurrence without a visible copy or ordinary effect.
-            privacyEvidence?.uncertain()
-        }
         let effects = appliedPrivacy && clip.video?.redaction != nil
             ? video.effects.filter { $0.id != clip.video?.redactionEffectID }
             : video.effects
-        attestEffects(look + effects)
+        if !standardEffects(look + effects) { coordinatesKnown = false }
+        if clip.mediaID == nil, !coordinatesKnown { privacyEvidence?.uncertain() }
         image = EffectRenderer.apply(look + effects, to: image, env)
 
         if !video.crop.isIdentity {
@@ -356,7 +350,6 @@ struct FrameComposer {
             // Other Core Image resamplers do not establish the bounded
             // source support used by scan attribution.
             opaqueVideo = false
-            if sceneClip.media?.kind == .image { privacyEvidence?.uncertain() }
         }
         if !transform.isIdentity {
             // Scaling up (a 3200 px screen recording on a 4K canvas, and
@@ -381,7 +374,7 @@ struct FrameComposer {
             )
         }
         let output = image.cropped(to: rect).tandemOpacity(opacity)
-        renderedMedia = !output.extent.isEmpty
+        if !output.extent.isEmpty { renderedMedia = output }
         return output
     }
 

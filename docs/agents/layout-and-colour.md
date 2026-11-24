@@ -155,6 +155,14 @@ Removing or editing an already inactive copy cannot relinquish another
 copy's retained protection. Separate redaction requests retain separate
 ownership even over the same pixels; a later copy cannot turn off an older
 request that a cut retained. A new redaction uses a visible privacy track.
+Editing a copy's speed or source start cannot claim its request's cut-away
+frames. Those frames return to its controls when its linked picture shows
+them again, including after a trim is extended or a picture is slipped.
+A copy keeps its picture partners when links are regrouped. Assigning it
+to another picture refuses; create that picture's own redaction. An old
+ambiguous group needs its original owner established before source edits.
+A blur control acts on the picture's source selection at that command,
+including within a batch.
 Strengthening a blur keeps its recorded source timing and all earlier file
 identities, including an offline original after relinking. A locked privacy
 copy cannot be rewritten when adopting a format, even when unlinked or off;
@@ -240,6 +248,12 @@ redaction. Adjustment layers and graphics outside the text do not hide its
 source. Missing frames or failed OCR stop the scan
 with an error, so they cannot produce a clean result. The reader uses
 original media and only reuses OCR for byte-identical rendered frames.
+Source attribution checks each rendered media layer over the whole text
+rectangle, after filtering and scaling. Downscaled 4K, Shorts and PiP can
+keep their source fixes; an unrelated still does not invalidate the frame.
+Mixed pixels or unknown source geometry still require manual inspection.
+Recovery reads start on the output frame grid. A nearby frame across a cut
+cannot stand in for the one requested.
 It reads the main layout; a format with its own layout
 (the portrait Short `tandem short` lays out) can show text the main one
 crops off, so scan each one too, in its own frame:

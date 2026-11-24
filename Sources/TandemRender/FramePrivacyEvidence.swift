@@ -1,4 +1,5 @@
 import AVFoundation
+import CoreImage
 import Foundation
 import TandemCore
 
@@ -19,7 +20,65 @@ final class FramePrivacyEvidence {
         var visible: Set<String> = []
         var unproven: Set<String> = []
         var unavailable: Set<String> = []
+        var layers: [String: Layer] = [:]
         var opaqueVideos: Set<String> { visible.subtracting(unproven) }
+
+        /// Measure the actual, filtered layer where OCR saw glyphs. Neither
+        /// a file's alpha nor integer sampling proves its rendered opacity.
+        /// Images stay on the current buffer only; ReadFrame keeps these
+        /// small measurements, never decoder buffers or CIImage recipes.
+        func regions(_ boxes: [CGRect]) -> [Region] {
+            boxes.map { box in
+                Region(box: box, clips: layers.mapValues { layer in
+                    Measurement(opacity: layer.opacity(in: box), coordinatesKnown: layer.coordinatesKnown)
+                })
+            }
+        }
+    }
+
+    enum Opacity: Equatable, Sendable { case opaque, transparent, mixed, unknown }
+
+    struct Measurement: Equatable, Sendable {
+        var opacity: Opacity
+        var coordinatesKnown: Bool
+    }
+
+    struct Region: Equatable, Sendable {
+        var box: CGRect
+        var clips: [String: Measurement]
+    }
+
+    struct Layer {
+        var image: CIImage
+        var canvas: CGSize
+        var coordinatesKnown: Bool
+
+        func opacity(in box: CGRect) -> Opacity {
+            guard [box.minX, box.minY, box.maxX, box.maxY].allSatisfy(\.isFinite),
+                  box.width > 0, box.height > 0,
+                  box.minX >= 0, box.minY >= 0, box.maxX <= 1, box.maxY <= 1 else { return .unknown }
+            let rect = CGRect(x: box.minX * canvas.width, y: (1 - box.maxY) * canvas.height,
+                              width: box.width * canvas.width, height: box.height * canvas.height).integral
+            guard rect.width > 0, rect.height > 0, rect.width * rect.height <= 16_777_216 else { return .unknown }
+            // Float output preserves partial alpha and Lanczos overshoot.
+            // An 8-bit bitmap could round an almost opaque layer to 255.
+            let width = Int(rect.width), height = Int(rect.height)
+            var rgba = [Float](repeating: .nan, count: width * height * 4)
+            let clear = CIImage(color: .clear).cropped(to: CGRect(origin: .zero, size: canvas))
+            rgba.withUnsafeMutableBytes { bytes in
+                RenderEngine.context.render(image.composited(over: clear), toBitmap: bytes.baseAddress!, rowBytes: width * 16,
+                                            bounds: rect, format: .RGBAf, colorSpace: nil)
+            }
+            guard rgba.allSatisfy(\.isFinite) else { return .unknown }
+            if stride(from: 3, to: rgba.count, by: 4).allSatisfy({ rgba[$0] == 1 }) { return .opaque }
+            if rgba.allSatisfy({ $0 == 0 }) { return .transparent }
+            return .mixed
+        }
+    }
+
+    private final class Attachment: NSObject {
+        let sources: Sources
+        init(_ sources: Sources) { self.sources = sources }
     }
 
     private enum Capture {
@@ -37,11 +96,12 @@ final class FramePrivacyEvidence {
         capture = .collecting(sources)
     }
 
-    func visible(_ clipID: String, opaqueVideo: Bool) {
+    func visible(_ clipID: String, opaqueVideo: Bool, layer: Layer) {
         guard case .collecting(var sources) = capture else { return }
         sources.visible.insert(clipID)
         sources.unavailable.remove(clipID)
         if !opaqueVideo { sources.unproven.insert(clipID) }
+        sources.layers[clipID] = layer
         capture = .collecting(sources)
     }
 
@@ -61,16 +121,18 @@ final class FramePrivacyEvidence {
 
     func attach(to pixels: CVPixelBuffer) {
         Self.clear(pixels)
-        guard let sources = complete() else { return }
-        let values = ["visible": Array(sources.visible), "opaque": Array(sources.opaqueVideos), "unavailable": Array(sources.unavailable)]
-        CVBufferSetAttachment(pixels, Self.attachment as CFString, values as CFDictionary, .shouldPropagate)
+        guard var sources = complete() else { return }
+        let size = CGSize(width: CVPixelBufferGetWidth(pixels), height: CVPixelBufferGetHeight(pixels))
+        for (id, var layer) in sources.layers where layer.canvas != size {
+            layer.image = layer.image.transformed(by: CGAffineTransform(scaleX: size.width / layer.canvas.width, y: size.height / layer.canvas.height), highQualityDownsample: true)
+            layer.canvas = size
+            sources.layers[id] = layer
+        }
+        CVBufferSetAttachment(pixels, Self.attachment as CFString, Attachment(sources), .shouldPropagate)
     }
 
     static func read(_ pixels: CVPixelBuffer) -> Sources? {
-        guard let value = CVBufferCopyAttachment(pixels, attachment as CFString, nil),
-              let values = value as? [String: [String]], let visible = values["visible"],
-              let opaque = values["opaque"], let unavailable = values["unavailable"] else { return nil }
-        return Sources(visible: Set(visible), unproven: Set(visible).subtracting(opaque), unavailable: Set(unavailable))
+        (CVBufferCopyAttachment(pixels, attachment as CFString, nil) as? Attachment)?.sources
     }
 
     /// Only recognized opaque loaded formats establish opacity. Alpha-capable

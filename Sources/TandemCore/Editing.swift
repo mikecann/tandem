@@ -170,7 +170,7 @@ public enum Editing {
         TransitionSounds.reconcile(&project, from: sounds, named: named, createdFrom: created, &context)
         context.placedSounds = []
         project.normalizeLinkGroups()
-        try RedactionSafety.reconcile(&project, before: privacyBefore, command: command, validateCoverage: !context.defersPrivacyCoverage, sourceFolder: context.sourceFolder)
+        try RedactionSafety.reconcile(&project, before: privacyBefore, command: command, validateCoverage: !context.defersPrivacyCoverage, sourceFolder: context.sourceFolder, cutFrom: context.cutFrom)
     }
 
     // MARK: - Lookups
@@ -519,6 +519,11 @@ public enum Editing {
             guard let item = p.media(mediaID) else { throw EditError.notFound("media \(mediaID)") }
             if track.kind == .video && !(item.hasVideo || item.kind == .image) {
                 throw EditError.invalid("\(item.path) has no picture, so it can't go on video track \"\(track.name)\"")
+            }
+            if track.kind == .audio && clip.isRedaction {
+                // Ownership and timing guards only follow privacy copies on
+                // video tracks, so a copy can't detour through audio.
+                throw EditError.invalid("a privacy copy can't go on audio track \"\(track.name)\"; it stays on its privacy track")
             }
             if track.kind == .audio && !item.hasAudio {
                 throw EditError.invalid("\(item.path) has no sound, so it can't go on audio track \"\(track.name)\"")
