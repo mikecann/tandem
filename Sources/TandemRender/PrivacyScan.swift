@@ -136,6 +136,13 @@ public final class FrameTextReader: @unchecked Sendable {
         return frame
     }
 
+    /// Where the video this reads ends, which is where its export does:
+    /// the project's end, or later when a picture runs on past it
+    /// (`RenderPlanner.plan`).
+    public func renderedEnd() async throws -> Time {
+        try await composition().duration
+    }
+
     private func composition() async throws -> BuiltComposition {
         let task: Task<BuiltComposition, Error> = lock.withLock {
             if let built { return built }
@@ -153,6 +160,9 @@ public final class FrameTextReader: @unchecked Sendable {
     /// Reads from the first of `wanted` to the last, and Vision reads the
     /// frame showing at each.
     private func readNow(_ built: BuiltComposition, tracks: [AVAssetTrack], wanted: [Time]) throws -> [ReadFrame] {
+        // No frame starts at or after the timeline's end, so one asked for
+        // there comes back missing and the scan says it didn't read it.
+        let wanted = wanted.filter { $0 < built.duration }
         guard let first = wanted.first, let last = wanted.last else { return [] }
         let rate = context.project.settings.frameRate
         let frame = rate.frameDuration
@@ -162,7 +172,14 @@ public final class FrameTextReader: @unchecked Sendable {
         // A held file edge can fall between output frames. Starting there
         // shifts the reader's entire frame grid across cuts and animations.
         let from = max(.zero, onFrame(recovery))
-        reader.timeRange = CMTimeRange(start: from.cmTime, end: (last + frame).cmTime)
+        // To the end of the last frame wanted, but never past the
+        // timeline's own end, as export stops there (`exportRange`). A
+        // timeline can end part way through its last frame (1008.981 s at
+        // 30 fps is 30269.43 frames), and a read running past the last
+        // instruction fails whole with AVErrorInvalidVideoComposition
+        // (-11841): `check --privacy` on the Sammy cam video, 24 Nov 2026.
+        // The part frame still comes out, as it does in the exported file.
+        reader.timeRange = CMTimeRange(start: from.cmTime, end: min(last + frame, built.duration).cmTime)
         let output = AVAssetReaderVideoCompositionOutput(videoTracks: tracks, videoSettings: [
             kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
         ])
@@ -315,8 +332,16 @@ public enum PrivacyCheck {
     /// `format` reads an alternate output format (a Short's 9:16 layout)
     /// in its own frame, through each clip's layout for it; the frames
     /// `read` returns must be rendered in that format too.
+    ///
+    /// `renderedEnd` is where the export ends (`FrameTextReader.renderedEnd`).
+    /// A stretch that reaches the project's end is read on to there: a
+    /// transition plays its outgoing clip for its whole length, past a last
+    /// clip shorter than half of it, so the export runs on after the
+    /// project's end with that clip still showing (a 1 s dissolve into a
+    /// last clip of 0.2 s: 9 more frames at 30 fps), and whatever is on
+    /// those frames is in the file.
     public static func run(
-        project: Project, ranges: [TimeRange], folder: ProjectFolder?, format: String? = nil, read: Reader
+        project: Project, ranges: [TimeRange], folder: ProjectFolder?, format: String? = nil, renderedEnd: Time? = nil, read: Reader
     ) async throws -> (problems: [CheckProblem], notes: [CheckProblem]) {
         let probe = folder.map(AlphaProbe.init)
         let look = Look(probe: probe, format: format, plan: RenderPlanner.plan(project, format: format, assets: nil))
@@ -324,7 +349,8 @@ public enum PrivacyCheck {
         let step = rate.frameDuration
         let ranges = TimeRange.union(ranges.map { range in
             let from = max(.zero, Time.frames(range.start.frameIndex(at: rate), at: rate))
-            let to = Time.frames((range.end + step - Time(flicks: 1)).frameIndex(at: rate), at: rate)
+            let end = range.end >= project.duration ? max(range.end, renderedEnd ?? .zero) : range.end
+            let to = Time.frames((end + step - Time(flicks: 1)).frameIndex(at: rate), at: rate)
             return TimeRange(start: from, end: max(from, to))
         })
         var times: [Time] = []
