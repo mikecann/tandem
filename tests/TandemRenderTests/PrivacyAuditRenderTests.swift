@@ -12,9 +12,16 @@ final class PrivacyAuditRenderTests: XCTestCase {
     let canvas = CGSize(width: 1280, height: 720)
     let region = Rect(x: 0.075, y: 0.25, width: 0.55, height: 0.18)
     let email = "jane@example.com"
-    var evidence: URL {
-        URL(fileURLWithPath: ProcessInfo.processInfo.environment["TANDEM_AUDIT_EVIDENCE"]!)
-    }
+    /// Where the frames and films go: `TANDEM_AUDIT_EVIDENCE` to keep them
+    /// (the review's runs on tinker-desk), or a fresh temporary folder, so
+    /// CI and a plain `swift test` don't crash without it.
+    static let evidenceFolder: URL = {
+        let folder = ProcessInfo.processInfo.environment["TANDEM_AUDIT_EVIDENCE"].map { URL(fileURLWithPath: $0, isDirectory: true) }
+            ?? FileManager.default.temporaryDirectory.appendingPathComponent("tandem-audit-evidence-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        return folder
+    }()
+    var evidence: URL { Self.evidenceFolder }
 
     func text(_ string: String, x: CGFloat, y: CGFloat, size: CGFloat, in c: CGContext) {
         c.saveGState()

@@ -43,8 +43,10 @@ extension Track {
     /// `redact`, so a solid, a title or anything else put on a privacy
     /// track by hand is never taken for one.
     public func isSwitchedOffRedaction(_ clip: Clip) -> Bool {
-        guard isPrivacy, case .media = clip.content, !clip.isObscured else { return false }
-        return clip.isRedaction
+        // Cheap clip checks before `isPrivacy`, which scans the track: the
+        // renderer asks this for every clip.
+        guard case .media = clip.content, clip.isRedaction, !clip.isObscured else { return false }
+        return isPrivacy
     }
 }
 
@@ -244,8 +246,11 @@ extension Editing {
     /// frame crop is a layout that once lost the region (the short did
     /// that), not the region, so it's left out unless it's all there is.
     static func redactionRegion(of clip: Clip, on track: Track, inferLegacy: Bool = false) -> Rect? {
-        guard track.isPrivacy || (inferLegacy && track.name.lowercased().hasPrefix(privacyTrackPrefix)), case .media = clip.content, let video = clip.video,
+        // The clip's own fields first: `isPrivacy` scans the whole track,
+        // and this runs for every clip when matching pictures to copies.
+        guard case .media = clip.content, let video = clip.video,
               video.redaction != nil || video.redactionSources != nil || (inferLegacy && clip.name?.hasPrefix("Privacy") == true),
+              track.isPrivacy || (inferLegacy && track.name.lowercased().hasPrefix(privacyTrackPrefix)),
               clip.isObscured || track.isSwitchedOffRedaction(clip) || (inferLegacy && clip.name?.hasPrefix("Privacy") == true) else { return nil }
         if let region = video.redaction { return region }
         let crops = ([video.crop] + video.formatOverrides.values.filter { !$0.hidden }.compactMap(\.crop))
