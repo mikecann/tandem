@@ -366,19 +366,18 @@ extension AssetPlacement {
     /// that says nothing (`other`, `image`) becomes the asset's.
     public func editCommands(at time: Time, in project: Project, duration: Time? = nil, mode: InsertMode? = nil, anchor: StickerAnchor? = nil, pop: Bool? = nil) -> [EditCommand] {
         guard let item = mediaItem else { return [] }
-        var commands: [EditCommand] = []
-        let id: String
-        if let existing = projectMedia(in: project) {
-            id = existing.id
-            if existing.role != role, [.other, .image].contains(existing.role) {
-                commands.append(.updateMedia(mediaID: id, patch: .object(["role": .string(role.rawValue)])))
-            }
-        } else {
-            id = item.id
-            commands.append(.addMedia(item: item))
-        }
-        commands.append(.placeMedia(mediaIDs: [id], at: time, duration: duration, mode: mode, anchor: anchor, pop: pop))
-        return commands
+        let id = projectMedia(in: project)?.id ?? item.id
+        return addCommands(in: project) + [.placeMedia(mediaIDs: [id], at: time, duration: duration, mode: mode, anchor: anchor, pop: pop)]
+    }
+
+    /// The edits that put this asset in the project's media without placing
+    /// it: `addMedia`, or for an item the folder scan already added with a
+    /// guessed role, that role set to the asset's. Empty when it's there.
+    public func addCommands(in project: Project) -> [EditCommand] {
+        guard let item = mediaItem else { return [] }
+        guard let existing = projectMedia(in: project) else { return [.addMedia(item: item)] }
+        guard existing.role != role, [.other, .image].contains(existing.role) else { return [] }
+        return [.updateMedia(mediaID: existing.id, patch: .object(["role": .string(role.rawValue)]))]
     }
 
     /// The media item the project already has for this asset: its own ID,

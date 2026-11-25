@@ -154,7 +154,10 @@ final class ProjectFolderTests: XCTestCase {
         XCTAssertEqual(MediaScanner.role(forPath: "assets/icon/check.png"), .graphic)
         XCTAssertEqual(MediaScanner.role(forPath: "assets/logo/convex.png"), .graphic)
         XCTAssertEqual(MediaScanner.role(forPath: "assets/overlay/light-leak.mov"), .graphic)
-        XCTAssertEqual(MediaScanner.role(forPath: "assets/video/servers-3fa2c1.mp4"), .broll)
+        // assets/video/ is left to the names, so a camera take there is
+        // still a camera take.
+        XCTAssertEqual(MediaScanner.role(forPath: "assets/video/camera-1.mov"), .camera)
+        XCTAssertEqual(MediaScanner.role(forPath: "assets/sticker/ding.wav"), .sfx, "a sound isn't a sticker")
         XCTAssertEqual(MediaScanner.role(forPath: "assets/sfx/whoosh.wav"), .sfx)
         // Only right under assets/: a folder called video elsewhere is
         // anyone's.

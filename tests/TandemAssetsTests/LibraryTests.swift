@@ -364,9 +364,13 @@ final class HousekeepingTests: XCTestCase {
         ])
         XCTAssertEqual(placement.projectMedia(in: project)?.id, "med_scanned")
 
+        // Used without a time, it still gets the asset's role.
+        XCTAssertEqual(placement.addCommands(in: project), [.updateMedia(mediaID: "med_scanned", patch: .object(["role": .string("sticker")]))])
+
         // A role Mike picked himself stays.
         project.media[0].role = .graphic
         XCTAssertEqual(placement.editCommands(at: at, in: project), [.placeMedia(mediaIDs: ["med_scanned"], at: at)])
+        XCTAssertTrue(placement.addCommands(in: project).isEmpty)
     }
 }
 

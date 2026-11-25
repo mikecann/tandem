@@ -328,10 +328,11 @@ public enum MediaScanner {
             // kind's singular name. assets/sticker/ came in as "other" and
             // so went to the first free video track (Sammy Cam, 25 Nov 2026).
             if index > 0, folders[index - 1] == "assets" {
+                // assets/video/ is left to the name checks below, so a camera
+                // take put there is still found.
                 switch folder {
-                case "sticker": return (.sticker, true)
-                case "overlay", "icon", "logo": return (.graphic, true)
-                case "video" where isVideo: return (.broll, true)
+                case "sticker" where !isAudio: return (.sticker, true)
+                case "overlay" where !isAudio, "icon" where !isAudio, "logo" where !isAudio: return (.graphic, true)
                 default: break
                 }
             }

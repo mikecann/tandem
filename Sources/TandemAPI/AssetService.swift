@@ -233,7 +233,7 @@ public final class AssetService: @unchecked Sendable {
         if let time {
             return (placement.editCommands(at: time, in: project, duration: duration, mode: mode, anchor: anchor, pop: pop), existing?.id ?? item.id)
         }
-        return (existing == nil ? [.addMedia(item: item)] : [], existing?.id ?? item.id)
+        return (placement.addCommands(in: project), existing?.id ?? item.id)
     }
 
     /// The project as it is now, wherever it's open.

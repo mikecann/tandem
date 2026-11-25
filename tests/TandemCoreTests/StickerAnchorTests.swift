@@ -161,6 +161,12 @@ final class StickerAnchorTests: XCTestCase {
         assertValid(c.project)
     }
 
+    func testAStickerStartedPastItsEndIsStillRefused() throws {
+        let (_, c) = try Fixture.edited()
+        try alarmClock(in: c)
+        XCTAssertThrowsError(try c.run("Place", .placeMedia(mediaIDs: ["med_alarm"], at: t(10), sourceStart: t(1))))
+    }
+
     func testBRollStillStopsAtTheEndOfItsFile() throws {
         let (_, c) = try Fixture.edited()
         XCTAssertThrowsError(try c.run("Place", .placeMedia(mediaIDs: ["med_broll"], at: t(40), duration: t(12)))) { error in

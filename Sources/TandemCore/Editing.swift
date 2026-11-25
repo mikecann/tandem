@@ -672,6 +672,7 @@ public enum Editing {
         // `duration` is time on the timeline, so at a speed it plays
         // `duration * speed` of the media.
         var length = duration ?? shortest.map { $0.length.scaled(by: 1 / (speed ?? 1)) } ?? Time(seconds: 5)
+        guard length > .zero else { throw EditError.invalid("nothing left to place after the source start") }
         // A sticker is a picture held on screen, and an animated one's file
         // is often shorter than anyone would show it: Noto's alarm clock is
         // 0.567 s, gone before it's seen and too short to pop. It stays up
@@ -679,7 +680,6 @@ public enum Editing {
         if duration == nil, items.count == 1, items[0].role == .sticker, length < stickerMinimum {
             length = stickerMinimum
         }
-        guard length > .zero else { throw EditError.invalid("nothing left to place after the source start") }
         let range = TimeRange(start: at, duration: length)
 
         // Work out every clip and its track first.
