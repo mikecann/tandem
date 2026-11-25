@@ -14,8 +14,15 @@ TANDEM_BUILD_CONFIGURATION=debug bash "$SCRIPT_DIR/build-app.sh"
 # the new build is installed already and takes over at the next launch.
 status=0
 bash "$SCRIPT_DIR/kill.sh" >/dev/null || status=$?
+if [[ $status -ne 0 && $status -ne 3 ]]; then
+  echo "The new build is installed, but stopping the running Tandem failed (kill.sh exit $status)." >&2
+  exit "$status"
+fi
 if [[ $status -eq 3 ]]; then
-  echo "The new build is installed and starts the next time Tandem opens." >&2
+  # The running app notices the new build: its status bar offers "Reopen
+  # to update", a project only the new build can open reopens it, and with
+  # nothing open it reopens by itself (AppUpdate).
+  echo "The new build is installed and starts the next time Tandem opens. The running app shows \"Reopen to update\" in its status bar; \`tandem quit-app\` stops it once the export is done." >&2
   exit 3
 fi
 if [[ $# -gt 0 ]]; then

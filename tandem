@@ -22,6 +22,16 @@ case "${1:-}" in
   restart-app)
     exec bash "$SCRIPT_DIR/restart.sh"
     ;;
+  quit-app)
+    if [[ $# -gt 1 ]]; then
+      echo "usage: tandem quit-app   (no options: it quits the Tandem app, saving its projects)" >&2
+      exit 2
+    fi
+    # Quits the app like Cmd-Q (its projects save), so the next open runs
+    # the installed build. Refuses (exit 3) while an export or review clip
+    # renders in it.
+    exec bash "$SCRIPT_DIR/kill.sh"
+    ;;
   url)
     # `tandem url "screenshot?out=/tmp/shot.png"` sends the app a
     # tandem:// link with this Mac's key. Any web page can open a

@@ -1,4 +1,5 @@
 import AppKit
+import TandemAPI
 import TandemCore
 
 /// Starts the app: menus, the keymap, projects from the command line,
@@ -44,10 +45,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, EditorCommandHandling 
         let arguments = CommandLine.arguments.dropFirst().filter { !$0.hasPrefix("-") }
         let fromCommandLine = arguments.map { URL(fileURLWithPath: NSString(string: $0).expandingTildeInPath) }
             .filter { $0.pathExtension == ProjectFile.fileExtension }
+        // A rebuild installed while this runs offers to reopen on it.
+        // Before the projects open, as a failed open's alert waits here.
+        AppUpdate.shared.start()
         let urls = pendingURLs + fromCommandLine
         pendingURLs = []
         handle(urls)
-        if documents.windows.isEmpty && !documents.isOpening { documents.showWelcome() }
+        // Not when this launch is already reopening on a new build, or is
+        // one that reopened while the welcome window was closed.
+        let skipWelcome = AppUpdate.shared.isReopening || UserDefaults.standard.bool(forKey: AppUpdate.noWelcomeKey)
+        if documents.windows.isEmpty && !documents.isOpening && !skipWelcome { documents.showWelcome() }
         // No activate() here: Finder, the Dock and `open` bring the app
         // forward themselves, and `open -g` (agents, scripts) must leave
         // whatever Mike is using in front.
@@ -75,6 +82,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, EditorCommandHandling 
         // Edits that won't save get a say first, except when a signal asked
         // (an alert would hang `kill`; the journal keeps what it can).
         if !quittingOnSignal, !ProjectDocuments.confirmUnsaved(documents.windows, quitting: true) {
+            AppUpdate.shared.quitCancelled()
             return .terminateCancel
         }
         documents.isTerminating = true
@@ -96,8 +104,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, EditorCommandHandling 
         return .terminateLater
     }
 
+    func applicationWillTerminate(_ notification: Notification) {
+        // "Reopen to update" asked for this quit; the new build opens next.
+        AppUpdate.shared.launchReplacement(quittingOnSignal: quittingOnSignal)
+    }
+
     /// Set when SIGTERM asked Tandem to quit.
     private var quittingOnSignal = false
+    private var forceSignal: DispatchSourceSignal?
 
     /// `kill` (and `kill.sh`) quits like Cmd-Q: projects save, the API
     /// stops and locks are released, instead of the process just ending.
@@ -106,15 +120,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate, EditorCommandHandling 
         let source = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
         source.setEventHandler { [weak self] in
             MainActor.assumeIsolated {
-                self?.quittingOnSignal = true
-                // From the run loop, not from inside this main queue
-                // block, so work queued on the main actor can still run
-                // while Tandem quits.
-                NSApp.perform(#selector(NSApplication.terminate(_:)), with: nil, afterDelay: 0)
+                guard let self else { return }
+                guard !AppUpdate.shared.isBusy else {
+                    NSLog("Tandem: not quitting on SIGTERM while an export, review clip or archive runs; SIGUSR1 (TANDEM_FORCE_KILL=1) quits anyway")
+                    return
+                }
+                self.quitOnSignal()
             }
         }
         source.resume()
         terminationSignal = source
+        // SIGUSR1 is kill.sh's TANDEM_FORCE_KILL: quit even mid-export.
+        // A signal of its own, so two ordinary quits at once can't add up
+        // to a forced one.
+        signal(SIGUSR1, SIG_IGN)
+        let force = DispatchSource.makeSignalSource(signal: SIGUSR1, queue: .main)
+        force.setEventHandler { [weak self] in
+            MainActor.assumeIsolated { self?.quitOnSignal() }
+        }
+        force.resume()
+        forceSignal = force
+    }
+
+    private func quitOnSignal() {
+        // A forced quit can follow an ordinary one; quitting once is enough.
+        guard !documents.isTerminating else { return }
+        // Another signal while it waits for an alert just ends that alert.
+        if !quittingOnSignal {
+            quittingOnSignal = true
+            // From the run loop, not from inside this main queue block, so
+            // work queued on the main actor can still run while Tandem quits.
+            // In the default mode, so it runs once any alert has gone: AppKit
+            // ignores a quit asked for under one. Scheduled before ending the
+            // alert, as ending it unwinds its modal loop.
+            NSApp.perform(#selector(NSApplication.terminate(_:)), with: nil, afterDelay: 0, inModes: [.default])
+        }
+        // An alert's modal loop held the quit until someone answered it,
+        // and kill.sh gave up while the app ran on (a "saved by a newer
+        // Tandem" alert, 25 Nov 2026). End it.
+        if NSApp.modalWindow != nil { NSApp.abortModal() }
     }
 
     // MARK: - Opening and URL commands

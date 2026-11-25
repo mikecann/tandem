@@ -351,7 +351,9 @@ public final class MCPServer: @unchecked Sendable {
             result = try EffectsResult.catalog(type: effects.type) as! C.Result
         } else {
             let url = try ProjectLocator.find(projectPath ?? options.project, in: options.directory, environment: options.environment)
-            result = try await makeClient(url, author).call(call)
+            let client = makeClient(url, author)
+            // A stale app, or a hand-back nothing will show (AppBuild.noting).
+            result = AppBuild.noting(try await client.call(call), route: client.route, projectURL: url)
         }
         var content: [JSONValue] = []
         if let image = result as? ImageResult, let png = image.png {

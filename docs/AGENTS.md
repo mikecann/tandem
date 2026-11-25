@@ -355,6 +355,7 @@ One line each; `tandem help <command>` has the options and what they do.
 | `tandem serve` | hold the project and serve the API headless |
 | `tandem mcp` | the MCP server on stdin and stdout |
 | `tandem app`, `tandem url` | open the editor; drive it by link (from the launcher, for work on Tandem itself) |
+| `tandem quit-app` | quit the app like Cmd-Q (projects save; refuses while an export renders), so the next open runs the installed build |
 
 Edit commands are listed one per line, by group, in
 [agents/edit-commands.md](agents/edit-commands.md#every-command), and

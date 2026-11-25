@@ -156,7 +156,12 @@ rounds up.
    those: it says the checks didn't run.
 5. **Hand back.** Open the project in the app for Mike with
    `open "<video folder>/<name>.tandem"` (skip it if `tandem status` says
-   the app already has it open), rather than asking him to open it. Then
+   the app already has it open), rather than asking him to open it.
+   Before handing back, `tandem status` must say `open in: the Tandem
+   app`: `open in: nothing else` a few seconds after opening it means the
+   app couldn't open it (its alert, or a warning in `tandem status`, says
+   why; an app older than the installed build is restarted with `tandem
+   quit-app` when none of his projects are open in it). Then
    `tandem handback` with the two to five places he should look at first:
    a stretch of a sweeping change that stands for the rest (one angle pass
    on the Nipunn interview touched 118 clips), the new shot, the thing you

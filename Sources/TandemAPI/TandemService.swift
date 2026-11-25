@@ -87,6 +87,8 @@ public final class TandemService: @unchecked Sendable {
     private let editLock = NSLock()
     private let stateLock = NSLock()
     private var exports: [String: ExportJob] = [:]
+    /// Archives copying through this service now (`tandem archive`).
+    private var archiving = 0
     private var pendingRestore: (kind: ServiceEvent.Kind, label: String, author: String)?
     private var coordinatorToken: UUID?
     private var jobsToken: UUID?
@@ -1258,6 +1260,17 @@ public final class TandemService: @unchecked Sendable {
     /// Exports and review clips rendering through this service now.
     var runningExports: [ExportJob] {
         stateLock.withLock { exports.values.sorted { $0.id < $1.id } }
+    }
+
+    /// True while an agent's export, review clip or archive runs here,
+    /// which quitting would cut off.
+    public var isRendering: Bool { !runningExports.isEmpty || stateLock.withLock { archiving > 0 } }
+
+    /// Counts an archive as running for `isRendering` until `body` ends.
+    func whileArchiving<T>(_ body: () async throws -> T) async rethrows -> T {
+        stateLock.withLock { archiving += 1 }
+        defer { stateLock.withLock { archiving -= 1 } }
+        return try await body()
     }
 
     private func finish(_ job: ExportJob) {
