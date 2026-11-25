@@ -130,8 +130,8 @@ final class StickerAnchorTests: XCTestCase {
         let result = try c.run("Place", .placeMedia(mediaIDs: ["med_alarm"], at: t(28.2)))
         let clipID = try XCTUnwrap(result.createdIDs.first { $0.hasPrefix("clip_") })
         let location = try XCTUnwrap(c.project.location(ofClip: clipID))
-        XCTAssertEqual(location.track.index, c.project.videoTracks.lastIndex { !$0.locked }, "\(c.project.videoTracks.map(\.name))")
-        XCTAssertNotEqual(c.project[location.track].name, "Screen")
+        let camera = try XCTUnwrap(c.project.videoTracks.firstIndex { $0.name == "Camera" })
+        XCTAssertGreaterThan(location.track.index, camera, "above the camera: \(c.project.videoTracks.map(\.name))")
 
         // Overwriting doesn't make it cut into another track's footage: with
         // nothing free it gets a track of its own on top.
@@ -143,8 +143,31 @@ final class StickerAnchorTests: XCTestCase {
             XCTAssertTrue(before.allSatisfy { after.contains($0) }, "nothing cleared")
         }
         XCTAssertGreaterThan(c.project.videoTracks.count, tracks)
-        XCTAssertEqual(c.project.videoTracks.last?.name, "Graphics", "a new track for it on top")
+        let added = c.project.videoTracks.dropFirst(tracks)
+        XCTAssertEqual(added.first?.name, "Graphics 2", "new tracks for it on top")
+        XCTAssertTrue(added.allSatisfy { $0.rippleMode == .follow })
         assertValid(c.project)
+    }
+
+    func testAStickerNeverGoesUnderThePicture() throws {
+        // Screen free under the full-frame camera, everything above it locked
+        // or hidden.
+        let (_, c) = try Fixture.edited()
+        try alarmClock(in: c)
+        let names = c.project.videoTracks.map(\.name)
+        let screen = try XCTUnwrap(c.project.track(named: "Screen")?.clips.map(\.id))
+        try c.run("Clear Screen", .removeClips(clipIDs: screen, ripple: false, includeLinked: false))
+        XCTAssertFalse(c.project.track(named: "Camera")?.isFree(TimeRange(start: t(28.2), duration: t(2))) ?? true, "the camera is still there")
+        for name in names where name != "Screen" && name != "Camera" {
+            let id = try XCTUnwrap(c.project.track(named: name)?.id)
+            let patch: JSONValue = name == "Text" ? .object(["hidden": .bool(true)]) : .object(["locked": .bool(true)])
+            try c.run("Off", .updateTrack(trackID: id, patch: patch))
+        }
+        let result = try c.run("Place", .placeMedia(mediaIDs: ["med_alarm"], at: t(28.2)))
+        let clipID = try XCTUnwrap(result.createdIDs.first { $0.hasPrefix("clip_") })
+        let location = try XCTUnwrap(c.project.location(ofClip: clipID))
+        XCTAssertEqual(location.track.index, c.project.videoTracks.count - 1, "\(c.project.videoTracks.map(\.name))")
+        XCTAssertFalse(c.project[location.track].hidden)
     }
 
     func testAStickersSoundIsHeldWithItsPicture() throws {

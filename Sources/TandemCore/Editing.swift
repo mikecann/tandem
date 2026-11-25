@@ -614,14 +614,24 @@ public enum Editing {
         let tracks = kind == .video ? p.videoTracks : p.audioTracks
         let usable = { (track: Track) in !track.locked && !track.isPrivacy && (!requireFree || track.isFree(range)) }
         // A sticker or graphic sits over the picture, so without its track
-        // it takes the highest one that's free, or a new one on top: on the
-        // bottom track the full-frame camera hides it, and overwriting
-        // another track would cut the footage or titles there.
+        // it takes the first free one above everything showing there, or a
+        // new one on top: under the full-frame camera nobody sees it, and
+        // overwriting another track would cut the footage or titles there.
         if kind == .video, role == .sticker || role == .graphic {
-            if let index = tracks.lastIndex(where: { !$0.locked && !$0.isPrivacy && $0.isFree(range) }) {
+            let picture = tracks.lastIndex { !$0.hidden && !$0.isFree(range) } ?? -1
+            if let index = tracks.indices.first(where: { index in
+                let track = tracks[index]
+                return index > picture && !track.locked && !track.hidden && !track.isPrivacy && track.isFree(range)
+            }) {
                 return TrackLocation(kind: kind, index: index)
             }
-            try addTrack(&p, kind: kind, name: trackName(for: role, kind: kind), index: nil, id: nil, &context)
+            let name = trackName(for: role, kind: kind) ?? "Graphics"
+            let taken = Set(p.videoTracks.map { $0.name.lowercased() })
+            let free = taken.contains(name.lowercased()) ? (2...).lazy.map { "\(name) \($0)" }.first { !taken.contains($0.lowercased()) }! : name
+            try addTrack(&p, kind: kind, name: free, index: nil, id: nil, &context)
+            // Like the standard Graphics track, it moves with ripple edits
+            // rather than cutting the whole film around a sticker.
+            p.videoTracks[p.videoTracks.count - 1].rippleMode = .follow
             return TrackLocation(kind: kind, index: p.videoTracks.count - 1)
         }
         if let index = tracks.firstIndex(where: usable) {
