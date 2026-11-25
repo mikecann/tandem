@@ -230,7 +230,9 @@ public struct AssetUseRequest: AssetCall {
     /// Where to place it on the timeline. Without it the asset is only added
     /// to the project's media.
     public var at: Time?
-    /// How long the clip lasts. Default: all of it (5 s for a still).
+    /// How long the clip lasts. Default: all of it (5 s for a still, at
+    /// least 2 s for a sticker). A sticker held longer than its file holds
+    /// its last frame.
     public var duration: Time?
     /// `place` (default) fails if the track is taken there, `overwrite`
     /// replaces what's there, `insert` pushes later clips right.

@@ -67,6 +67,68 @@ final class StickerAnchorTests: XCTestCase {
         assertValid(c.project)
     }
 
+    /// The alarm clock from Sammy Cam (25 Nov 2026): Noto's animated emoji
+    /// is a 0.567 s file.
+    private func alarmClock(in c: ProjectCoordinator) throws {
+        let alarm = MediaItem(
+            id: "med_alarm", path: "assets/sticker/alarm-clock-u2ibde6a.mov", kind: .video, role: .sticker,
+            duration: t(0.566667), frameRate: .fps60, width: 1024, height: 1024, hasVideo: true, hasAudio: false, hasAlpha: true
+        )
+        try c.run("Add", .addMedia(item: alarm))
+    }
+
+    func testAStickerLongerThanItsFileHoldsItsLastFrame() throws {
+        // `assets use noto:23f0 --duration 2.6` was refused ("needs media up
+        // to 00:02.600 but the file is 00:00.567 long. Set holdEdges").
+        let (_, c) = try Fixture.edited()
+        try alarmClock(in: c)
+        try c.run("Place", .placeMedia(mediaIDs: ["med_alarm"], at: t(28.2), duration: t(2.6), anchor: .topRight, pop: true))
+        let clip = try XCTUnwrap(c.project.track(named: "Graphics")?.clips.first)
+        XCTAssertEqual(clip.duration, t(2.6))
+        XCTAssertTrue(clip.holdEdges, "a sticker is held on screen past the end of its file")
+        XCTAssertEqual(clip.keyframes["video.transform.scale"]?.count, 6)
+        assertValid(c.project)
+    }
+
+    func testAShortStickerStaysUpLongEnoughToPop() throws {
+        // Placed for its file's 0.567 s, the alarm clock flashed by and was
+        // too short for --pop, which left its keyframes empty.
+        let (_, c) = try Fixture.edited()
+        try alarmClock(in: c)
+        try c.run("Place", .placeMedia(mediaIDs: ["med_alarm"], at: t(28.2), anchor: .topRight, pop: true))
+        let clip = try XCTUnwrap(c.project.track(named: "Graphics")?.clips.first)
+        XCTAssertEqual(clip.duration, t(2))
+        XCTAssertTrue(clip.holdEdges)
+        XCTAssertEqual(clip.keyframes["video.transform.scale"]?.count, 6)
+        assertValid(c.project)
+
+        // One longer than that keeps its own length.
+        let like = MediaItem(
+            id: "med_like", path: "stickers/like.mov", kind: .video, role: .sticker, duration: t(3), frameRate: .fps30,
+            width: 1280, height: 392, hasVideo: true, hasAudio: false, hasAlpha: true
+        )
+        try c.run("Add", .addMedia(item: like))
+        try c.run("Place", .placeMedia(mediaIDs: ["med_like"], at: t(40)))
+        let second = try XCTUnwrap(c.project.track(named: "Graphics")?.clips.last)
+        XCTAssertEqual(second.duration, t(3))
+        XCTAssertFalse(second.holdEdges)
+    }
+
+    func testAPopTooShortToShowSaysSo() throws {
+        let (_, c) = try Fixture.edited()
+        try alarmClock(in: c)
+        let result = try c.run("Place", .placeMedia(mediaIDs: ["med_alarm"], at: t(28.2), duration: t(0.5), pop: true))
+        XCTAssertNil(c.project.track(named: "Graphics")?.clips.first?.keyframes["video.transform.scale"])
+        XCTAssertTrue(result.warnings.contains { $0.contains("too short to pop") }, "\(result.warnings)")
+    }
+
+    func testBRollStillStopsAtTheEndOfItsFile() throws {
+        let (_, c) = try Fixture.edited()
+        XCTAssertThrowsError(try c.run("Place", .placeMedia(mediaIDs: ["med_broll"], at: t(40), duration: t(12)))) { error in
+            XCTAssertTrue("\(error)".contains("holdEdges"), "\(error)")
+        }
+    }
+
     func testOtherFilesStillFillTheFrameUnlessAnchored() throws {
         let (f, c) = try Fixture.edited()
         XCTAssertNil(f.clips("B-roll")[0].video, "B-roll fills the frame as before")

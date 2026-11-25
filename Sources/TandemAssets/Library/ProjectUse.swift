@@ -351,13 +351,40 @@ extension AssetPlacement {
     /// The edits that put this asset on the timeline at `time`: `addMedia`
     /// unless the project already has the media, then `placeMedia`, which
     /// routes it to the track for its role and applies the music and SFX
-    /// levels. Images last 5 s unless `duration` says otherwise. Fonts and
+    /// levels. Images last 5 s, and stickers at least 2 s, unless `duration`
+    /// says otherwise. Fonts and
     /// LUTs need no edits.
+    ///
+    /// The project's folder watcher can add the copied file under an ID of
+    /// its own before the edit lands, so a media item already pointing at
+    /// it is reused, and the file is never in the project twice. The scan
+    /// guesses that item's role from its path, and a file it can't place
+    /// (`assets/sticker/alarm-clock-u2ibde6a.mov`) comes in as `other`,
+    /// which `placeMedia` routes to the first free video track: in Sammy
+    /// Cam (25 Nov 2026) the alarm clock landed on Screen, under the full
+    /// frame camera, while the output said Graphics. So a guessed role
+    /// that says nothing (`other`, `image`) becomes the asset's.
     public func editCommands(at time: Time, in project: Project, duration: Time? = nil, mode: InsertMode? = nil, anchor: StickerAnchor? = nil, pop: Bool? = nil) -> [EditCommand] {
         guard let item = mediaItem else { return [] }
         var commands: [EditCommand] = []
-        if project.media(item.id) == nil { commands.append(.addMedia(item: item)) }
-        commands.append(.placeMedia(mediaIDs: [item.id], at: time, duration: duration, mode: mode, anchor: anchor, pop: pop))
+        let id: String
+        if let existing = projectMedia(in: project) {
+            id = existing.id
+            if existing.role != role, [.other, .image].contains(existing.role) {
+                commands.append(.updateMedia(mediaID: id, patch: .object(["role": .string(role.rawValue)])))
+            }
+        } else {
+            id = item.id
+            commands.append(.addMedia(item: item))
+        }
+        commands.append(.placeMedia(mediaIDs: [id], at: time, duration: duration, mode: mode, anchor: anchor, pop: pop))
         return commands
+    }
+
+    /// The media item the project already has for this asset: its own ID,
+    /// or the same file under another.
+    public func projectMedia(in project: Project) -> MediaItem? {
+        guard let item = mediaItem else { return nil }
+        return project.media(item.id) ?? project.media.first { $0.path == item.path }
     }
 }

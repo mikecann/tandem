@@ -256,7 +256,7 @@ enum Help {
                     search           the library's catalogue; --online asks the providers too
                     fetch <id>       download and normalise an asset
                     show <id>        what the library knows about it: prompt and model, provider, duration, loudness, licence and credit, and its file (instead of reading meta.json)
-                    use <id>         copy it into the project and add it to the media; --at places it on its track. Shared library assets (shared:...) are used where they are, not copied. Stickers sit at the bottom of the frame (at most 40% of its width, 30% of its height); --anchor puts a picture at another edge or corner, and --pop pops it in and out
+                    use <id>         copy it into the project and add it to the media; --at places it on its track. Shared library assets (shared:...) are used where they are, not copied. Stickers go on Graphics and sit at the bottom of the frame (at most 40% of its width, 30% of its height), on screen for at least 2 s; --duration can hold one past the end of its file, --anchor puts a picture at another edge or corner, and --pop pops it in and out
                     credits          the credits block for the video description, and anything to sort out first
                     generate         make a sound effect or music cue with ElevenLabs (paid, one request per take)
                     install-starter  add the starter emoji, icons and logos to the catalogue

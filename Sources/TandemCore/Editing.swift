@@ -659,7 +659,14 @@ public enum Editing {
         let shortest = available.min { $0.length < $1.length }
         // `duration` is time on the timeline, so at a speed it plays
         // `duration * speed` of the media.
-        let length = duration ?? shortest.map { $0.length.scaled(by: 1 / (speed ?? 1)) } ?? Time(seconds: 5)
+        var length = duration ?? shortest.map { $0.length.scaled(by: 1 / (speed ?? 1)) } ?? Time(seconds: 5)
+        // A sticker is a picture held on screen, and an animated one's file
+        // is often shorter than anyone would show it: Noto's alarm clock is
+        // 0.567 s, gone before it's seen and too short to pop. It stays up
+        // for at least `stickerMinimum`, holding its last frame.
+        if duration == nil, items.count == 1, items[0].role == .sticker, length < stickerMinimum {
+            length = stickerMinimum
+        }
         guard length > .zero else { throw EditError.invalid("nothing left to place after the source start") }
         let range = TimeRange(start: at, duration: length)
 
@@ -698,7 +705,16 @@ public enum Editing {
                 if kind == .audio {
                     clip.audio = AudioLevels.placedAudio(role: item.role, on: p[location], settings: p.settings)
                 } else {
-                    place(&clip, item, anchor: anchor ?? (item.role == .sticker ? .bottom : nil), pop: pop, in: p)
+                    // Held past the end of its file rather than refused.
+                    if item.role == .sticker, item.kind != .image, let limit = p.sourceLimit(for: clip),
+                       clip.sourceEnd > limit + p.settings.frameRate.frameDuration {
+                        clip.holdEdges = true
+                    }
+                    let popped = place(&clip, item, anchor: anchor ?? (item.role == .sticker ? .bottom : nil), pop: pop, in: p)
+                    if pop, !popped {
+                        let seconds = { (time: Time) in String(format: "%g s", (time.seconds * 1000).rounded() / 1000) }
+                        context.warn("\(clip.name) is on screen for \(seconds(clip.duration)), too short to pop in and out (that needs \(seconds(StickerAnchor.shortestPop))), so it has no pop.")
+                    }
                 }
                 planned.append((location, clip))
             }
@@ -741,7 +757,9 @@ public enum Editing {
     /// Puts a newly placed picture at its anchor (stickers go to the bottom
     /// unless told otherwise; everything else fills the frame as before)
     /// and pops it in and out if asked.
-    static func place(_ clip: inout Clip, _ item: MediaItem, anchor: StickerAnchor?, pop: Bool, in p: Project) {
+    /// True when it popped.
+    @discardableResult
+    static func place(_ clip: inout Clip, _ item: MediaItem, anchor: StickerAnchor?, pop: Bool, in p: Project) -> Bool {
         var scale = 1.0
         if let anchor {
             let canvas = (width: Double(p.settings.width), height: Double(p.settings.height))
@@ -750,11 +768,16 @@ public enum Editing {
             clip.video = VideoProperties(transform: transform)
             scale = transform.scale
         }
-        if pop {
-            let keys = StickerAnchor.pop(scale: scale, duration: clip.duration)
-            if !keys.isEmpty { clip.keyframes["video.transform.scale"] = keys }
-        }
+        guard pop else { return false }
+        let keys = StickerAnchor.pop(scale: scale, duration: clip.duration)
+        guard !keys.isEmpty else { return false }
+        clip.keyframes["video.transform.scale"] = keys
+        return true
     }
+
+    /// How long a sticker placed without a duration stays on screen at
+    /// least.
+    static let stickerMinimum = Time(seconds: 2)
 
     // MARK: - Ripple helpers
 

@@ -43,7 +43,10 @@ changed files are read), so a file dropped in is found straight away.
   icons and logos on Graphics, stock video on B-roll. Stickers sit at the
   bottom of the frame (see [placeMedia](edit-commands.md#placemedia));
   `--anchor topRight` puts a picture somewhere else and `--pop` pops it in
-  and out. The edit goes through the app when the app has the project
+  and out. A sticker stays up for at least 2 s, and `--duration` longer
+  than its file holds its last frame. If the folder watcher added the
+  copied file first, `use` places that media item and gives it the
+  asset's role, and the output names the track the clip really went on. The edit goes through the app when the app has the project
   open, as one undo step under your name.
 - Fonts are installed instead of placed, into the project's `assets/font/`
   (a shared library font stays in the library, where every render finds

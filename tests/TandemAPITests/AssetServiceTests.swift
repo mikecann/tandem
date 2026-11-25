@@ -1,4 +1,6 @@
+import CoreGraphics
 import Foundation
+import ImageIO
 import XCTest
 @testable import TandemAPI
 import TandemAssets
@@ -86,6 +88,37 @@ final class StockProvider: AssetProvider, @unchecked Sendable {
 
     func licence(for asset: Asset) async throws -> AssetLicence {
         AssetLicence(name: "CC BY 4.0", spdx: "CC-BY-4.0", licenceClass: .creditNeeded, creditLine: Self.credit)
+    }
+}
+
+/// A sticker source standing in for Noto without its API: one still PNG.
+final class StickerStubProvider: AssetProvider, @unchecked Sendable {
+    let id = "stickerstub"
+    let displayName = "Test stickers"
+    let kinds: Set<AssetKind> = [.sticker]
+    let rules = ProviderRules()
+    let capabilities = ProviderCapabilities(search: true)
+
+    func status() async -> ProviderStatus { .ready }
+
+    func search(_ query: ProviderQuery) async throws -> [Asset] {
+        [Asset(provider: id, providerID: "23f0", kind: .sticker, name: "Alarm clock", tags: ["alarm", "clock"], hasAlpha: true, licenceClass: .noCredit)]
+    }
+
+    func fetchOriginal(_ asset: Asset, into folder: URL) async throws -> FetchedOriginal {
+        let file = folder.appendingPathComponent("original.png")
+        let context = CGContext(data: nil, width: 64, height: 64, bitsPerComponent: 8, bytesPerRow: 0,
+                                space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        context.setFillColor(CGColor(red: 0.9, green: 0.2, blue: 0.2, alpha: 1))
+        context.fillEllipse(in: CGRect(x: 8, y: 8, width: 48, height: 48))
+        let destination = CGImageDestinationCreateWithURL(file as CFURL, "public.png" as CFString, 1, nil)!
+        CGImageDestinationAddImage(destination, context.makeImage()!, nil)
+        CGImageDestinationFinalize(destination)
+        return FetchedOriginal(asset: asset, file: file)
+    }
+
+    func licence(for asset: Asset) async throws -> AssetLicence {
+        AssetLicence(name: "CC0", spdx: "CC0-1.0", licenceClass: .noCredit)
     }
 }
 
@@ -250,6 +283,65 @@ final class AssetServiceTests: XCTestCase {
         let project = try ProjectFile.load(from: url).project
         XCTAssertEqual(project.media.filter { $0.path == path }.count, 1, "the file is in the project once")
         XCTAssertEqual(project.track(named: "SFX")?.clips.first?.mediaID, "med_scanned")
+    }
+
+    /// Sammy Cam (25 Nov 2026): `assets use noto:23f0 --at 28.2 --anchor
+    /// topRight --pop` said "on Graphics" but the app's folder watcher had
+    /// added the copied file as "other" first, so the sticker went to the
+    /// first free video track, under the camera, with no pop (it was
+    /// 0.567 s long). `--duration 2.6` was refused for running past the file.
+    func testAStickerTheFolderScanFoundFirstStillGoesOnGraphicsAndPops() async throws {
+        let h = try await AssetHarness()
+        h.library.register(StickerStubProvider())
+        _ = try await h.service.search(AssetSearchRequest(text: "alarm", providers: ["stickerstub"], online: true))
+        let (client, url) = try h.project()
+        let copy = try await h.library.use("stickerstub:23f0", in: ProjectFolder(projectFile: url), projectID: "prj_fixture")
+        let path = try XCTUnwrap(copy.mediaItem?.path)
+        XCTAssertTrue(path.hasPrefix("assets/sticker/"), path)
+        func scanned() async throws {
+            _ = try await client.call(ApplyRequest(label: "Found new media", commands: [
+                .addMedia(item: MediaItem(id: "med_scanned", path: path, kind: .video, role: .other, duration: t(0.566667), width: 1024, height: 1024, hasVideo: true, hasAudio: false, hasAlpha: true))
+            ]))
+        }
+        try await scanned()
+
+        let placed = try await h.service.use(AssetUseRequest(id: "stickerstub:23f0", at: t(28.2), anchor: .topRight, pop: true), project: client)
+
+        var project = try ProjectFile.load(from: url).project
+        let clip = try XCTUnwrap(project.track(named: "Graphics")?.clips.first, "\(project.allTracks.map { ($0.name, $0.clips.map(\.id)) })")
+        XCTAssertEqual(clip.mediaID, "med_scanned")
+        XCTAssertEqual(project.media("med_scanned")?.role, .sticker)
+        XCTAssertEqual(clip.keyframes["video.transform.scale"]?.count, 6, "--pop popped")
+        XCTAssertGreaterThanOrEqual(clip.duration, t(2))
+        XCTAssertTrue(clip.holdEdges)
+        XCTAssertEqual(placed.trackName, "Graphics")
+        XCTAssertTrue(placed.readableText.contains("on Graphics"), placed.readableText)
+
+        // --duration past the end of the file holds the sticker.
+        let held = try await h.service.use(AssetUseRequest(id: "stickerstub:23f0", at: t(40), duration: t(2.6), pop: true), project: client)
+        project = try ProjectFile.load(from: url).project
+        let second = try XCTUnwrap(project.clip(held.applied?.createdIDs.first { $0.hasPrefix("clip_") } ?? ""))
+        XCTAssertEqual(second.duration, t(2.6))
+        XCTAssertTrue(second.holdEdges)
+        XCTAssertEqual(project.track(named: "Graphics")?.clips.count, 2)
+    }
+
+    func testUseSaysTheTrackTheClipReallyWentOn() async throws {
+        let h = try await AssetHarness()
+        let (client, url) = try h.project()
+        let whoosh = try h.whoosh()
+        // With SFX locked the sound can't go where it belongs.
+        _ = try await client.call(ApplyRequest(label: "Lock", commands: [.updateTrack(trackID: "trk_sfx", patch: .object(["locked": .bool(true)]))]))
+
+        let placed = try await h.service.use(AssetUseRequest(id: whoosh.id, at: t(12)), project: client)
+
+        let project = try ProjectFile.load(from: url).project
+        let clipID = try XCTUnwrap(placed.applied?.createdIDs.first { $0.hasPrefix("clip_") })
+        let location = try XCTUnwrap(project.location(ofClip: clipID))
+        let actual = project[location.track].name
+        XCTAssertNotEqual(actual, "SFX")
+        XCTAssertEqual(placed.trackName, actual)
+        XCTAssertTrue(placed.readableText.contains("on \(actual)"), placed.readableText)
     }
 
     func testCreditsForTheProject() async throws {
