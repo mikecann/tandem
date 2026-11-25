@@ -608,7 +608,8 @@ public enum Editing {
         _ context: inout EditContext
     ) throws -> TrackLocation {
         if let name = trackName(for: role, kind: kind), let track = p.track(named: name, kind: kind),
-           let location = p.location(ofTrack: track.id), !track.locked, !track.isPrivacy {
+           let location = p.location(ofTrack: track.id), !track.locked, !track.isPrivacy,
+           !(kind == .video && track.hidden && (role == .sticker || role == .graphic)) {
             return location
         }
         let tracks = kind == .video ? p.videoTracks : p.audioTracks
@@ -739,7 +740,7 @@ public enum Editing {
                     let popped = place(&clip, item, anchor: anchor ?? (item.role == .sticker ? .bottom : nil), pop: pop, in: p)
                     if pop, !popped {
                         let seconds = { (time: Time) in String(format: "%g s", (time.seconds * 1000).rounded() / 1000) }
-                        context.warn("\(clip.name) is on screen for \(seconds(clip.duration)), too short to pop in and out (that needs \(seconds(StickerAnchor.shortestPop))), so it has no pop.")
+                        context.warn("\(clip.name ?? "The picture") is on screen for \(seconds(clip.duration)), too short to pop in and out (that needs \(seconds(StickerAnchor.shortestPop))), so it has no pop.")
                     }
                 }
                 planned.append((location, clip))

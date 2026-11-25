@@ -119,7 +119,7 @@ final class StickerAnchorTests: XCTestCase {
         try alarmClock(in: c)
         let result = try c.run("Place", .placeMedia(mediaIDs: ["med_alarm"], at: t(28.2), duration: t(0.5), pop: true))
         XCTAssertNil(c.project.track(named: "Graphics")?.clips.first?.keyframes["video.transform.scale"])
-        XCTAssertTrue(result.warnings.contains { $0.contains("too short to pop") }, "\(result.warnings)")
+        XCTAssertTrue(result.warnings.contains { $0.hasPrefix("alarm-clock-u2ibde6a is on screen for 0.5 s, too short to pop") }, "\(result.warnings)")
     }
 
     func testWithoutItsTrackAStickerGoesOnTheHighestFreeOne() throws {
