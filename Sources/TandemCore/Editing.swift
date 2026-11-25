@@ -617,11 +617,13 @@ public enum Editing {
         // it takes the first free one above everything showing there, or a
         // new one on top: under the full-frame camera nobody sees it, and
         // overwriting another track would cut the footage or titles there.
+        // A take track (`.cut`) is left alone, as an insert on one opens a
+        // gap in the whole film.
         if kind == .video, role == .sticker || role == .graphic {
             let picture = tracks.lastIndex { !$0.hidden && !$0.isFree(range) } ?? -1
             if let index = tracks.indices.first(where: { index in
                 let track = tracks[index]
-                return index > picture && !track.locked && !track.hidden && !track.isPrivacy && track.isFree(range)
+                return index > picture && track.rippleMode != .cut && !track.locked && !track.hidden && !track.isPrivacy && track.isFree(range)
             }) {
                 return TrackLocation(kind: kind, index: index)
             }
@@ -725,9 +727,10 @@ public enum Editing {
                     speed: item.kind == .image ? 1 : speed ?? 1
                 )
                 // A sticker is held past the end of its file rather than
-                // refused (its sound, if it has any, goes quiet there).
+                // refused (its sound, if it has any, goes quiet there), as
+                // long as it starts inside the file.
                 if item.role == .sticker, item.kind != .image, let limit = p.sourceLimit(for: clip),
-                   clip.sourceEnd > limit + p.settings.frameRate.frameDuration {
+                   clip.sourceStart < limit, clip.sourceEnd > limit + p.settings.frameRate.frameDuration {
                     clip.holdEdges = true
                 }
                 if kind == .audio {

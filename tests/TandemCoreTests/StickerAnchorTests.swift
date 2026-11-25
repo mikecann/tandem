@@ -188,6 +188,23 @@ final class StickerAnchorTests: XCTestCase {
         let (_, c) = try Fixture.edited()
         try alarmClock(in: c)
         XCTAssertThrowsError(try c.run("Place", .placeMedia(mediaIDs: ["med_alarm"], at: t(10), sourceStart: t(1))))
+        XCTAssertThrowsError(try c.run("Place", .placeMedia(mediaIDs: ["med_alarm"], at: t(10), sourceStart: t(1), duration: t(2.6))))
+    }
+
+    func testAStickerInsertedWithoutItsTrackLeavesTheTakeAlone() throws {
+        // A free stretch of a take track isn't somewhere to put a sticker:
+        // an insert there opens a gap in the whole film.
+        let (_, c) = try Fixture.edited()
+        try alarmClock(in: c)
+        try c.run("Lock", .updateTrack(trackID: try XCTUnwrap(c.project.track(named: "Graphics")?.id), patch: .object(["locked": .bool(true)])))
+        let camera = try XCTUnwrap(c.project.track(named: "Camera")?.clips.map(\.id))
+        try c.run("Clear camera", .removeClips(clipIDs: camera, ripple: false, includeLinked: false))
+        let length = c.project.duration
+        let result = try c.run("Insert", .placeMedia(mediaIDs: ["med_alarm"], at: t(10), mode: .insert))
+        let clipID = try XCTUnwrap(result.createdIDs.last { $0.hasPrefix("clip_") })
+        let track = try XCTUnwrap(c.project.location(ofClip: clipID)).track
+        XCTAssertNotEqual(c.project[track].rippleMode, .cut)
+        XCTAssertEqual(c.project.duration, length, "the film didn't grow")
     }
 
     func testBRollStillStopsAtTheEndOfItsFile() throws {
