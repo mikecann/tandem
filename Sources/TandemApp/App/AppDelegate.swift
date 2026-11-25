@@ -143,17 +143,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, EditorCommandHandling 
     }
 
     private func quitOnSignal() {
-        // A forced quit comes after an ordinary one; once is enough.
-        guard !quittingOnSignal else { return }
-        quittingOnSignal = true
+        // A forced quit can follow an ordinary one; quitting once is enough.
+        guard !documents.isTerminating else { return }
+        // Another signal while it waits for an alert just ends that alert.
+        if !quittingOnSignal {
+            quittingOnSignal = true
+            // From the run loop, not from inside this main queue block, so
+            // work queued on the main actor can still run while Tandem quits.
+            // In the default mode, so it runs once any alert has gone: AppKit
+            // ignores a quit asked for under one. Scheduled before ending the
+            // alert, as ending it unwinds its modal loop.
+            NSApp.perform(#selector(NSApplication.terminate(_:)), with: nil, afterDelay: 0, inModes: [.default])
+        }
         // An alert's modal loop held the quit until someone answered it,
         // and kill.sh gave up while the app ran on (a "saved by a newer
-        // Tandem" alert, 25 Nov 2026). End the alert first.
+        // Tandem" alert, 25 Nov 2026). End it.
         if NSApp.modalWindow != nil { NSApp.abortModal() }
-        // From the run loop, not from inside this main queue block, so work
-        // queued on the main actor can still run while Tandem quits. In the
-        // common modes, so it runs even if another alert comes up meanwhile.
-        NSApp.perform(#selector(NSApplication.terminate(_:)), with: nil, afterDelay: 0, inModes: [.common])
     }
 
     // MARK: - Opening and URL commands

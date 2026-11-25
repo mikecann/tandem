@@ -45,8 +45,10 @@ if pkill -f "$PATTERN" 2>/dev/null; then
     echo "Tandem is still running 10 seconds after being asked to quit: an export, review clip or archive is running in it (it won't quit then), or it's asking Mike about edits that won't save. Wait for the export, or set TANDEM_FORCE_KILL=1 to stop it anyway." >&2
     exit 3
   fi
-  stop_reopen
   echo "Tandem stopped."
 else
   echo "No running Tandem instance found."
 fi
+# Again now it has gone: one quitting on its way to a reopen may have
+# started its helper meanwhile.
+stop_reopen

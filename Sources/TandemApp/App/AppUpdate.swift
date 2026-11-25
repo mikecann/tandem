@@ -73,7 +73,8 @@ final class AppUpdate {
     func check() {
         if !isAvailable { isAvailable = canReopen && AppBuild.isOutdated() }
         // Never from under an alert Mike hasn't answered.
-        guard isAvailable, !isReopening, NSApp.modalWindow == nil else { return }
+        // Nor once Tandem is quitting anyway: Cmd-Q would turn into a reopen.
+        guard isAvailable, !isReopening, NSApp.modalWindow == nil, !documents.isTerminating else { return }
         let upFor = AppBuild.started(pid: getpid()).map { Date().timeIntervalSince($0) } ?? 0
         if AppBuild.reopensWhileIdle(
             outdated: isAvailable, canReopen: canReopen, openProjects: documents.windows.count,
@@ -112,7 +113,9 @@ final class AppUpdate {
             alert.informativeText = detail
             alert.addButton(withTitle: "Reopen Tandem")
             alert.addButton(withTitle: "Not now")
-            if alert.runModal() == .alertFirstButtonReturn {
+            let warned = rendering
+            // An agent may have started an export while the alert was up.
+            if alert.runModal() == .alertFirstButtonReturn, warned || confirmStoppingWork() {
                 reopen(with: openProjects + [url], inBackground: false)
             }
             return true
@@ -121,16 +124,20 @@ final class AppUpdate {
 
     /// The status bar's button: reopen with everything that's open now.
     func reopenFromStatusBar() {
-        guard !isReopening else { return }
-        if rendering {
-            let alert = NSAlert()
-            alert.messageText = "An export is running"
-            alert.informativeText = "Reopening Tandem now stops it. You can reopen once it has finished."
-            alert.addButton(withTitle: "Wait")
-            alert.addButton(withTitle: "Reopen anyway")
-            guard alert.runModal() == .alertSecondButtonReturn else { return }
-        }
+        guard !isReopening, confirmStoppingWork() else { return }
         reopen(with: openProjects, inBackground: false)
+    }
+
+    /// True when nothing is running that a quit would stop, or Mike says
+    /// to stop it.
+    private func confirmStoppingWork() -> Bool {
+        guard rendering else { return true }
+        let alert = NSAlert()
+        alert.messageText = "An export is running"
+        alert.informativeText = "Reopening Tandem now stops it (or the archive or review clip running). You can reopen once it has finished."
+        alert.addButton(withTitle: "Wait")
+        alert.addButton(withTitle: "Reopen anyway")
+        return alert.runModal() == .alertSecondButtonReturn
     }
 
     /// Quits like Cmd-Q (projects save, or Mike is asked about any that
@@ -179,7 +186,13 @@ final class AppUpdate {
         var attributes: posix_spawnattr_t?
         posix_spawnattr_init(&attributes)
         defer { posix_spawnattr_destroy(&attributes) }
-        posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_SETSID))
+        // And with signals back to their defaults: Tandem ignores SIGTERM
+        // (it handles it itself), and a helper that inherited that would
+        // shrug off kill.sh's attempt to cancel it.
+        var defaults = sigset_t()
+        sigfillset(&defaults)
+        posix_spawnattr_setsigdefault(&attributes, &defaults)
+        posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_SETSID | POSIX_SPAWN_SETSIGDEF))
         var argv: [UnsafeMutablePointer<CChar>?] = arguments.map { strdup($0) } + [nil]
         defer { for pointer in argv { free(pointer) } }
         var pid: pid_t = 0
@@ -199,7 +212,7 @@ final class AppUpdate {
         let script = """
         pid="$1"; app="$2"; log="$3"; shift 3
         # Without a log it still reopens: a failed redirect would end sh.
-        if touch "$log" 2>/dev/null; then exec >>"$log" 2>&1; else exec >/dev/null 2>&1; fi
+        if ( : >>"$log" ) 2>/dev/null; then exec >>"$log" 2>&1; else exec >/dev/null 2>&1; fi
         echo "$(date): reopening $app once $pid has quit"
         i=0
         while kill -0 "$pid" 2>/dev/null; do
