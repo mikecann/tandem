@@ -207,10 +207,14 @@ public final class AssetService: @unchecked Sendable {
                 // Say where it really went, not where it belongs: the
                 // named track can be missing or locked, and "on Graphics"
                 // for a sticker that landed on Screen sent Mike looking for
-                // it (Sammy Cam, 25 Nov 2026).
-                if let clipID = applied.createdIDs.first(where: { $0.hasPrefix("clip_") }),
-                   let placed = try? await read(client).0, let location = placed.location(ofClip: clipID) {
-                    result.trackName = placed[location.track].name
+                // it (Sammy Cam, 25 Nov 2026). The created IDs can include
+                // pieces of clips an insert split, so it's a clip that plays
+                // this asset, its picture if it has one.
+                if let placed = try? await read(client).0 {
+                    let tracks = applied.createdIDs.compactMap { placed.location(ofClip: $0) }
+                        .filter { placed[$0.track].clips[$0.index].mediaID == mediaID }
+                        .map { placed[$0.track] }
+                    if let track = tracks.first(where: { $0.kind == .video }) ?? tracks.first { result.trackName = track.name }
                 }
                 return result
             } catch let error as ServiceError where error.knownCode == .staleRevision && attempt < 3 {

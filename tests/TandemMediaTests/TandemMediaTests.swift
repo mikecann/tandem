@@ -159,5 +159,8 @@ final class ProjectFolderTests: XCTestCase {
         // Only right under assets/: a folder called video elsewhere is
         // anyone's.
         XCTAssertEqual(MediaScanner.role(forPath: "video/take.mov"), .other)
+        // The nearest folder that says what it holds still wins.
+        XCTAssertEqual(MediaScanner.role(forPath: "assets/video/stickers/alarm.mov"), .sticker)
+        XCTAssertEqual(MediaScanner.role(forPath: "assets/sticker/sfx/ding.wav"), .sfx)
     }
 }

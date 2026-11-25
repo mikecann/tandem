@@ -612,7 +612,19 @@ public enum Editing {
             return location
         }
         let tracks = kind == .video ? p.videoTracks : p.audioTracks
-        if let index = tracks.firstIndex(where: { !$0.locked && !$0.isPrivacy && (!requireFree || $0.isFree(range)) }) {
+        let usable = { (track: Track) in !track.locked && !track.isPrivacy && (!requireFree || track.isFree(range)) }
+        // A sticker or graphic sits over the picture, so without its track
+        // it takes the highest one that's free, or a new one on top: on the
+        // bottom track the full-frame camera hides it, and overwriting
+        // another track would cut the footage or titles there.
+        if kind == .video, role == .sticker || role == .graphic {
+            if let index = tracks.lastIndex(where: { !$0.locked && !$0.isPrivacy && $0.isFree(range) }) {
+                return TrackLocation(kind: kind, index: index)
+            }
+            try addTrack(&p, kind: kind, name: trackName(for: role, kind: kind), index: nil, id: nil, &context)
+            return TrackLocation(kind: kind, index: p.videoTracks.count - 1)
+        }
+        if let index = tracks.firstIndex(where: usable) {
             return TrackLocation(kind: kind, index: index)
         }
         try addTrack(&p, kind: kind, name: trackName(for: role, kind: kind), index: nil, id: nil, &context)
@@ -702,14 +714,15 @@ public enum Editing {
                     sourceStart: item.kind == .image ? .zero : start,
                     speed: item.kind == .image ? 1 : speed ?? 1
                 )
+                // A sticker is held past the end of its file rather than
+                // refused (its sound, if it has any, goes quiet there).
+                if item.role == .sticker, item.kind != .image, let limit = p.sourceLimit(for: clip),
+                   clip.sourceEnd > limit + p.settings.frameRate.frameDuration {
+                    clip.holdEdges = true
+                }
                 if kind == .audio {
                     clip.audio = AudioLevels.placedAudio(role: item.role, on: p[location], settings: p.settings)
                 } else {
-                    // Held past the end of its file rather than refused.
-                    if item.role == .sticker, item.kind != .image, let limit = p.sourceLimit(for: clip),
-                       clip.sourceEnd > limit + p.settings.frameRate.frameDuration {
-                        clip.holdEdges = true
-                    }
                     let popped = place(&clip, item, anchor: anchor ?? (item.role == .sticker ? .bottom : nil), pop: pop, in: p)
                     if pop, !popped {
                         let seconds = { (time: Time) in String(format: "%g s", (time.seconds * 1000).rounded() / 1000) }

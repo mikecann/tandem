@@ -122,6 +122,45 @@ final class StickerAnchorTests: XCTestCase {
         XCTAssertTrue(result.warnings.contains { $0.contains("too short to pop") }, "\(result.warnings)")
     }
 
+    func testWithoutItsTrackAStickerGoesOnTheHighestFreeOne() throws {
+        // On the bottom track the full-frame camera hides it.
+        let (_, c) = try Fixture.edited()
+        try alarmClock(in: c)
+        try c.run("Lock", .updateTrack(trackID: try XCTUnwrap(c.project.track(named: "Graphics")?.id), patch: .object(["locked": .bool(true)])))
+        let result = try c.run("Place", .placeMedia(mediaIDs: ["med_alarm"], at: t(28.2)))
+        let clipID = try XCTUnwrap(result.createdIDs.first { $0.hasPrefix("clip_") })
+        let location = try XCTUnwrap(c.project.location(ofClip: clipID))
+        XCTAssertEqual(location.track.index, c.project.videoTracks.lastIndex { !$0.locked }, "\(c.project.videoTracks.map(\.name))")
+        XCTAssertNotEqual(c.project[location.track].name, "Screen")
+
+        // Overwriting doesn't make it cut into another track's footage: with
+        // nothing free it gets a track of its own on top.
+        let tracks = c.project.videoTracks.count
+        for _ in 0..<tracks {
+            let before = c.project.allTracks.flatMap(\.clips)
+            try c.run("Overwrite", .placeMedia(mediaIDs: ["med_alarm"], at: t(28.2), mode: .overwrite))
+            let after = c.project.allTracks.flatMap(\.clips)
+            XCTAssertTrue(before.allSatisfy { after.contains($0) }, "nothing cleared")
+        }
+        XCTAssertGreaterThan(c.project.videoTracks.count, tracks)
+        XCTAssertEqual(c.project.videoTracks.last?.name, "Graphics", "a new track for it on top")
+        assertValid(c.project)
+    }
+
+    func testAStickersSoundIsHeldWithItsPicture() throws {
+        let (_, c) = try Fixture.edited()
+        let chime = MediaItem(
+            id: "med_chime", path: "assets/sticker/bell.mov", kind: .video, role: .sticker,
+            duration: t(0.566667), frameRate: .fps60, width: 512, height: 512, hasVideo: true, hasAudio: true, hasAlpha: true
+        )
+        try c.run("Add", .addMedia(item: chime))
+        let result = try c.run("Place", .placeMedia(mediaIDs: ["med_chime"], at: t(28.2), includeAudio: true))
+        let clips = result.createdIDs.compactMap { c.project.clip($0) }
+        XCTAssertEqual(clips.count, 2)
+        XCTAssertTrue(clips.allSatisfy { $0.holdEdges && $0.duration == t(2) })
+        assertValid(c.project)
+    }
+
     func testBRollStillStopsAtTheEndOfItsFile() throws {
         let (_, c) = try Fixture.edited()
         XCTAssertThrowsError(try c.run("Place", .placeMedia(mediaIDs: ["med_broll"], at: t(40), duration: t(12)))) { error in
