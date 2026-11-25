@@ -67,6 +67,153 @@ final class StickerAnchorTests: XCTestCase {
         assertValid(c.project)
     }
 
+    /// The alarm clock from Sammy Cam (25 Nov 2026): Noto's animated emoji
+    /// is a 0.567 s file.
+    private func alarmClock(in c: ProjectCoordinator) throws {
+        let alarm = MediaItem(
+            id: "med_alarm", path: "assets/sticker/alarm-clock-u2ibde6a.mov", kind: .video, role: .sticker,
+            duration: t(0.566667), frameRate: .fps60, width: 1024, height: 1024, hasVideo: true, hasAudio: false, hasAlpha: true
+        )
+        try c.run("Add", .addMedia(item: alarm))
+    }
+
+    func testAStickerLongerThanItsFileHoldsItsLastFrame() throws {
+        // `assets use noto:23f0 --duration 2.6` was refused ("needs media up
+        // to 00:02.600 but the file is 00:00.567 long. Set holdEdges").
+        let (_, c) = try Fixture.edited()
+        try alarmClock(in: c)
+        try c.run("Place", .placeMedia(mediaIDs: ["med_alarm"], at: t(28.2), duration: t(2.6), anchor: .topRight, pop: true))
+        let clip = try XCTUnwrap(c.project.track(named: "Graphics")?.clips.first)
+        XCTAssertEqual(clip.duration, t(2.6))
+        XCTAssertTrue(clip.holdEdges, "a sticker is held on screen past the end of its file")
+        XCTAssertEqual(clip.keyframes["video.transform.scale"]?.count, 6)
+        assertValid(c.project)
+    }
+
+    func testAShortStickerStaysUpLongEnoughToPop() throws {
+        // Placed for its file's 0.567 s, the alarm clock flashed by and was
+        // too short for --pop, which left its keyframes empty.
+        let (_, c) = try Fixture.edited()
+        try alarmClock(in: c)
+        try c.run("Place", .placeMedia(mediaIDs: ["med_alarm"], at: t(28.2), anchor: .topRight, pop: true))
+        let clip = try XCTUnwrap(c.project.track(named: "Graphics")?.clips.first)
+        XCTAssertEqual(clip.duration, t(2))
+        XCTAssertTrue(clip.holdEdges)
+        XCTAssertEqual(clip.keyframes["video.transform.scale"]?.count, 6)
+        assertValid(c.project)
+
+        // One longer than that keeps its own length.
+        let like = MediaItem(
+            id: "med_like", path: "stickers/like.mov", kind: .video, role: .sticker, duration: t(3), frameRate: .fps30,
+            width: 1280, height: 392, hasVideo: true, hasAudio: false, hasAlpha: true
+        )
+        try c.run("Add", .addMedia(item: like))
+        try c.run("Place", .placeMedia(mediaIDs: ["med_like"], at: t(40)))
+        let second = try XCTUnwrap(c.project.track(named: "Graphics")?.clips.last)
+        XCTAssertEqual(second.duration, t(3))
+        XCTAssertFalse(second.holdEdges)
+    }
+
+    func testAPopTooShortToShowSaysSo() throws {
+        let (_, c) = try Fixture.edited()
+        try alarmClock(in: c)
+        let result = try c.run("Place", .placeMedia(mediaIDs: ["med_alarm"], at: t(28.2), duration: t(0.5), pop: true))
+        XCTAssertNil(c.project.track(named: "Graphics")?.clips.first?.keyframes["video.transform.scale"])
+        XCTAssertTrue(result.warnings.contains { $0.hasPrefix("alarm-clock-u2ibde6a is on screen for 0.5 s, too short to pop") }, "\(result.warnings)")
+    }
+
+    func testWithoutItsTrackAStickerGoesOnTheHighestFreeOne() throws {
+        // On the bottom track the full-frame camera hides it.
+        let (_, c) = try Fixture.edited()
+        try alarmClock(in: c)
+        try c.run("Lock", .updateTrack(trackID: try XCTUnwrap(c.project.track(named: "Graphics")?.id), patch: .object(["locked": .bool(true)])))
+        let result = try c.run("Place", .placeMedia(mediaIDs: ["med_alarm"], at: t(28.2)))
+        let clipID = try XCTUnwrap(result.createdIDs.first { $0.hasPrefix("clip_") })
+        let location = try XCTUnwrap(c.project.location(ofClip: clipID))
+        let camera = try XCTUnwrap(c.project.videoTracks.firstIndex { $0.name == "Camera" })
+        XCTAssertGreaterThan(location.track.index, camera, "above the camera: \(c.project.videoTracks.map(\.name))")
+
+        // Overwriting doesn't make it cut into another track's footage: with
+        // nothing free it gets a track of its own on top.
+        let tracks = c.project.videoTracks.count
+        for _ in 0..<tracks {
+            let before = c.project.allTracks.flatMap(\.clips)
+            try c.run("Overwrite", .placeMedia(mediaIDs: ["med_alarm"], at: t(28.2), mode: .overwrite))
+            let after = c.project.allTracks.flatMap(\.clips)
+            XCTAssertTrue(before.allSatisfy { after.contains($0) }, "nothing cleared")
+        }
+        XCTAssertGreaterThan(c.project.videoTracks.count, tracks)
+        let added = c.project.videoTracks.dropFirst(tracks)
+        XCTAssertEqual(added.first?.name, "Graphics 2", "new tracks for it on top")
+        XCTAssertTrue(added.allSatisfy { $0.rippleMode == .follow })
+        assertValid(c.project)
+    }
+
+    func testAStickerNeverGoesUnderThePicture() throws {
+        // Screen free under the full-frame camera, everything above it locked
+        // or hidden.
+        let (_, c) = try Fixture.edited()
+        try alarmClock(in: c)
+        let names = c.project.videoTracks.map(\.name)
+        let screen = try XCTUnwrap(c.project.track(named: "Screen")?.clips.map(\.id))
+        try c.run("Clear Screen", .removeClips(clipIDs: screen, ripple: false, includeLinked: false))
+        XCTAssertFalse(c.project.track(named: "Camera")?.isFree(TimeRange(start: t(28.2), duration: t(2))) ?? true, "the camera is still there")
+        for name in names where name != "Screen" && name != "Camera" {
+            let id = try XCTUnwrap(c.project.track(named: name)?.id)
+            let patch: JSONValue = name == "Text" ? .object(["hidden": .bool(true)]) : .object(["locked": .bool(true)])
+            try c.run("Off", .updateTrack(trackID: id, patch: patch))
+        }
+        let result = try c.run("Place", .placeMedia(mediaIDs: ["med_alarm"], at: t(28.2)))
+        let clipID = try XCTUnwrap(result.createdIDs.first { $0.hasPrefix("clip_") })
+        let location = try XCTUnwrap(c.project.location(ofClip: clipID))
+        XCTAssertEqual(location.track.index, c.project.videoTracks.count - 1, "\(c.project.videoTracks.map(\.name))")
+        XCTAssertFalse(c.project[location.track].hidden)
+    }
+
+    func testAStickersSoundIsHeldWithItsPicture() throws {
+        let (_, c) = try Fixture.edited()
+        let chime = MediaItem(
+            id: "med_chime", path: "assets/sticker/bell.mov", kind: .video, role: .sticker,
+            duration: t(0.566667), frameRate: .fps60, width: 512, height: 512, hasVideo: true, hasAudio: true, hasAlpha: true
+        )
+        try c.run("Add", .addMedia(item: chime))
+        let result = try c.run("Place", .placeMedia(mediaIDs: ["med_chime"], at: t(28.2), includeAudio: true))
+        let clips = result.createdIDs.compactMap { c.project.clip($0) }
+        XCTAssertEqual(clips.count, 2)
+        XCTAssertTrue(clips.allSatisfy { $0.holdEdges && $0.duration == t(2) })
+        assertValid(c.project)
+    }
+
+    func testAStickerStartedPastItsEndIsStillRefused() throws {
+        let (_, c) = try Fixture.edited()
+        try alarmClock(in: c)
+        XCTAssertThrowsError(try c.run("Place", .placeMedia(mediaIDs: ["med_alarm"], at: t(10), sourceStart: t(1))))
+        XCTAssertThrowsError(try c.run("Place", .placeMedia(mediaIDs: ["med_alarm"], at: t(10), sourceStart: t(1), duration: t(2.6))))
+    }
+
+    func testAStickerInsertedWithoutItsTrackLeavesTheTakeAlone() throws {
+        // A free stretch of a take track isn't somewhere to put a sticker:
+        // an insert there opens a gap in the whole film.
+        let (_, c) = try Fixture.edited()
+        try alarmClock(in: c)
+        try c.run("Lock", .updateTrack(trackID: try XCTUnwrap(c.project.track(named: "Graphics")?.id), patch: .object(["locked": .bool(true)])))
+        let camera = try XCTUnwrap(c.project.track(named: "Camera")?.clips.map(\.id))
+        try c.run("Clear camera", .removeClips(clipIDs: camera, ripple: false, includeLinked: false))
+        let length = c.project.duration
+        let result = try c.run("Insert", .placeMedia(mediaIDs: ["med_alarm"], at: t(10), mode: .insert))
+        let clipID = try XCTUnwrap(result.createdIDs.last { $0.hasPrefix("clip_") })
+        let track = try XCTUnwrap(c.project.location(ofClip: clipID)).track
+        XCTAssertNotEqual(c.project[track].rippleMode, .cut)
+        XCTAssertEqual(c.project.duration, length, "the film didn't grow")
+    }
+
+    func testBRollStillStopsAtTheEndOfItsFile() throws {
+        let (_, c) = try Fixture.edited()
+        XCTAssertThrowsError(try c.run("Place", .placeMedia(mediaIDs: ["med_broll"], at: t(40), duration: t(12)))) { error in
+            XCTAssertTrue("\(error)".contains("holdEdges"), "\(error)")
+        }
+    }
+
     func testOtherFilesStillFillTheFrameUnlessAnchored() throws {
         let (f, c) = try Fixture.edited()
         XCTAssertNil(f.clips("B-roll")[0].video, "B-roll fills the frame as before")

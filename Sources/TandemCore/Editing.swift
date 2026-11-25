@@ -608,11 +608,36 @@ public enum Editing {
         _ context: inout EditContext
     ) throws -> TrackLocation {
         if let name = trackName(for: role, kind: kind), let track = p.track(named: name, kind: kind),
-           let location = p.location(ofTrack: track.id), !track.locked, !track.isPrivacy {
+           let location = p.location(ofTrack: track.id), !track.locked, !track.isPrivacy,
+           !(kind == .video && track.hidden && (role == .sticker || role == .graphic)) {
             return location
         }
         let tracks = kind == .video ? p.videoTracks : p.audioTracks
-        if let index = tracks.firstIndex(where: { !$0.locked && !$0.isPrivacy && (!requireFree || $0.isFree(range)) }) {
+        let usable = { (track: Track) in !track.locked && !track.isPrivacy && (!requireFree || track.isFree(range)) }
+        // A sticker or graphic sits over the picture, so without its track
+        // it takes the first free one above everything showing there, or a
+        // new one on top: under the full-frame camera nobody sees it, and
+        // overwriting another track would cut the footage or titles there.
+        // A take track (`.cut`) is left alone, as an insert on one opens a
+        // gap in the whole film.
+        if kind == .video, role == .sticker || role == .graphic {
+            let picture = tracks.lastIndex { !$0.hidden && !$0.isFree(range) } ?? -1
+            if let index = tracks.indices.first(where: { index in
+                let track = tracks[index]
+                return index > picture && track.rippleMode != .cut && !track.locked && !track.hidden && !track.isPrivacy && track.isFree(range)
+            }) {
+                return TrackLocation(kind: kind, index: index)
+            }
+            let name = trackName(for: role, kind: kind) ?? "Graphics"
+            let taken = Set(p.videoTracks.map { $0.name.lowercased() })
+            let free = taken.contains(name.lowercased()) ? (2...).lazy.map { "\(name) \($0)" }.first { !taken.contains($0.lowercased()) }! : name
+            try addTrack(&p, kind: kind, name: free, index: nil, id: nil, &context)
+            // Like the standard Graphics track, it moves with ripple edits
+            // rather than cutting the whole film around a sticker.
+            p.videoTracks[p.videoTracks.count - 1].rippleMode = .follow
+            return TrackLocation(kind: kind, index: p.videoTracks.count - 1)
+        }
+        if let index = tracks.firstIndex(where: usable) {
             return TrackLocation(kind: kind, index: index)
         }
         try addTrack(&p, kind: kind, name: trackName(for: role, kind: kind), index: nil, id: nil, &context)
@@ -659,8 +684,15 @@ public enum Editing {
         let shortest = available.min { $0.length < $1.length }
         // `duration` is time on the timeline, so at a speed it plays
         // `duration * speed` of the media.
-        let length = duration ?? shortest.map { $0.length.scaled(by: 1 / (speed ?? 1)) } ?? Time(seconds: 5)
+        var length = duration ?? shortest.map { $0.length.scaled(by: 1 / (speed ?? 1)) } ?? Time(seconds: 5)
         guard length > .zero else { throw EditError.invalid("nothing left to place after the source start") }
+        // A sticker is a picture held on screen, and an animated one's file
+        // is often shorter than anyone would show it: Noto's alarm clock is
+        // 0.567 s, gone before it's seen and too short to pop. It stays up
+        // for at least `stickerMinimum`, holding its last frame.
+        if duration == nil, items.count == 1, items[0].role == .sticker, length < stickerMinimum {
+            length = stickerMinimum
+        }
         let range = TimeRange(start: at, duration: length)
 
         // Work out every clip and its track first.
@@ -695,10 +727,21 @@ public enum Editing {
                     sourceStart: item.kind == .image ? .zero : start,
                     speed: item.kind == .image ? 1 : speed ?? 1
                 )
+                // A sticker is held past the end of its file rather than
+                // refused (its sound, if it has any, goes quiet there), as
+                // long as it starts inside the file.
+                if item.role == .sticker, item.kind != .image, let limit = p.sourceLimit(for: clip),
+                   clip.sourceStart < limit, clip.sourceEnd > limit + p.settings.frameRate.frameDuration {
+                    clip.holdEdges = true
+                }
                 if kind == .audio {
                     clip.audio = AudioLevels.placedAudio(role: item.role, on: p[location], settings: p.settings)
                 } else {
-                    place(&clip, item, anchor: anchor ?? (item.role == .sticker ? .bottom : nil), pop: pop, in: p)
+                    let popped = place(&clip, item, anchor: anchor ?? (item.role == .sticker ? .bottom : nil), pop: pop, in: p)
+                    if pop, !popped {
+                        let seconds = { (time: Time) in String(format: "%g s", (time.seconds * 1000).rounded() / 1000) }
+                        context.warn("\(clip.name ?? "The picture") is on screen for \(seconds(clip.duration)), too short to pop in and out (that needs \(seconds(StickerAnchor.shortestPop))), so it has no pop.")
+                    }
                 }
                 planned.append((location, clip))
             }
@@ -741,7 +784,9 @@ public enum Editing {
     /// Puts a newly placed picture at its anchor (stickers go to the bottom
     /// unless told otherwise; everything else fills the frame as before)
     /// and pops it in and out if asked.
-    static func place(_ clip: inout Clip, _ item: MediaItem, anchor: StickerAnchor?, pop: Bool, in p: Project) {
+    /// True when it popped.
+    @discardableResult
+    static func place(_ clip: inout Clip, _ item: MediaItem, anchor: StickerAnchor?, pop: Bool, in p: Project) -> Bool {
         var scale = 1.0
         if let anchor {
             let canvas = (width: Double(p.settings.width), height: Double(p.settings.height))
@@ -750,11 +795,16 @@ public enum Editing {
             clip.video = VideoProperties(transform: transform)
             scale = transform.scale
         }
-        if pop {
-            let keys = StickerAnchor.pop(scale: scale, duration: clip.duration)
-            if !keys.isEmpty { clip.keyframes["video.transform.scale"] = keys }
-        }
+        guard pop else { return false }
+        let keys = StickerAnchor.pop(scale: scale, duration: clip.duration)
+        guard !keys.isEmpty else { return false }
+        clip.keyframes["video.transform.scale"] = keys
+        return true
     }
+
+    /// How long a sticker placed without a duration stays on screen at
+    /// least.
+    static let stickerMinimum = Time(seconds: 2)
 
     // MARK: - Ripple helpers
 

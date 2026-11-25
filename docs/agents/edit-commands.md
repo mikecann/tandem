@@ -138,7 +138,10 @@ pixels), 5% of the height in from the edge. `anchor` puts one somewhere
 else, or anchors any other picture (a logo, an image) the same way;
 `lowerThird` is bottom left, inside the title-safe area. `pop` adds scale
 keyframes that pop it in over the first quarter second and out over the
-last.
+last; a clip under 0.8 s has no room for it, and the result warns. A
+sticker is a picture held on screen: without `duration` it stays up for
+at least 2 s, and one longer than its file (Noto's animated emoji are often
+half a second) holds its last frame (`holdEdges`) instead of being refused.
 
 ```json
 {"placeMedia": {"mediaIDs": ["med_comment"], "at": 371.2, "anchor": "bottomRight", "pop": true}}

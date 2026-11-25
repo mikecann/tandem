@@ -250,18 +250,11 @@ enum AssetBrowsing {
 
 /// Turns a used asset into the edit that puts it on the timeline.
 enum AssetPlacing {
-    /// `placement.editCommands(at:in:)`, except that a media item already
-    /// pointing at the copied file is reused: the project's folder watcher
-    /// can add the file under its own ID before the edit lands. Like a
-    /// media drop, it overwrites what's there (Cmd inserts).
+    /// `placement.editCommands(at:in:)` (which reuses a media item the
+    /// folder watcher already added for the copied file). Like a media
+    /// drop, it overwrites what's there (Cmd inserts).
     static func commands(for placement: AssetPlacement, at time: Time, in project: Project, mode: InsertMode = .overwrite) -> [EditCommand] {
-        var placement = placement
-        if var item = placement.mediaItem, project.media(item.id) == nil,
-           let existing = project.media.first(where: { $0.path == item.path }) {
-            item.id = existing.id
-            placement.mediaItem = item
-        }
-        return placement.editCommands(at: max(.zero, time), in: project, mode: mode)
+        placement.editCommands(at: max(.zero, time), in: project, mode: mode)
     }
 }
 

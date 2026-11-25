@@ -145,4 +145,25 @@ final class ProjectFolderTests: XCTestCase {
         XCTAssertEqual(MediaScanner.role(forPath: "sfx/whoosh.wav"), .sfx)
         XCTAssertEqual(MediaScanner.role(forPath: "broll/hf-decider.mp4"), .broll)
     }
+
+    func testTandemsOwnAssetFoldersSayWhatTheyHold() {
+        // Where `tandem assets use` copies things. Sammy Cam's alarm clock
+        // sticker came in as "other" and landed on the Screen track.
+        XCTAssertEqual(MediaScanner.role(forPath: "assets/sticker/alarm-clock-u2ibde6a.mov"), .sticker)
+        XCTAssertEqual(MediaScanner.role(forPath: "assets/sticker/thumbs-up.png"), .sticker)
+        XCTAssertEqual(MediaScanner.role(forPath: "assets/icon/check.png"), .graphic)
+        XCTAssertEqual(MediaScanner.role(forPath: "assets/logo/convex.png"), .graphic)
+        XCTAssertEqual(MediaScanner.role(forPath: "assets/overlay/light-leak.mov"), .graphic)
+        // assets/video/ is left to the names, so a camera take there is
+        // still a camera take.
+        XCTAssertEqual(MediaScanner.role(forPath: "assets/video/camera-1.mov"), .camera)
+        XCTAssertEqual(MediaScanner.role(forPath: "assets/sticker/ding.wav"), .sfx, "a sound isn't a sticker")
+        XCTAssertEqual(MediaScanner.role(forPath: "assets/sfx/whoosh.wav"), .sfx)
+        // Only right under assets/: a folder called video elsewhere is
+        // anyone's.
+        XCTAssertEqual(MediaScanner.role(forPath: "video/take.mov"), .other)
+        // The nearest folder that says what it holds still wins.
+        XCTAssertEqual(MediaScanner.role(forPath: "assets/video/stickers/alarm.mov"), .sticker)
+        XCTAssertEqual(MediaScanner.role(forPath: "assets/sticker/sfx/ding.wav"), .sfx)
+    }
 }

@@ -57,9 +57,12 @@ public enum StickerAnchor: String, Codable, CaseIterable, Sendable {
     /// Scale keyframes that pop a sticker in over its first quarter second
     /// and out over its last, overshooting a little each way, as the ESLint
     /// stickers went out. Empty for a clip too short for both.
+    /// The shortest clip that has room to pop in and out.
+    public static let shortestPop = Time(seconds: 0.8)
+
     public static func pop(scale: Double, duration: Time) -> [Keyframe] {
         let length = duration.seconds
-        guard length >= 0.8 else { return [] }
+        guard duration >= shortestPop else { return [] }
         func key(_ time: Double, _ value: Double, _ interpolation: Interpolation) -> Keyframe {
             Keyframe(time: Time(seconds: time), value: .number(value), interpolation: interpolation)
         }

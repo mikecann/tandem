@@ -345,6 +345,33 @@ final class HousekeepingTests: XCTestCase {
         font.mediaItem = nil
         XCTAssertTrue(font.editCommands(at: .zero, in: project).isEmpty)
     }
+
+    func testPlacingReusesWhatTheFolderScanAddedAndGivesItTheAssetsRole() {
+        // Sammy Cam (25 Nov 2026): the app's folder watcher added the copied
+        // alarm clock as "other" before the edit landed, and placeMedia sent
+        // "other" to the Screen track.
+        let asset = Asset(provider: "noto", providerID: "23f0", kind: .sticker, name: "Alarm clock")
+        let path = "assets/sticker/alarm-clock-u2ibde6a.mov"
+        let item = MediaItem(id: "med_u2ibde6a", path: path, kind: .video, role: .sticker, duration: Time(seconds: 0.566667), hasVideo: true, hasAudio: false)
+        let placement = AssetPlacement(asset: asset, mediaItem: item, files: [path], role: .sticker, trackName: "Graphics")
+        var project = Project.standard(name: "Sammy Cam")
+        project.media.append(MediaItem(id: "med_scanned", path: path, kind: .video, role: .other, duration: Time(seconds: 0.566667), hasVideo: true, hasAudio: false))
+        let at = Time(seconds: 28.2)
+
+        XCTAssertEqual(placement.editCommands(at: at, in: project, pop: true), [
+            .updateMedia(mediaID: "med_scanned", patch: .object(["role": .string("sticker")])),
+            .placeMedia(mediaIDs: ["med_scanned"], at: at, pop: true)
+        ])
+        XCTAssertEqual(placement.projectMedia(in: project)?.id, "med_scanned")
+
+        // Used without a time, it still gets the asset's role.
+        XCTAssertEqual(placement.addCommands(in: project), [.updateMedia(mediaID: "med_scanned", patch: .object(["role": .string("sticker")]))])
+
+        // A role Mike picked himself stays.
+        project.media[0].role = .graphic
+        XCTAssertEqual(placement.editCommands(at: at, in: project), [.placeMedia(mediaIDs: ["med_scanned"], at: at)])
+        XCTAssertTrue(placement.addCommands(in: project).isEmpty)
+    }
 }
 
 final class RemoveTests: XCTestCase {

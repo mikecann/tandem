@@ -323,7 +323,19 @@ public enum MediaScanner {
 
         // The nearest folder that names its contents wins.
         let folders = (lower as NSString).deletingLastPathComponent.split(separator: "/").map(String.init)
-        for folder in folders.reversed() {
+        for (index, folder) in folders.enumerated().reversed() {
+            // `tandem assets use` copies into assets/<kind>/, with the
+            // kind's singular name. assets/sticker/ came in as "other" and
+            // so went to the first free video track (Sammy Cam, 25 Nov 2026).
+            if index > 0, folders[index - 1] == "assets" {
+                // assets/video/ is left to the name checks below, so a camera
+                // take put there is still found.
+                switch folder {
+                case "sticker" where !isAudio: return (.sticker, true)
+                case "overlay" where !isAudio, "icon" where !isAudio, "logo" where !isAudio: return (.graphic, true)
+                default: break
+                }
+            }
             switch folder {
             case "music", "songs", "score", "beds": return (.music, true)
             case "sfx", "sounds", "sound effects", "sound-effects", "soundfx": return (.sfx, true)

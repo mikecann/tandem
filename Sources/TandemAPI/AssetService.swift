@@ -202,7 +202,24 @@ public final class AssetService: @unchecked Sendable {
             guard !commands.isEmpty else { return result }
             let label = request.label ?? (request.at.map { "Add \(asset.name) at \($0)" } ?? "Add \(asset.name) to media")
             do {
-                result.applied = try await client.call(ApplyRequest(label: label, author: request.author, commands: commands, expectedRevision: revision))
+                let applied = try await client.call(ApplyRequest(label: label, author: request.author, commands: commands, expectedRevision: revision))
+                result.applied = applied
+                // Say where it really went, not where it belongs: the
+                // named track can be missing or locked, and "on Graphics"
+                // for a sticker that landed on Screen sent Mike looking for
+                // it (Sammy Cam, 25 Nov 2026). The created IDs start with
+                // pieces of clips an insert split; placeMedia adds its own
+                // last, picture before sound.
+                if let placed = try? await read(client).0 {
+                    let clips = applied.createdIDs.filter { $0.hasPrefix("clip_") }.compactMap { placed.location(ofClip: $0) }
+                    var location = clips.last
+                    if let last = location, last.track.kind == .audio, clips.count > 1 {
+                        let before = clips[clips.count - 2]
+                        let (sound, picture) = (placed[last.track].clips[last.index], placed[before.track].clips[before.index])
+                        if before.track.kind == .video, picture.mediaID == sound.mediaID, picture.start == sound.start { location = before }
+                    }
+                    if let location { result.trackName = placed[location.track].name }
+                }
                 return result
             } catch let error as ServiceError where error.knownCode == .staleRevision && attempt < 3 {
                 (project, revision) = try await read(client)
@@ -215,16 +232,12 @@ public final class AssetService: @unchecked Sendable {
     /// own commands, reusing a media item that already has the copied file
     /// so it's never in the project twice.
     static func commands(for placement: AssetPlacement, at time: Time?, duration: Time?, mode: InsertMode?, anchor: StickerAnchor? = nil, pop: Bool? = nil, in project: Project) -> (commands: [EditCommand], mediaID: String?) {
-        guard var item = placement.mediaItem else { return ([], nil) }
-        var placement = placement
-        if project.media(item.id) == nil, let existing = project.media.first(where: { $0.path == item.path }) {
-            item.id = existing.id
-            placement.mediaItem = item
-        }
+        guard let item = placement.mediaItem else { return ([], nil) }
+        let existing = placement.projectMedia(in: project)
         if let time {
-            return (placement.editCommands(at: time, in: project, duration: duration, mode: mode, anchor: anchor, pop: pop), item.id)
+            return (placement.editCommands(at: time, in: project, duration: duration, mode: mode, anchor: anchor, pop: pop), existing?.id ?? item.id)
         }
-        return (project.media(item.id) == nil ? [.addMedia(item: item)] : [], item.id)
+        return (placement.addCommands(in: project), existing?.id ?? item.id)
     }
 
     /// The project as it is now, wherever it's open.
