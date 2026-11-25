@@ -50,7 +50,11 @@ final class AppUpdate {
     /// open again in the new build.
     private var openProjects: [URL] { documents.windows.map(\.model.fileURL) + documents.opening.sorted { $0.path < $1.path } }
 
-    private var rendering: Bool { documents.windows.contains { $0.model.isRendering || $0.isArchiving } }
+    /// An export, review clip or archive runs (from the app, the CLI or
+    /// MCP), which quitting would cut off. SIGTERM checks this too.
+    var isBusy: Bool { documents.windows.contains { $0.model.isRendering || $0.isArchiving } }
+
+    private var rendering: Bool { isBusy }
 
     func start() {
         // A stat of one file: cheap enough to look every half minute.
@@ -83,6 +87,10 @@ final class AppUpdate {
     /// A project wouldn't open. True when this took care of it (reopening
     /// or offering to), false to explain the error as usual.
     func handleFailedOpen(_ url: URL) -> Bool {
+        if isReopening {
+            openAfterReopening(url)
+            return true
+        }
         let outdated = canReopen && AppBuild.isOutdated()
         if outdated { isAvailable = true }
         let choice = AppBuild.afterFailedOpen(
@@ -136,9 +144,12 @@ final class AppUpdate {
         reopenWith = (all, (reopenWith?.inBackground ?? true) && inBackground, (reopenWith?.welcome ?? false) || welcome || !files.isEmpty)
         guard !isReopening else { return }
         isReopening = true
-        // From the run loop, as a failed open can come in the middle of
-        // launching or of another alert.
-        DispatchQueue.main.async { NSApp.terminate(nil) }
+        // From the run loop's default mode, so it waits for any alert or
+        // open panel to close: a quit asked for under one is ignored, and
+        // the reopen would never happen.
+        RunLoop.main.perform(inModes: [.default]) {
+            MainActor.assumeIsolated { NSApp.terminate(nil) }
+        }
     }
 
     /// A project asked for while Tandem is reopening opens in the new build.
@@ -187,7 +198,8 @@ final class AppUpdate {
     nonisolated static func waitThenOpen(pid: pid_t, app: URL, files: [URL], inBackground: Bool, welcome: Bool, log: URL) -> [String] {
         let script = """
         pid="$1"; app="$2"; log="$3"; shift 3
-        exec >>"$log" 2>&1
+        # Without a log it still reopens: a failed redirect would end sh.
+        if touch "$log" 2>/dev/null; then exec >>"$log" 2>&1; else exec >/dev/null 2>&1; fi
         echo "$(date): reopening $app once $pid has quit"
         i=0
         while kill -0 "$pid" 2>/dev/null; do

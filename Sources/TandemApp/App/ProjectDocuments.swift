@@ -84,6 +84,13 @@ final class ProjectDocuments: NSObject, NSMenuDelegate {
             do {
                 let session = try await ProjectSession.open(url, owner: .app, waitingUpTo: 30)
                 self.opening.remove(url)
+                // Tandem is quitting to reopen on a new build, which has it
+                // on its list already (AppUpdate.openProjects).
+                if AppUpdate.shared.isReopening {
+                    _ = session.close()
+                    AppUpdate.shared.openAfterReopening(url)
+                    return
+                }
                 self.opened(session, url: url, frame: frame)
             } catch {
                 self.opening.remove(url)

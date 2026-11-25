@@ -71,23 +71,40 @@ public enum AppBuild {
         return Date(timeIntervalSince1970: TimeInterval(info.pbi_start_tvsec) + TimeInterval(info.pbi_start_tvusec) / 1e6)
     }
 
-    /// The executable file process `pid` runs: its first file-backed memory
-    /// region, which is the main executable (dyld and libraries are mapped
-    /// above it). It's still there after the file has been replaced or
-    /// deleted. Nil if the process isn't ours to look at.
-    public static func runningExecutable(pid: pid_t) -> FileID? {
+    /// The executable file process `pid` runs: the executable region of a
+    /// file called `name` it has mapped, which is still there after the file
+    /// has been replaced or deleted. Data files (fonts, databases) can be
+    /// mapped below it, so the first file isn't enough. Nil if the process
+    /// isn't ours to look at.
+    public static func runningExecutable(pid: pid_t, named name: String) -> FileID? {
         var address: UInt64 = 0
         let size = Int32(MemoryLayout<proc_regionwithpathinfo>.size)
-        for _ in 0..<64 {
+        for _ in 0..<4096 {
             var info = proc_regionwithpathinfo()
             guard proc_pidinfo(pid, PROC_PIDREGIONPATHINFO, address, &info, size) == size else { return nil }
             let stat = info.prp_vip.vip_vi.vi_stat
-            if stat.vst_ino != 0 { return FileID(device: UInt64(stat.vst_dev), inode: stat.vst_ino) }
+            if stat.vst_ino != 0, Int32(bitPattern: info.prp_prinfo.pri_protection) & VM_PROT_EXECUTE != 0, regionPath(info).hasSuffix("/" + name) {
+                return FileID(device: UInt64(stat.vst_dev), inode: stat.vst_ino)
+            }
             let next = info.prp_prinfo.pri_address &+ info.prp_prinfo.pri_size
             guard next > address else { return nil }
             address = next
         }
         return nil
+    }
+
+    /// The executable this process runs: the region dyld loaded it at.
+    public static func ownExecutable() -> FileID? {
+        guard let header = _dyld_get_image_header(0) else { return nil }
+        var info = proc_regionwithpathinfo()
+        let size = Int32(MemoryLayout<proc_regionwithpathinfo>.size)
+        guard proc_pidinfo(getpid(), PROC_PIDREGIONPATHINFO, UInt64(UInt(bitPattern: header)), &info, size) == size else { return nil }
+        let stat = info.prp_vip.vip_vi.vi_stat
+        return stat.vst_ino == 0 ? nil : FileID(device: UInt64(stat.vst_dev), inode: stat.vst_ino)
+    }
+
+    private static func regionPath(_ info: proc_regionwithpathinfo) -> String {
+        withUnsafeBytes(of: info.prp_vip.vip_path) { String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self) }
     }
 
     /// True when `running` is known and isn't the file installed now.
@@ -100,7 +117,7 @@ public enum AppBuild {
     /// started: the app is running a build that's no longer installed.
     public static func isOutdated(executable: URL? = Bundle.main.executableURL) -> Bool {
         guard let executable else { return false }
-        return isStale(running: runningExecutable(pid: getpid()), installed: fileID(of: executable))
+        return isStale(running: ownExecutable(), installed: fileID(of: executable))
     }
 
     // MARK: - What the app does about it
@@ -133,19 +150,6 @@ public enum AppBuild {
     /// How long an app runs before it reopens by itself.
     public static let minimumUptime: TimeInterval = 60
 
-    /// Whether SIGTERM (kill.sh, `tandem quit-app`) quits the app. Not
-    /// while an export or review clip renders in it: kill.sh can only see
-    /// the `tandem export` and `tandem clip` commands, not an export from
-    /// the app's own menu or through MCP. A second signal within
-    /// `insistWithin` of a refused one quits anyway (TANDEM_FORCE_KILL=1).
-    public static func quitsOnSignal(rendering: Bool, refusedAt: Date?, now: Date = Date()) -> Bool {
-        guard rendering else { return true }
-        guard let refusedAt else { return false }
-        return now.timeIntervalSince(refusedAt) < insistWithin
-    }
-
-    public static let insistWithin: TimeInterval = 3
-
     // MARK: - Finding the app from the CLI
 
     /// The app executable installed beside this command: the CLI lives in
@@ -164,7 +168,7 @@ public enum AppBuild {
             guard pid > 0, pid != getpid(), processName(pid) == executable.lastPathComponent,
                   let path = launchPath(pid), URL(fileURLWithPath: path).resolvingSymlinksInPath().standardizedFileURL.path == wanted,
                   let started = started(pid: pid) else { return nil }
-            return RunningApp(pid: pid, started: started, executable: runningExecutable(pid: pid))
+            return RunningApp(pid: pid, started: started, executable: runningExecutable(pid: pid, named: executable.lastPathComponent))
         }
     }
 

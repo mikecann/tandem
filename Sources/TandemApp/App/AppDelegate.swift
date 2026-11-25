@@ -111,8 +111,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, EditorCommandHandling 
 
     /// Set when SIGTERM asked Tandem to quit.
     private var quittingOnSignal = false
-    /// When SIGTERM last came while something rendered, and was refused.
-    private var refusedSignal: Date?
+    private var forceSignal: DispatchSourceSignal?
 
     /// `kill` (and `kill.sh`) quits like Cmd-Q: projects save, the API
     /// stops and locks are released, instead of the process just ending.
@@ -122,26 +121,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate, EditorCommandHandling 
         source.setEventHandler { [weak self] in
             MainActor.assumeIsolated {
                 guard let self else { return }
-                let rendering = self.documents.windows.contains { $0.model.isRendering }
-                guard AppBuild.quitsOnSignal(rendering: rendering, refusedAt: self.refusedSignal) else {
-                    self.refusedSignal = Date()
-                    NSLog("Tandem: not quitting on SIGTERM while an export or review clip renders; a second one within 3 s quits anyway")
+                guard !AppUpdate.shared.isBusy else {
+                    NSLog("Tandem: not quitting on SIGTERM while an export, review clip or archive runs; SIGUSR1 (TANDEM_FORCE_KILL=1) quits anyway")
                     return
                 }
-                self.quittingOnSignal = true
-                // An alert's modal loop held the quit until someone answered
-                // it, and kill.sh gave up while the app ran on (a "saved by
-                // a newer Tandem" alert, 25 Nov 2026). End the alert first.
-                if NSApp.modalWindow != nil { NSApp.abortModal() }
-                // From the run loop, not from inside this main queue
-                // block, so work queued on the main actor can still run
-                // while Tandem quits. In the common modes, so it runs even
-                // if another alert comes up meanwhile.
-                NSApp.perform(#selector(NSApplication.terminate(_:)), with: nil, afterDelay: 0, inModes: [.common])
+                self.quitOnSignal()
             }
         }
         source.resume()
         terminationSignal = source
+        // SIGUSR1 is kill.sh's TANDEM_FORCE_KILL: quit even mid-export.
+        // A signal of its own, so two ordinary quits at once can't add up
+        // to a forced one.
+        signal(SIGUSR1, SIG_IGN)
+        let force = DispatchSource.makeSignalSource(signal: SIGUSR1, queue: .main)
+        force.setEventHandler { [weak self] in
+            MainActor.assumeIsolated { self?.quitOnSignal() }
+        }
+        force.resume()
+        forceSignal = force
+    }
+
+    private func quitOnSignal() {
+        // A forced quit comes after an ordinary one; once is enough.
+        guard !quittingOnSignal else { return }
+        quittingOnSignal = true
+        // An alert's modal loop held the quit until someone answered it,
+        // and kill.sh gave up while the app ran on (a "saved by a newer
+        // Tandem" alert, 25 Nov 2026). End the alert first.
+        if NSApp.modalWindow != nil { NSApp.abortModal() }
+        // From the run loop, not from inside this main queue block, so work
+        // queued on the main actor can still run while Tandem quits. In the
+        // common modes, so it runs even if another alert comes up meanwhile.
+        NSApp.perform(#selector(NSApplication.terminate(_:)), with: nil, afterDelay: 0, inModes: [.common])
     }
 
     // MARK: - Opening and URL commands

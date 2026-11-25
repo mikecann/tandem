@@ -249,10 +249,13 @@ extension TandemService {
         let archiver = ProjectArchiver(session: session, options: options, control: control, applyEdit: { [self] batch in
             try self.apply(ApplyRequest(batch: batch), context: context).revision
         })
-        return try await withTaskCancellationHandler {
-            try await ProjectArchiver.onBackgroundThread { try archiver.run() }
-        } onCancel: {
-            control.cancel()
+        // Quitting (kill.sh, Reopen to update) waits while it copies.
+        return try await whileArchiving {
+            try await withTaskCancellationHandler {
+                try await ProjectArchiver.onBackgroundThread { try archiver.run() }
+            } onCancel: {
+                control.cancel()
+            }
         }
     }
 }

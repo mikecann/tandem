@@ -14,8 +14,10 @@ final class AppBuildTests: XCTestCase {
         XCTAssertFalse(AppBuild.isStale(running: nil, installed: new), "unknown proves nothing")
         XCTAssertFalse(AppBuild.isStale(running: old, installed: nil), "nothing installed")
         // This test process runs the file at its own path.
-        XCTAssertNotNil(AppBuild.runningExecutable(pid: getpid()))
-        XCTAssertEqual(AppBuild.runningExecutable(pid: getpid()), Bundle.main.executableURL.flatMap(AppBuild.fileID))
+        let own = Bundle.main.executableURL
+        XCTAssertNotNil(AppBuild.ownExecutable())
+        XCTAssertEqual(AppBuild.ownExecutable(), own.flatMap(AppBuild.fileID))
+        XCTAssertEqual(AppBuild.runningExecutable(pid: getpid(), named: own?.lastPathComponent ?? ""), own.flatMap(AppBuild.fileID))
         XCTAssertFalse(AppBuild.isOutdated())
     }
 
@@ -139,16 +141,6 @@ final class AppBuildTests: XCTestCase {
         XCTAssertFalse(idle(opening: true))
         XCTAssertFalse(idle(active: true), "Mike is using it")
         XCTAssertFalse(idle(upFor: 5), "just started, so it can never reopen in a loop")
-    }
-
-    /// kill.sh can't see an export from the app's menu or MCP, so the app
-    /// refuses the signal while one renders; forced, a second one quits.
-    func testSIGTERMWaitsForARenderUnlessInsistedOn() {
-        let now = Date()
-        XCTAssertTrue(AppBuild.quitsOnSignal(rendering: false, refusedAt: nil, now: now))
-        XCTAssertFalse(AppBuild.quitsOnSignal(rendering: true, refusedAt: nil, now: now))
-        XCTAssertTrue(AppBuild.quitsOnSignal(rendering: true, refusedAt: now.addingTimeInterval(-1), now: now), "TANDEM_FORCE_KILL sends a second one a second later")
-        XCTAssertFalse(AppBuild.quitsOnSignal(rendering: true, refusedAt: now.addingTimeInterval(-60), now: now), "running quit-app again later still waits")
     }
 
     func testReadsTheSchemaAFileWasSavedIn() throws {
