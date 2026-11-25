@@ -74,8 +74,11 @@ class TandemCompositor: NSObject, AVVideoCompositing {
     /// same way for the player, frame grabs and exports.
     var supportsHDRSourceFrames: Bool { true }
 
-    /// Every source frame comes as it was decoded, with its own tags: the
+    /// Source frames come as they were decoded, with their own tags: the
     /// compositor reads each one by its tags, and `HDRFrames` converts HDR.
+    /// (AVFoundation still converts a frame whose format isn't in
+    /// `sourcePixelBufferAttributes`, but decoders hand over one of those:
+    /// uncompressed 2vuy and v210 came as BGRA and 420v, tagged 709.)
     /// Without this, a composition with any HLG clip in it works in HLG,
     /// and AVFoundation converted every SDR frame to HLG before the
     /// compositor saw it. `HDRFrames` brought them back down, which is no

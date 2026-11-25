@@ -114,6 +114,16 @@ final class MixedHDRColourTests: XCTestCase {
         return RenderContext(project: project, folder: media.projectFolder)
     }
 
+    /// Both clips made it into the composition: an HLG file a Mac can't
+    /// decode would leave an SDR-only project, and the test would pass for
+    /// nothing.
+    func assertBothClipsPlaced(_ context: RenderContext, _ what: String) async throws {
+        let built = try await CompositionBuilder.build(context)
+        XCTAssertEqual(built.warnings, [], what)
+        let files = Set(try await built.composition.loadTracks(withMediaType: .video).flatMap(\.segments).compactMap { $0.sourceURL?.lastPathComponent })
+        XCTAssertTrue(files.contains("hlg.mov") && files.count >= 3, "\(what): the composition holds \(files.sorted())")
+    }
+
     /// A file's own frame at `seconds`, as AVFoundation decodes it.
     func decoded(_ url: URL, at seconds: Double) async throws -> CVPixelBuffer {
         let asset = AVURLAsset(url: url)
@@ -175,6 +185,7 @@ final class MixedHDRColourTests: XCTestCase {
             assertClose(source, Self.patches.map { $0.map(Double.init) }, within: 4, "\(kind) as decoded")
 
             let mixed = context(sdr: sdr, hlg: hlg, media: media)
+            try await assertBothClipsPlaced(mixed, "\(kind)")
             let still = bandValues(Levels(try await FrameRenderer(context: mixed).image(at: t(0.5)), width: 160, height: 90), count: count)
             let playing = try await playerFrame(mixed, at: t(0.5))
             let played = (0..<count).map { i in playing[Int(size.width) * (2 * i + 1) / (2 * count), Int(size.height) / 2].prefix(3).map(Double.init) }
@@ -193,10 +204,16 @@ final class MixedHDRColourTests: XCTestCase {
         let sdr = try sdrClip(.untaggedFullRange, in: media.folder)
         let alone = context(sdr: nil, hlg: hlg, media: media)
         let mixed = context(sdr: sdr, hlg: hlg, media: media)
+        try await assertBothClipsPlaced(mixed, "HLG next to SDR")
         let expected = bandValues(Levels(try await FrameRenderer(context: alone).image(at: t(0.5)), width: 160, height: 90), count: 4)
-        // Converted, not shown as its raw signal: the warm grey's signal is
-        // 153/115/77, and SDR shows it darker and warmer.
+        // Converted, not shown as its raw signal or missing: the warm grey's
+        // signal is 153/115/77, and SDR shows it darker and warmer; the red
+        // stays red and the white bright.
         XCTAssertLessThan(expected[0][1], 105, "the HLG grey converted on its own: \(describe(expected))")
+        XCTAssertGreaterThan(expected[0][0], 110, "the HLG grey converted on its own: \(describe(expected))")
+        XCTAssertGreaterThan(expected[1][0], 150, "the HLG red converted on its own: \(describe(expected))")
+        XCTAssertLessThan(expected[1][1], 60, "the HLG red converted on its own: \(describe(expected))")
+        XCTAssertGreaterThan(expected[3][1], 180, "the HLG white converted on its own: \(describe(expected))")
         let still = bandValues(Levels(try await FrameRenderer(context: mixed).image(at: t(1.5)), width: 160, height: 90), count: 4)
         let exported = bandValues(Levels(try await exportFrame(mixed, at: 1.5), width: 160, height: 90), count: 4)
         assertClose(still, expected, within: 2, "HLG paused, with SDR footage in the project")
