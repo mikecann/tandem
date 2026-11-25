@@ -15,7 +15,7 @@ TANDEM_BUILD_CONFIGURATION=debug bash "$SCRIPT_DIR/build-app.sh"
 status=0
 bash "$SCRIPT_DIR/kill.sh" >/dev/null || status=$?
 if [[ $status -ne 0 && $status -ne 3 ]]; then
-  echo "The new build is installed, but the running Tandem didn't quit, so it isn't running yet." >&2
+  echo "The new build is installed, but stopping the running Tandem failed (kill.sh exit $status)." >&2
   exit "$status"
 fi
 if [[ $status -eq 3 ]]; then

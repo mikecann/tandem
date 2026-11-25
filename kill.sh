@@ -24,13 +24,20 @@ fi
 
 if pkill -f "$PATTERN" 2>/dev/null; then
   # Wait for it to go, so an `open` straight after starts the new one
-  # rather than bringing the quitting one forward.
-  for _ in $(seq 50); do pgrep -f "$PATTERN" >/dev/null || break; sleep 0.1; done
+  # rather than bringing the quitting one forward. The app itself refuses
+  # the first signal while an export or review clip renders in it (one
+  # from its own menu or MCP, which the check above can't see); forced, a
+  # second signal a second later quits it anyway.
+  for i in $(seq 50); do
+    pgrep -f "$PATTERN" >/dev/null || break
+    if [[ $i -eq 10 && "${TANDEM_FORCE_KILL:-}" == "1" ]]; then pkill -f "$PATTERN" 2>/dev/null || true; fi
+    sleep 0.1
+  done
   # Saying "stopped" when it hadn't left the next open bringing the old
   # app forward again.
   if pgrep -f "$PATTERN" >/dev/null; then
-    echo "Tandem was asked to quit but is still running after 5 seconds: it may be asking Mike about edits that won't save. Look at its window." >&2
-    exit 1
+    echo "Tandem is still running 5 seconds after being asked to quit: an export or review clip is rendering in it (it won't quit then), or it's asking Mike about edits that won't save. Wait for the export, or set TANDEM_FORCE_KILL=1 to stop it anyway." >&2
+    exit 3
   fi
   echo "Tandem stopped."
 else

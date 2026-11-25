@@ -6,12 +6,17 @@ import XCTest
 /// 2026: a five-day-old app refused a project the new build had saved, and
 /// `tandem status` only said "open in: nothing else").
 final class AppBuildTests: XCTestCase {
-    func testABuildWrittenAfterTheProcessStartedIsNewer() {
-        let started = Date(timeIntervalSince1970: 1_000_000)
-        let now = started.addingTimeInterval(86_400 * 5)
-        XCTAssertTrue(AppBuild.isNewer(built: started.addingTimeInterval(86_400 * 4), than: started, now: now))
-        XCTAssertFalse(AppBuild.isNewer(built: started.addingTimeInterval(-10), than: started, now: now), "the build it started from")
-        XCTAssertFalse(AppBuild.isNewer(built: now.addingTimeInterval(3600), than: started, now: now), "a time in the future proves nothing, or a fresh app would think itself old forever")
+    func testAProcessIsStaleWhenItsFileIsNoLongerTheInstalledOne() {
+        let old = AppBuild.FileID(device: 1, inode: 10)
+        let new = AppBuild.FileID(device: 1, inode: 11)
+        XCTAssertTrue(AppBuild.isStale(running: old, installed: new))
+        XCTAssertFalse(AppBuild.isStale(running: new, installed: new))
+        XCTAssertFalse(AppBuild.isStale(running: nil, installed: new), "unknown proves nothing")
+        XCTAssertFalse(AppBuild.isStale(running: old, installed: nil), "nothing installed")
+        // This test process runs the file at its own path.
+        XCTAssertNotNil(AppBuild.runningExecutable(pid: getpid()))
+        XCTAssertEqual(AppBuild.runningExecutable(pid: getpid()), Bundle.main.executableURL.flatMap(AppBuild.fileID))
+        XCTAssertFalse(AppBuild.isOutdated())
     }
 
     /// A real process started from a file called tandem-app, which is then
@@ -31,15 +36,16 @@ final class AppBuildTests: XCTestCase {
         XCTAssertEqual(running.map(\.pid), [process.processIdentifier])
         let started = try XCTUnwrap(running.first?.started)
         XCTAssertLessThan(abs(started.timeIntervalSinceNow), 10)
-        XCTAssertEqual(AppBuild.stale(running, built: AppBuild.modified(executable)), [], "it runs the build that's there")
+        XCTAssertEqual(AppBuild.stale(running, installed: AppBuild.fileID(of: executable)), [], "it runs the build that's there")
         XCTAssertNil(AppBuild.staleAppWarning(holder: nil, executable: executable))
 
-        // The new build: a fresh copy swapped in over the old path.
-        Thread.sleep(forTimeInterval: 1.1)
+        // The new build: a fresh copy renamed over the old path, the way
+        // build-app.sh swaps bundles. Its date is set older than the
+        // process, as a copy that keeps dates would be: the file is what counts.
         let staged = folder.file(".tandem-app.staging")
         try Self.copySleep(to: staged)
-        try FileManager.default.setAttributes([.modificationDate: Date()], ofItemAtPath: staged.path)
-        _ = try FileManager.default.replaceItemAt(executable, withItemAt: staged)
+        try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSinceNow: -86_400)], ofItemAtPath: staged.path)
+        XCTAssertEqual(rename(staged.path, executable.path), 0)
 
         XCTAssertEqual(AppBuild.runningApps(executable: executable).map(\.pid), [process.processIdentifier], "found by the path it was started from")
         let warning = try XCTUnwrap(AppBuild.staleAppWarning(holder: nil, executable: executable))
@@ -78,9 +84,11 @@ final class AppBuildTests: XCTestCase {
         let fine = AppBuild.noting(status, route: .headless, projectURL: h.url) { _ in nil }
         XCTAssertEqual(fine.warnings, status.warnings, "nothing added when the app is current")
 
+        var held = status
+        held.openIn = OwnerInfo(owner: "app", pid: 4242, started: Date(), port: 1)
         var holder: pid_t?
-        _ = AppBuild.noting(status, route: .remote(port: 1, owner: "app", pid: 4242), projectURL: h.url) { holder = $0; return nil }
-        XCTAssertEqual(holder, 4242, "the app holding the project is named, so the warning can say it's the one")
+        _ = AppBuild.noting(held, route: .headless, projectURL: h.url) { holder = $0; return nil }
+        XCTAssertEqual(holder, 4242, "the app holding the project when status answered is named, so the warning can say it's the one")
     }
 
     func testAHandbackNothingWillShowSaysSo() throws {
@@ -96,6 +104,9 @@ final class AppBuildTests: XCTestCase {
 
         let stale = AppBuild.noting(result, route: .remote(port: 1, owner: "app", pid: 4242), projectURL: h.url) { _ in "older build" }
         XCTAssertEqual(stale.warnings, ["older build"])
+
+        let withdrawn = try h.service.handback(HandbackRequest(notes: []), context: h.context)
+        XCTAssertNil(AppBuild.noting(withdrawn, route: .headless, projectURL: h.url) { _ in nil }.warnings, "taking it all back needs no one to see it")
 
         let listed = try h.service.handback(HandbackRequest(), context: h.context)
         XCTAssertNil(AppBuild.noting(listed, route: .headless, projectURL: h.url) { _ in nil }.warnings, "only handing back needs Mike to see it")
@@ -128,6 +139,16 @@ final class AppBuildTests: XCTestCase {
         XCTAssertFalse(idle(opening: true))
         XCTAssertFalse(idle(active: true), "Mike is using it")
         XCTAssertFalse(idle(upFor: 5), "just started, so it can never reopen in a loop")
+    }
+
+    /// kill.sh can't see an export from the app's menu or MCP, so the app
+    /// refuses the signal while one renders; forced, a second one quits.
+    func testSIGTERMWaitsForARenderUnlessInsistedOn() {
+        let now = Date()
+        XCTAssertTrue(AppBuild.quitsOnSignal(rendering: false, refusedAt: nil, now: now))
+        XCTAssertFalse(AppBuild.quitsOnSignal(rendering: true, refusedAt: nil, now: now))
+        XCTAssertTrue(AppBuild.quitsOnSignal(rendering: true, refusedAt: now.addingTimeInterval(-1), now: now), "TANDEM_FORCE_KILL sends a second one a second later")
+        XCTAssertFalse(AppBuild.quitsOnSignal(rendering: true, refusedAt: now.addingTimeInterval(-60), now: now), "running quit-app again later still waits")
     }
 
     func testReadsTheSchemaAFileWasSavedIn() throws {

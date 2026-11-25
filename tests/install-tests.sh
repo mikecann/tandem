@@ -95,6 +95,11 @@ if [[ "$QUIT" != "No running Tandem instance found." ]]; then
   exit 1
 fi
 
+if TANDEM_APP_DIR="$APP" "$BIN/tandem" quit-app --help 2>/dev/null; then
+  echo "FAIL: tandem quit-app --help quit the app instead of saying how to use it" >&2
+  exit 1
+fi
+
 # While an install swaps the app in, the launcher waits for it instead of
 # starting a build of its own. A copy of it with a fake setup shows which.
 LAUNCHER="$SCRATCH/launcher"

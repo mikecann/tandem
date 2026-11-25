@@ -40,7 +40,7 @@ final class ProjectDocuments: NSObject, NSMenuDelegate {
     // MARK: - Opening
 
     /// Projects waiting for a CLI command or `tandem serve` to let go.
-    private var opening: Set<URL> = []
+    private(set) var opening: Set<URL> = []
     /// True while a project is still on its way, so launch doesn't show the
     /// welcome window in the meantime.
     var isOpening: Bool { !opening.isEmpty }
@@ -51,6 +51,12 @@ final class ProjectDocuments: NSObject, NSMenuDelegate {
     @discardableResult
     func open(_ url: URL, frame: NSRect? = nil) -> ProjectWindowController? {
         let url = url.standardizedFileURL
+        // Quitting to reopen on a new build: it goes in the new one's list,
+        // or it would open here only to close again straight away.
+        if AppUpdate.shared.isReopening {
+            AppUpdate.shared.openAfterReopening(url)
+            return nil
+        }
         if let existing = windows.first(where: { $0.model.fileURL.standardizedFileURL == url }) {
             existing.showWindow(nil)
             return existing
@@ -353,6 +359,15 @@ final class ProjectDocuments: NSObject, NSMenuDelegate {
         welcome?.refresh()
         welcome?.showWindow(nil)
         welcome?.window?.makeKeyAndOrderFront(nil)
+    }
+
+    /// True when the welcome window is on screen.
+    var isWelcomeVisible: Bool { welcome?.window?.isVisible == true }
+
+    /// True when a window other than the welcome one is up (Settings, the
+    /// asset library), which an idle reopen would close under Mike.
+    var hasOtherWindows: Bool {
+        NSApp.windows.contains { $0.isVisible && $0 !== welcome?.window && $0.className != "NSStatusBarWindow" }
     }
 
     func closeAll() {

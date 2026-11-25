@@ -12,24 +12,49 @@ import TandemCore
 /// the app said it was "saved by a newer Tandem", and `tandem status`
 /// said only "open in: nothing else". Both sides now notice.
 ///
-/// The rule: the executable at the installed path was written after the
-/// process started, so the process runs the build before it. build-app.sh
-/// copies and signs the binaries (which sets their modification time) and
-/// then renames the bundle into place, which keeps it.
+/// The rule: a process runs the file it was started from, mapped into
+/// memory, whatever happens to the path afterwards. build-app.sh puts each
+/// build in place by renaming a new bundle over the old one, so the
+/// installed executable is a different file (another inode) from the one
+/// an older process has mapped, even once the old one is deleted. Comparing
+/// files, not times, also holds when a process starts in the moment between
+/// a build being signed and swapped in, a copy keeps an older date, or the
+/// clock is wrong (two reviewers of the first version, 25 Nov 2026).
 public enum AppBuild {
+    /// A file, by the volume and inode it's on.
+    public struct FileID: Equatable, Hashable, Sendable {
+        public var device: UInt64
+        public var inode: UInt64
+
+        public init(device: UInt64, inode: UInt64) {
+            self.device = device
+            self.inode = inode
+        }
+    }
+
     /// A Tandem app process.
     public struct RunningApp: Equatable, Sendable {
         public var pid: pid_t
         public var started: Date
+        /// The executable file it runs, or nil if that couldn't be read.
+        public var executable: FileID?
 
-        public init(pid: pid_t, started: Date) {
+        public init(pid: pid_t, started: Date, executable: FileID?) {
             self.pid = pid
             self.started = started
+            self.executable = executable
         }
     }
 
     /// The process name of the app's executable, as build-app.sh installs it.
     public static let appExecutableName = "tandem-app"
+
+    /// The file at `url`, or nil if there's none.
+    public static func fileID(of url: URL) -> FileID? {
+        var info = stat()
+        guard stat(url.path, &info) == 0 else { return nil }
+        return FileID(device: UInt64(UInt32(bitPattern: info.st_dev)), inode: info.st_ino)
+    }
 
     /// When the file at `url` was last written, or nil if there's none.
     public static func modified(_ url: URL) -> Date? {
@@ -46,19 +71,36 @@ public enum AppBuild {
         return Date(timeIntervalSince1970: TimeInterval(info.pbi_start_tvsec) + TimeInterval(info.pbi_start_tvusec) / 1e6)
     }
 
-    /// True when a build written at `built` is newer than a process that
-    /// started at `started`. A time in the future (a clock that jumped, a
-    /// file copied from another Mac) proves nothing, and counting it would
-    /// have a freshly started app think itself out of date forever.
-    public static func isNewer(built: Date, than started: Date, now: Date = Date()) -> Bool {
-        built > started && built <= now.addingTimeInterval(60)
+    /// The executable file process `pid` runs: its first file-backed memory
+    /// region, which is the main executable (dyld and libraries are mapped
+    /// above it). It's still there after the file has been replaced or
+    /// deleted. Nil if the process isn't ours to look at.
+    public static func runningExecutable(pid: pid_t) -> FileID? {
+        var address: UInt64 = 0
+        let size = Int32(MemoryLayout<proc_regionwithpathinfo>.size)
+        for _ in 0..<64 {
+            var info = proc_regionwithpathinfo()
+            guard proc_pidinfo(pid, PROC_PIDREGIONPATHINFO, address, &info, size) == size else { return nil }
+            let stat = info.prp_vip.vip_vi.vi_stat
+            if stat.vst_ino != 0 { return FileID(device: UInt64(stat.vst_dev), inode: stat.vst_ino) }
+            let next = info.prp_prinfo.pri_address &+ info.prp_prinfo.pri_size
+            guard next > address else { return nil }
+            address = next
+        }
+        return nil
+    }
+
+    /// True when `running` is known and isn't the file installed now.
+    public static func isStale(running: FileID?, installed: FileID?) -> Bool {
+        guard let running, let installed else { return false }
+        return running != installed
     }
 
     /// True when this process's own executable has been replaced since it
-    /// started: the app or CLI is running a build that's no longer installed.
-    public static func isOutdated(executable: URL? = Bundle.main.executableURL, now: Date = Date()) -> Bool {
-        guard let executable, let built = modified(executable), let started = started(pid: getpid()) else { return false }
-        return isNewer(built: built, than: started, now: now)
+    /// started: the app is running a build that's no longer installed.
+    public static func isOutdated(executable: URL? = Bundle.main.executableURL) -> Bool {
+        guard let executable else { return false }
+        return isStale(running: runningExecutable(pid: getpid()), installed: fileID(of: executable))
     }
 
     // MARK: - What the app does about it
@@ -91,6 +133,19 @@ public enum AppBuild {
     /// How long an app runs before it reopens by itself.
     public static let minimumUptime: TimeInterval = 60
 
+    /// Whether SIGTERM (kill.sh, `tandem quit-app`) quits the app. Not
+    /// while an export or review clip renders in it: kill.sh can only see
+    /// the `tandem export` and `tandem clip` commands, not an export from
+    /// the app's own menu or through MCP. A second signal within
+    /// `insistWithin` of a refused one quits anyway (TANDEM_FORCE_KILL=1).
+    public static func quitsOnSignal(rendering: Bool, refusedAt: Date?, now: Date = Date()) -> Bool {
+        guard rendering else { return true }
+        guard let refusedAt else { return false }
+        return now.timeIntervalSince(refusedAt) < insistWithin
+    }
+
+    public static let insistWithin: TimeInterval = 3
+
     // MARK: - Finding the app from the CLI
 
     /// The app executable installed beside this command: the CLI lives in
@@ -109,24 +164,24 @@ public enum AppBuild {
             guard pid > 0, pid != getpid(), processName(pid) == executable.lastPathComponent,
                   let path = launchPath(pid), URL(fileURLWithPath: path).resolvingSymlinksInPath().standardizedFileURL.path == wanted,
                   let started = started(pid: pid) else { return nil }
-            return RunningApp(pid: pid, started: started)
+            return RunningApp(pid: pid, started: started, executable: runningExecutable(pid: pid))
         }
     }
 
-    /// The apps in `running` that started before the build at `built`.
-    public static func stale(_ running: [RunningApp], built: Date?, now: Date = Date()) -> [RunningApp] {
-        guard let built else { return [] }
-        return running.filter { isNewer(built: built, than: $0.started, now: now) }
+    /// The apps in `running` that run another file than the one installed.
+    public static func stale(_ running: [RunningApp], installed: FileID?) -> [RunningApp] {
+        running.filter { isStale(running: $0.executable, installed: installed) }
     }
 
     /// What to tell an agent about a Tandem app running an older build
     /// than the installed one, or nil when there's none. `holder` is the
-    /// pid that has the project open, if any; `openInApp` says whether the
-    /// app has it.
+    /// pid that has the project open, if any; `built` is when the installed
+    /// build was written.
     public static func staleAppWarning(_ stale: [RunningApp], built: Date, holder: pid_t?, now: Date = Date()) -> String? {
-        guard let app = stale.first else { return nil }
+        // The one holding the project, when that's one of them.
+        guard let app = stale.first(where: { $0.pid == holder }) ?? stale.first else { return nil }
         let when = { (date: Date) in DateText.short(date, now: now) }
-        var text = "The Tandem app running now (pid \(app.pid), started \(when(app.started))) is an older build than the one installed (built \(when(built))). "
+        var text = "The Tandem app running now (pid \(app.pid), started \(when(app.started))) is an older build than the one installed (built \(when(built))): it runs a file that has since been replaced. "
         if holder == app.pid {
             text += "It has this project open and answers commands the old way, and Mike is looking at the old build. "
         } else {
@@ -138,8 +193,8 @@ public enum AppBuild {
 
     /// The warning for the app installed beside this command, if it's stale.
     public static func staleAppWarning(holder: pid_t?, executable: URL? = installedAppExecutable) -> String? {
-        guard let executable, let built = modified(executable) else { return nil }
-        return staleAppWarning(stale(runningApps(executable: executable), built: built), built: built, holder: holder)
+        guard let executable, let installed = fileID(of: executable), let built = modified(executable) else { return nil }
+        return staleAppWarning(stale(runningApps(executable: executable), installed: installed), built: built, holder: holder)
     }
 
     // MARK: - Saying so in results
@@ -156,6 +211,8 @@ public enum AppBuild {
         var holder: pid_t?
         if case .remote(_, let owner, let pid) = route, owner == ProjectSession.Owner.app.rawValue { holder = pid }
         if var status = result as? StatusResult {
+            // Who had it when status was answered, rather than a look after.
+            holder = status.openIn.flatMap { $0.owner == ProjectSession.Owner.app.rawValue ? $0.pid : nil }
             guard let warning = staleWarning(holder) else { return result }
             status.warnings = (status.warnings ?? []) + [warning]
             return status as? R ?? result
@@ -164,7 +221,7 @@ public enum AppBuild {
             var warnings = handback.warnings ?? []
             if let warning = staleWarning(holder) {
                 warnings.append(warning)
-            } else if holder == nil, handback.recorded != nil {
+            } else if holder == nil, (handback.recorded ?? 0) > 0 {
                 warnings.append(notOpenWarning(projectURL))
             }
             guard !warnings.isEmpty else { return result }

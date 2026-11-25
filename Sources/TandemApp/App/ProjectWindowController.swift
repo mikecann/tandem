@@ -151,6 +151,10 @@ final class ProjectWindowController: NSWindowController, NSWindowDelegate, NSMen
         NSWorkspace.shared.activateFileViewerSelecting([model.fileURL])
     }
 
+    /// True while the archive sheet is up (or archiving): quitting would
+    /// cut it off.
+    var isArchiving: Bool { archiveSheet != nil }
+
     /// Opens the archive sheet (see `ArchiveSheet.swift`).
     @objc func archiveProject(_ sender: Any?) {
         guard archiveSheet == nil, let window, window.attachedSheet == nil else { return }

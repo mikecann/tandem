@@ -26,7 +26,18 @@ final class AppUpdate {
     /// pressed twice.
     private(set) var isReopening = false
 
-    @ObservationIgnored private var reopenWith: (files: [URL], inBackground: Bool)?
+    @ObservationIgnored private var reopenWith: (files: [URL], inBackground: Bool, welcome: Bool)?
+
+    /// The key a reopen passes when the welcome window wasn't up, so the
+    /// new build doesn't show it either.
+    nonisolated static let noWelcomeKey = "TandemReopenedWithoutWelcome"
+
+    /// Where the reopen says what it did: ~/Library/Logs/Tandem/reopen.log.
+    nonisolated static var logURL: URL {
+        let folder = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs/Tandem", isDirectory: true)
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        return folder.appendingPathComponent("reopen.log")
+    }
     @ObservationIgnored private var timer: Timer?
     @ObservationIgnored private var resignObserver: NSObjectProtocol?
 
@@ -35,9 +46,11 @@ final class AppUpdate {
 
     private var documents: ProjectDocuments { .shared }
 
-    private var openProjects: [URL] { documents.windows.map(\.model.fileURL) }
+    /// What's open, and what's waiting for another process to let go, to
+    /// open again in the new build.
+    private var openProjects: [URL] { documents.windows.map(\.model.fileURL) + documents.opening.sorted { $0.path < $1.path } }
 
-    private var rendering: Bool { documents.windows.contains { $0.model.isRendering } }
+    private var rendering: Bool { documents.windows.contains { $0.model.isRendering || $0.isArchiving } }
 
     func start() {
         // A stat of one file: cheap enough to look every half minute.
@@ -61,9 +74,9 @@ final class AppUpdate {
         if AppBuild.reopensWhileIdle(
             outdated: isAvailable, canReopen: canReopen, openProjects: documents.windows.count,
             opening: documents.isOpening, active: NSApp.isActive, upFor: upFor
-        ) {
+        ), !documents.hasOtherWindows {
             NSLog("Tandem: a newer build is installed and nothing is open, so reopening on it")
-            reopen(with: [], inBackground: true)
+            reopen(with: [], inBackground: true, welcome: documents.isWelcomeVisible)
         }
     }
 
@@ -74,14 +87,14 @@ final class AppUpdate {
         if outdated { isAvailable = true }
         let choice = AppBuild.afterFailedOpen(
             fileIsNewer: ProjectFile.isFromNewerTandem(url), outdated: outdated, canReopen: canReopen,
-            openProjects: documents.windows.count, rendering: rendering
+            openProjects: openProjects.count, rendering: rendering
         )
         switch choice {
         case .explain:
             return false
         case .reopen:
             NSLog("Tandem: %@ is from the newer build installed since this one started, so reopening on it", url.lastPathComponent)
-            reopen(with: [url], inBackground: false)
+            reopen(with: openProjects + [url], inBackground: false)
             return true
         case .askToReopen:
             let alert = NSAlert()
@@ -115,12 +128,22 @@ final class AppUpdate {
     /// Quits like Cmd-Q (projects save, or Mike is asked about any that
     /// won't), and once this process has gone, opens the installed build
     /// with `files`.
-    private func reopen(with files: [URL], inBackground: Bool) {
+    private func reopen(with files: [URL], inBackground: Bool, welcome: Bool = true) {
+        // Several projects can come in one open (Finder, `open a b`): each
+        // one asked for joins the list, and Tandem quits once.
+        var all = reopenWith?.files ?? []
+        for file in files.map(\.standardizedFileURL) where !all.contains(file) { all.append(file) }
+        reopenWith = (all, (reopenWith?.inBackground ?? true) && inBackground, (reopenWith?.welcome ?? false) || welcome || !files.isEmpty)
+        guard !isReopening else { return }
         isReopening = true
-        reopenWith = (files, inBackground)
         // From the run loop, as a failed open can come in the middle of
         // launching or of another alert.
         DispatchQueue.main.async { NSApp.terminate(nil) }
+    }
+
+    /// A project asked for while Tandem is reopening opens in the new build.
+    func openAfterReopening(_ url: URL) {
+        reopen(with: [url], inBackground: false)
     }
 
     /// The quit was cancelled: stay as we are.
@@ -132,30 +155,52 @@ final class AppUpdate {
     /// From `applicationWillTerminate`: starts a small shell that waits for
     /// this process to end, then opens the new build. Without asking for
     /// a reopen, nothing happens.
-    func launchReplacement() {
-        guard let reopenWith else { return }
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/sh")
-        process.arguments = Self.waitThenOpen(pid: getpid(), app: Bundle.main.bundleURL, files: reopenWith.files, inBackground: reopenWith.inBackground)
-        do {
-            try process.run()
-        } catch {
-            NSLog("Tandem: couldn't reopen on the new build: %@", error.localizedDescription)
+    func launchReplacement(quittingOnSignal: Bool) {
+        // kill.sh or `tandem quit-app` asked meanwhile: they mean stop.
+        guard let reopenWith, !quittingOnSignal else { return }
+        let arguments = ["/bin/sh"] + Self.waitThenOpen(
+            pid: getpid(), app: Bundle.main.bundleURL, files: reopenWith.files,
+            inBackground: reopenWith.inBackground, welcome: reopenWith.welcome, log: Self.logURL
+        )
+        // In a session of its own: launchd ends what's left in an app's
+        // process group when the app quits (a plain child never got to run
+        // `open` when Tandem had been started from Finder or `open`).
+        var attributes: posix_spawnattr_t?
+        posix_spawnattr_init(&attributes)
+        defer { posix_spawnattr_destroy(&attributes) }
+        posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_SETSID))
+        var argv: [UnsafeMutablePointer<CChar>?] = arguments.map { strdup($0) } + [nil]
+        defer { for pointer in argv { free(pointer) } }
+        var pid: pid_t = 0
+        let status = posix_spawn(&pid, "/bin/sh", nil, &attributes, &argv, environ)
+        if status != 0 {
+            NSLog("Tandem: couldn't reopen on the new build: %s", strerror(status))
         }
     }
 
     /// `sh` arguments that wait (up to two minutes) for `pid` to exit, then
     /// open `app` with `files`. Paths go as arguments, never in the script.
-    nonisolated static func waitThenOpen(pid: pid_t, app: URL, files: [URL], inBackground: Bool) -> [String] {
+    /// Launch Services can still count the old process as running for a
+    /// moment after it has gone, and then `open` fails (-10810) or hands the
+    /// files to it, so it waits a second and tries a few times, writing what
+    /// happened to `log`.
+    nonisolated static func waitThenOpen(pid: pid_t, app: URL, files: [URL], inBackground: Bool, welcome: Bool, log: URL) -> [String] {
         let script = """
-        pid="$1"; app="$2"; shift 2
+        pid="$1"; app="$2"; log="$3"; shift 3
+        exec >>"$log" 2>&1
+        echo "$(date): reopening $app once $pid has quit"
         i=0
         while kill -0 "$pid" 2>/dev/null; do
-          i=$((i + 1)); [ "$i" -gt 1200 ] && exit 1
+          i=$((i + 1)); [ "$i" -gt 1200 ] && { echo "it didn't quit"; exit 1; }
           sleep 0.1
         done
-        exec /usr/bin/open \(inBackground ? "-g " : "")-a "$app" "$@"
+        for try in 1 2 3 4 5; do
+          sleep 1
+          /usr/bin/open \(inBackground ? "-g " : "")-a "$app" "$@"\(welcome ? "" : " --args -\(noWelcomeKey) YES") && { echo "opened"; exit 0; }
+          echo "open failed, try $try"
+        done
+        exit 1
         """
-        return ["-c", script, "tandem-reopen", String(pid), app.path] + files.map(\.path)
+        return ["-c", script, "tandem-reopen", String(pid), app.path, log.path] + files.map(\.path)
     }
 }
