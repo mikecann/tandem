@@ -115,7 +115,10 @@ apply their effects to everything below, mixed in by their opacity.
   code values. The video composition carries no colour properties: with
   them AVFoundation re-tags every source frame BT.709 without converting
   it, and BT.601 footage came out with the wrong matrix (red 180/40/50 as
-  192/54/48). The compositor also attaches Core Media's 709 colour space
+  192/54/48). The compositor says it conforms source colours itself
+  (`canConformColorOfSourceFrames`), so frames arrive as decoded with
+  their own tags even when an HLG clip makes the composition HDR; HDR
+  frames go through `HDRFrames`. The compositor also attaches Core Media's 709 colour space
   to its output, as decoders do for 709 files: with the tags alone,
   AVPlayerLayer uses the exact BT.709 curve and lifts the shadows (black
   16 showed as 32 on screen, against 14 for paused stills and exports).
@@ -760,6 +763,13 @@ The spike's plain composite managed about 3.5x; the encoder is the limit.
   without converting them. And a pixel buffer tagged BT.709 with no
   `CGColorSpace` attachment shows lighter in AVPlayerLayer than the same
   pixels as a CGImage. `PlaybackMatchTests` covers both.
+- A composition with an HLG or PQ clip anywhere in it works in HLG once
+  the compositor takes HDR frames (`supportsHDRSourceFrames`), and
+  AVFoundation converts every SDR frame to HLG (BGRA, BT.2020) before the
+  compositor sees it, unless the compositor also returns true for
+  `canConformColorOfSourceFrames`. Converted there and back to SDR, Mike's
+  camera came out pink-faced and darker (skin 189/152/161 as 185/111/129,
+  25 Nov 2026). `MixedHDRColourTests` covers it.
 - A `FrameRenderer` keeps the composition it first built. The viewer makes
   a new one after every rebuild, since mattes and proxies arrive later
   than edits.
