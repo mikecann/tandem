@@ -201,8 +201,21 @@ still when it's beside it. It's one undo step.
   `tandem assets search "<name>" --kind font --online`, or pick another
   font for those titles.
 - **"This project was saved by a newer Tandem (schema 2)"**: an older
-  build opened a project a newer one saved. Update Tandem. Schema 2 is the
-  one where a title's own style always wins over its preset.
+  build opened a project a newer one saved. Usually the Tandem app is
+  still running from before the latest build was installed (restart.sh
+  won't stop it while an export or review clip renders), and the CLI, in
+  the new build, saved the project in its newer schema. `tandem status`
+  then warns that the app is an older build than the one installed. If
+  none of Mike's projects are open in it, `tandem quit-app` (it saves
+  what's open, and refuses while an export renders) and open the project
+  again; if some are, he clicks "Reopen to update" in its status bar.
+  An app with this fix reopens on the new build itself when nothing else
+  is open. Schema 2 is the one where a title's own style always wins over
+  its preset.
+- **`open in: nothing else` after `open "<name>.tandem"`**: the app
+  didn't take the project. Give it a few seconds, then look at the
+  warnings in `tandem status` (an older app build, above) before handing
+  back: Mike can't see a hand-back in a project the app hasn't opened.
 - **"... is QuickTime Animation, which macOS can't decode"**: stock stickers
   often come as QuickTime Animation or PNG video. Tandem converts them to
   HEVC with ffmpeg (frames and exports wait for it; `tandem media` shows

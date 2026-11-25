@@ -26,6 +26,12 @@ if pkill -f "$PATTERN" 2>/dev/null; then
   # Wait for it to go, so an `open` straight after starts the new one
   # rather than bringing the quitting one forward.
   for _ in $(seq 50); do pgrep -f "$PATTERN" >/dev/null || break; sleep 0.1; done
+  # Saying "stopped" when it hadn't left the next open bringing the old
+  # app forward again.
+  if pgrep -f "$PATTERN" >/dev/null; then
+    echo "Tandem was asked to quit but is still running after 5 seconds: it may be asking Mike about edits that won't save. Look at its window." >&2
+    exit 1
+  fi
   echo "Tandem stopped."
 else
   echo "No running Tandem instance found."

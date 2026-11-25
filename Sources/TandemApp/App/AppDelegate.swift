@@ -44,6 +44,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, EditorCommandHandling 
         let arguments = CommandLine.arguments.dropFirst().filter { !$0.hasPrefix("-") }
         let fromCommandLine = arguments.map { URL(fileURLWithPath: NSString(string: $0).expandingTildeInPath) }
             .filter { $0.pathExtension == ProjectFile.fileExtension }
+        // A rebuild installed while this runs offers to reopen on it.
+        // Before the projects open, as a failed open's alert waits here.
+        AppUpdate.shared.start()
         let urls = pendingURLs + fromCommandLine
         pendingURLs = []
         handle(urls)
@@ -75,6 +78,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, EditorCommandHandling 
         // Edits that won't save get a say first, except when a signal asked
         // (an alert would hang `kill`; the journal keeps what it can).
         if !quittingOnSignal, !ProjectDocuments.confirmUnsaved(documents.windows, quitting: true) {
+            AppUpdate.shared.quitCancelled()
             return .terminateCancel
         }
         documents.isTerminating = true
@@ -96,6 +100,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, EditorCommandHandling 
         return .terminateLater
     }
 
+    func applicationWillTerminate(_ notification: Notification) {
+        // "Reopen to update" asked for this quit; the new build opens next.
+        AppUpdate.shared.launchReplacement()
+    }
+
     /// Set when SIGTERM asked Tandem to quit.
     private var quittingOnSignal = false
 
@@ -107,10 +116,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, EditorCommandHandling 
         source.setEventHandler { [weak self] in
             MainActor.assumeIsolated {
                 self?.quittingOnSignal = true
+                // An alert's modal loop held the quit until someone answered
+                // it, and kill.sh gave up while the app ran on (a "saved by
+                // a newer Tandem" alert, 25 Nov 2026). End the alert first.
+                if NSApp.modalWindow != nil { NSApp.abortModal() }
                 // From the run loop, not from inside this main queue
                 // block, so work queued on the main actor can still run
-                // while Tandem quits.
-                NSApp.perform(#selector(NSApplication.terminate(_:)), with: nil, afterDelay: 0)
+                // while Tandem quits. In the common modes, so it runs even
+                // if another alert comes up meanwhile.
+                NSApp.perform(#selector(NSApplication.terminate(_:)), with: nil, afterDelay: 0, inModes: [.common])
             }
         }
         source.resume()

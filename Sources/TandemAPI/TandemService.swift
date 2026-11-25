@@ -1260,6 +1260,10 @@ public final class TandemService: @unchecked Sendable {
         stateLock.withLock { exports.values.sorted { $0.id < $1.id } }
     }
 
+    /// True while an agent's export or review clip renders here, which
+    /// quitting would cut off.
+    public var isRendering: Bool { !runningExports.isEmpty }
+
     private func finish(_ job: ExportJob) {
         stateLock.lock()
         exports.removeValue(forKey: job.id)

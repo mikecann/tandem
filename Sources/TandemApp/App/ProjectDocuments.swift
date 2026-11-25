@@ -102,6 +102,12 @@ final class ProjectDocuments: NSObject, NSMenuDelegate {
             recent.remove(url.path)
             recent.save()
         }
+        // Saved by a build installed since this one started: reopen on it
+        // rather than leave Mike at "saved by a newer Tandem".
+        if AppUpdate.shared.handleFailedOpen(url) {
+            if windows.isEmpty && opening.isEmpty && !isTerminating && !AppUpdate.shared.isReopening { showWelcome() }
+            return
+        }
         alert("Couldn't open \(url.lastPathComponent)", EditorModel.describe(error))
         if windows.isEmpty && opening.isEmpty && !isTerminating { showWelcome() }
     }

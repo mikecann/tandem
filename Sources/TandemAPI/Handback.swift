@@ -149,6 +149,10 @@ public struct HandbackResult: Codable, Sendable {
     public var overruled: [String]?
     /// Handed back without the checks, for this reason.
     public var unchecked: String?
+    /// Why Mike may not see it: nothing has the project open in the app,
+    /// or the app is an older build (`AppBuild.noting`). Added by the
+    /// command that asked, since an old app serving it couldn't know.
+    public var warnings: [String]?
 }
 
 extension HandbackResult: ReadableResult {
@@ -172,6 +176,7 @@ extension HandbackResult: ReadableResult {
             }
         } else if notes.isEmpty {
             lines.append("Nothing handed back is waiting (revision \(revision)): Mike has watched them all or marked them reviewed, or nothing was handed back. Hand back with tandem handback '[{\"at\": \"2:45\", \"to\": \"3:10\", \"name\": \"...\"}]' before your final message.")
+            for warning in warnings ?? [] { lines.append("Warning: \(warning)") }
             return lines.joined(separator: "\n")
         } else {
             let waiting = notes.count == 1 ? "1 thing" : "\(notes.count) things"
@@ -186,6 +191,7 @@ extension HandbackResult: ReadableResult {
                 lines.append("  Mike's comment at \(comment.time): \"\(CommentEdits.oneLine(comment.text))\"")
             }
         }
+        for warning in warnings ?? [] { lines.append("Warning: \(warning)") }
         return lines.joined(separator: "\n")
     }
 }

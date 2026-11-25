@@ -422,6 +422,12 @@ final class EditorModel {
         }
     }
 
+    /// True while an export runs or waits here, or an agent's export or
+    /// review clip renders through the API: quitting would cut it off.
+    var isRendering: Bool {
+        exports.active != nil || exports.waiting > 0 || apiHost?.service.isRendering == true
+    }
+
     /// Stops serving. Call before closing the session.
     func stopAPI() {
         apiStopped = true

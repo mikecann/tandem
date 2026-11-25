@@ -388,6 +388,29 @@ struct StatusBar: View {
                 }
                 .tip(SaveProblem.message(file: model.fileName, reason: problem))
             }
+            // A newer build was installed while this one ran (restart.sh
+            // couldn't stop it mid-export); it can't open what that build saves.
+            if AppUpdate.shared.isAvailable {
+                let update = AppUpdate.shared
+                Button {
+                    update.reopenFromStatusBar()
+                } label: {
+                    HStack(spacing: 6) {
+                        if update.isReopening {
+                            ProgressView().controlSize(.mini)
+                        } else {
+                            Circle().fill(Theme.amber.color).frame(width: 6, height: 6)
+                        }
+                        Text(update.isReopening ? "Reopening…" : "Reopen to update")
+                            .font(.ui(11, .semibold))
+                            .foregroundStyle(Theme.amber.color)
+                            .lineLimit(1)
+                    }
+                }
+                .buttonStyle(.plain)
+                .disabled(update.isReopening)
+                .tip("Tandem has been updated since it was started. Reopen it to use the new version: your projects save and open again.")
+            }
             // Agents can't reach the project: it was only ever said in a
             // message that goes, and the chip's tooltip before it went.
             if let problem = model.apiProblem {

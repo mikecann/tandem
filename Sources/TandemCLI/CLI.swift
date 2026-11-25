@@ -140,7 +140,8 @@ struct CLI {
         switch name {
         case "status":
             try args.expectPositionals(atMost: 0, command: name)
-            let status = try await client().call(StatusRequest())
+            let client = try client()
+            let status = AppBuild.noting(try await client.call(StatusRequest()), route: client.route, projectURL: client.projectURL)
             // Just the number, for scripts; --json has it as `revision` too.
             if args.has("revision") && !json {
                 StandardOutput.line(String(status.revision))
@@ -259,7 +260,9 @@ struct CLI {
             return show(try await client().call(request), json: json)
         case "handback":
             try args.expectPositionals(atMost: 1, command: name)
-            return show(try await client().call(try handbackRequest(args)), json: json)
+            let client = try client()
+            let result = try await client.call(try handbackRequest(args))
+            return show(AppBuild.noting(result, route: client.route, projectURL: client.projectURL), json: json)
         case "claims":
             try args.expectPositionals(atMost: 0, command: name)
             return show(try await client().call(ClaimsRequest(markdown: args.options["markdown"].map(absolute))), json: json)

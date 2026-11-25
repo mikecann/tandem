@@ -86,6 +86,15 @@ for link in 'https://example.com/?' 'file:///tmp/a' 'tandemx://seek?t=3'; do
   fi
 done
 
+# `tandem quit-app` runs kill.sh for the selected app. The fake app above
+# isn't running, so there's nothing to stop (and Mike's real app is never
+# matched: kill.sh only looks under TANDEM_APP_DIR).
+QUIT="$(TANDEM_APP_DIR="$APP" "$BIN/tandem" quit-app)"
+if [[ "$QUIT" != "No running Tandem instance found." ]]; then
+  echo "FAIL: tandem quit-app said '$QUIT'" >&2
+  exit 1
+fi
+
 # While an install swaps the app in, the launcher waits for it instead of
 # starting a build of its own. A copy of it with a fake setup shows which.
 LAUNCHER="$SCRATCH/launcher"
