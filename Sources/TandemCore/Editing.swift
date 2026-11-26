@@ -12,16 +12,22 @@ public enum Editing {
         var working = project
         var pending = context
         pending.defersPrivacyCoverage = true
+        // The batch's commands share what they learn about the media files,
+        // and each batch looks at the disk afresh.
+        let files = RedactionSafety.FileLookups()
+        pending.privacyFiles = files
         for (index, command) in batch.commands.enumerated() {
             do { try apply(command, to: &working, context: &pending) }
             catch let error as EditError where batch.commands.count > 1 {
                 throw EditError.invalid("command \(index + 1) of \(batch.commands.count): \(error.description)")
             }
         }
-        try RedactionSafety.requireCoverage(working, protecting: RedactionSafety.protections(in: working))
+        try RedactionSafety.requireCoverage(working, protecting: RedactionSafety.protections(in: working), files: files)
         let issues = ProjectValidator.validate(working)
         if let first = issues.first(where: { $0.severity == .error }) { throw EditError.invalid(first.message) }
         pending.defersPrivacyCoverage = context.defersPrivacyCoverage
+        // They don't outlive the batch: a context used again looks again.
+        pending.privacyFiles = context.privacyFiles
         project = working
         context = pending
         return issues
@@ -38,10 +44,28 @@ public enum Editing {
         context = pending
     }
 
+    /// Applies commands for a preview that's never committed, like a drag's
+    /// on each pointer move, with file lookups the caller keeps from one
+    /// preview to the next, so the privacy checks don't resolve and stat
+    /// every media file each time. What the preview shows is committed
+    /// later as an ordinary edit, which looks at the files again.
+    public static func preview(_ commands: [EditCommand], to project: inout Project, context: inout EditContext, files: RedactionSafety.FileLookups) throws {
+        var working = project
+        var pending = context
+        pending.privacyFiles = files
+        for command in commands { try apply(command, to: &working, context: &pending) }
+        pending.privacyFiles = context.privacyFiles
+        project = working
+        context = pending
+    }
+
     private static func applyUnchecked(_ submitted: EditCommand, to project: inout Project, context: inout EditContext) throws {
         let command = try resolvingTrackNames(in: submitted, project)
         RedactionSafety.rememberSources(&project)
-        RedactionSafety.rememberPolicies(&project, sourceFolder: context.sourceFolder)
+        // A command on its own looks at the files afresh; one in a batch or
+        // a preview shares the lookups its batch or preview made.
+        let files = context.privacyFiles ?? RedactionSafety.FileLookups()
+        RedactionSafety.rememberPolicies(&project, sourceFolder: context.sourceFolder, files: files)
         let privacyBefore = project
         // Transitions' sounds are kept in step with them after whatever
         // this command does (`TransitionSounds`).
@@ -170,7 +194,7 @@ public enum Editing {
         TransitionSounds.reconcile(&project, from: sounds, named: named, createdFrom: created, &context)
         context.placedSounds = []
         project.normalizeLinkGroups()
-        try RedactionSafety.reconcile(&project, before: privacyBefore, command: command, validateCoverage: !context.defersPrivacyCoverage, sourceFolder: context.sourceFolder, cutFrom: context.cutFrom)
+        try RedactionSafety.reconcile(&project, before: privacyBefore, command: command, validateCoverage: !context.defersPrivacyCoverage, sourceFolder: context.sourceFolder, files: files, cutFrom: context.cutFrom)
     }
 
     // MARK: - Lookups

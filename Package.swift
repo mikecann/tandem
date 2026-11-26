@@ -34,7 +34,15 @@ let package = Package(
     targets: [
         // Timeline model, time maths, edit commands, undo, persistence and the
         // project coordinator. Pure Swift plus Foundation, no media frameworks.
-        .target(name: "TandemCore", path: "Sources/TandemCore"),
+        // Optimised in debug builds too (see TandemMedia): every edit, and
+        // each pointer move of a drag's preview, runs its validation and
+        // privacy checks, and unoptimised they made a drag on a long
+        // project lag (26 Nov 2026).
+        .target(
+            name: "TandemCore",
+            path: "Sources/TandemCore",
+            swiftSettings: [.unsafeFlags(["-O"], .when(configuration: .debug))]
+        ),
         // Folder scanning, probing, pairing and the background job system
         // (proxies, transcripts, cutout mattes, voice isolation, loudness).
         .target(

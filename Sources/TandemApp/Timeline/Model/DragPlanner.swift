@@ -432,13 +432,15 @@ enum DragPlanner {
 /// Applies a batch to a copy of the project for drag previews, without the
 /// coordinator. Returns nil when the batch wouldn't apply.
 enum EditPreview {
-    static func apply(_ batch: EditBatch, to project: Project) -> Project? {
+    /// A drag passes the same `files` to each of its previews, so the
+    /// privacy checks resolve and stat the media files once per drag rather
+    /// than on every pointer move. The drop still commits through the
+    /// coordinator, which looks again.
+    static func apply(_ batch: EditBatch, to project: Project, files: RedactionSafety.FileLookups = .init()) -> Project? {
         var working = project
         var context = EditContext(seed: 1)
         do {
-            for command in batch.commands {
-                try Editing.apply(command, to: &working, context: &context)
-            }
+            try Editing.preview(batch.commands, to: &working, context: &context, files: files)
             return working
         } catch {
             return nil
