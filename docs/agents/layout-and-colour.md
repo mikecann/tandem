@@ -83,6 +83,18 @@ part of whatever's on a track. Two regions at once stack on "Privacy
 linked to the take, so the default takes the screen, camera and voice
 with them.
 
+A range can start or end partway through a clip, beside a clip that's
+already hidden or over one that is (to stack a second region on part of
+it): no need to `blade` first. An edge inside a clip goes out to the start
+of the file's own frame it falls in, so no frame is split between a hidden
+piece and a sharp one, and every frame the range shows is hidden. That can
+be a few ms off the project's frame grid (a clip placed off it, a file at
+another rate) and, on slow motion, more than a frame out. At 29.97 fps an
+edge can go nearly five frames out, to a frame that starts on an audio
+sample (times are kept to the sample). Clips of one file linked together
+at different points in its frames can't all be cut on a frame: unlink
+them first.
+
 Layouts move the copies with their picture: `applyLayout`,
 `setFormatLayout`, `tandem short` (in place or `--copy`) and `adoptFormat`
 put each copy where the clip it hides goes, cut to its region within what
