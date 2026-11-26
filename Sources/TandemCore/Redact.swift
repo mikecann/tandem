@@ -70,7 +70,8 @@ extension Editing {
     /// is linked one clip a track with the piece it hides, and ripple cuts,
     /// trims, slips and moves keep it on it.
     ///
-    /// The edges are where asked (to the frame): one less than a frame from
+    /// The edges are where asked, to the frame (of the file, inside a clip,
+    /// so no frame's split between a hidden piece and a sharp one): one less than a frame from
     /// a clip's edge goes to it, so no sliver of take is cut off, and a
     /// clip the range overlaps by less than a frame gets no copy. Past
     /// that, the take's cut where asked, and the through-edit plays
@@ -116,6 +117,15 @@ extension Editing {
             for clip in track.clips where clip.range.overlaps(range) {
                 guard let id = clip.mediaID, mediaID == nil || id == mediaID,
                       let item = p.media(id), item.hasVideo || item.kind == .image, var span = clip.range.intersection(range) else { continue }
+                // An edge inside the clip goes where one of the file's own
+                // frames starts. The copy owns every frame of the file it
+                // touches, so a cut partway through one (a clip placed off
+                // the frame grid, or a file at another rate) leaves that
+                // frame protected but sharp on the piece next to it, and the
+                // edit is refused. Sammy Cam's B-roll was cut 9 ms into one.
+                let start = span.start > clip.start ? fileFrameEdge(requested.start, of: clip, media: item, rate: rate) : span.start
+                let end = span.end < clip.end ? fileFrameEdge(requested.end, of: clip, media: item, rate: rate) : span.end
+                span = TimeRange(start: max(start, clip.start), end: max(min(end, clip.end), max(start, clip.start)))
                 // Never past the time asked for, except to a clip edge
                 // less than a frame away: that's rounding (a take tightened
                 // off the frame grid), and cutting there would leave a
@@ -171,6 +181,16 @@ extension Editing {
                 context.createdIDs.append(copy.id)
             }
         }
+    }
+
+    /// `time` on `clip` moved to where the nearest frame of its file starts,
+    /// so a cut there splits no frame between two pieces. A held frame,
+    /// a still or a variable rate file has no grid to snap to.
+    static func fileFrameEdge(_ time: Time, of clip: Clip, media: MediaItem, rate: FrameRate) -> Time {
+        guard !clip.freezeFrame, media.kind != .image, media.variableFrameRate != true else { return time.roundedToFrame(rate) }
+        let delay = media.pictureDelay ?? .zero
+        let boundary = (clip.sourceTime(atTimelineTime: time) + delay).roundedToFrame(media.frameRate ?? rate) - delay
+        return clip.start + (boundary - clip.sourceStart).scaled(by: 1 / max(clip.speed, 0.0001))
     }
 
     /// The piece, cropped down to `rect` and hidden: it keeps its file,

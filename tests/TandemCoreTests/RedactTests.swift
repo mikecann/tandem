@@ -447,6 +447,70 @@ final class RedactTests: XCTestCase {
         assertCovered(c, "Privacy (Angle 2)")
     }
 
+    /// Sammy Cam: one 30 fps night shot placed as two clips side by side on
+    /// B-roll, both a few ms off the frame grid. Its first clip redacted
+    /// fine, but a redact ending partway through the second was refused as
+    /// exposing a protected region, and so was a second region stacked on
+    /// the second's tail. Cut at the project's frame, 553.3, the take split
+    /// partway through the file's frame 88.3...88.333, which the copy then
+    /// claimed, leaving it unhidden on the piece after (or the one before).
+    func offGridBroll() throws -> ProjectCoordinator {
+        var fixture = Fixture()
+        fixture.project.media.append(MediaItem(
+            id: "med_night", path: "broll/night.mp4", kind: .video, role: .broll,
+            duration: t(510.534), frameRate: .fps30, width: 1920, height: 1080, hasVideo: true, hasAudio: true
+        ))
+        let c = ProjectCoordinator(project: fixture.project)
+        try c.run("Place", .placeMedia(mediaIDs: ["med_night"], at: t(537.557), sourceStart: t(67.5), duration: t(12.934), includeAudio: false),
+                  .placeMedia(mediaIDs: ["med_night"], at: t(550.491), sourceStart: t(85.5), duration: t(4.866), includeAudio: false))
+        XCTAssertEqual(c.clips("B-roll").map(\.range), [TimeRange(start: t(537.557), end: t(550.491)), TimeRange(start: t(550.491), end: t(555.357))])
+        return c
+    }
+
+    func testARangeEndingPartwayThroughAClipNextToAProtectedOneIsHidden() throws {
+        let c = try offGridBroll()
+        let kids = Rect(x: 0.44, y: 0.13, width: 0.13, height: 0.2)
+        try c.run("First", .redact(range: TimeRange(start: t(537.557), end: t(550.491)), rect: kids, mediaID: "med_night"))
+        try c.run("Second", .redact(range: TimeRange(start: t(550.491), end: t(553.291)), rect: Rect(x: 0.46, y: 0.18, width: 0.1, height: 0.16), mediaID: "med_night"))
+
+        let pieces = c.clips("B-roll")
+        XCTAssertEqual(pieces.map(\.range), [
+            TimeRange(start: t(537.557), end: t(550.491)), TimeRange(start: t(550.491), end: t(553.291)), TimeRange(start: t(553.291), end: t(555.357))
+        ], "cut where the file's frame 88.3 starts, not partway through it")
+        XCTAssertEqual(pieces[2].sourceStart, t(88.3))
+        XCTAssertEqual(c.clips("Privacy (B-roll)").map(\.range), Array(pieces.map(\.range).prefix(2)))
+        assertCovered(c, "Privacy (B-roll)")
+        // The tail stays sharp: no protected frame shows on it.
+        XCTAssertFalse(RedactionSafety.protections(in: c.project).flatMap(\.sources).contains { $0.end > t(88.3) + Time.overlapTolerance })
+        assertValid(c.project)
+    }
+
+    func testASecondRegionStackedOnAProtectedClipsTailIsHidden() throws {
+        let c = try offGridBroll()
+        let first = Rect(x: 0.46, y: 0.18, width: 0.1, height: 0.16)
+        try c.run("Whole", .redact(range: TimeRange(start: t(550.491), end: t(555.357)), rect: first, mediaID: "med_night"))
+        try c.run("Tail", .redact(range: TimeRange(start: t(553.291), end: t(555.357)), rect: Rect(x: 0.46, y: 0.3, width: 0.1, height: 0.1), mediaID: "med_night"))
+
+        let pieces = Array(c.clips("B-roll").map(\.range).dropFirst())
+        XCTAssertEqual(pieces, [TimeRange(start: t(550.491), end: t(553.291)), TimeRange(start: t(553.291), end: t(555.357))])
+        XCTAssertEqual(c.clips("Privacy (B-roll)").map(\.range), pieces, "the first copy cut with the take")
+        XCTAssertEqual(c.clips("Privacy (B-roll) 2").map(\.range), [TimeRange(start: t(553.291), end: t(555.357))])
+        assertCovered(c, "Privacy (B-roll)")
+        assertCovered(c, "Privacy (B-roll) 2")
+        assertValid(c.project)
+    }
+
+    func testAMidClipEdgeOffTheFilesFrameGoesToTheNearestFrameAndStillRefusesExposure() throws {
+        let c = try offGridBroll()
+        let region = Rect(x: 0.46, y: 0.18, width: 0.1, height: 0.16)
+        // 553.3 is on the project's frame grid but 9 ms into the file's frame.
+        try c.run("Hide", .redact(range: TimeRange(start: t(550.491), end: t(553.3)), rect: region, mediaID: "med_night"))
+        XCTAssertEqual(c.clips("B-roll").map(\.range).last, TimeRange(start: t(553.291), end: t(555.357)))
+        // Moving the sharp tail back over a protected frame is still refused.
+        let tail = try XCTUnwrap(c.clips("B-roll").last)
+        XCTAssertThrowsError(try c.run("Slip", .slip(clipID: tail.id, delta: t(-0.1))))
+    }
+
     func testSaysWhatsWrong() throws {
         let (_, c) = try Fixture.edited()
         let range = TimeRange(start: t(10), end: t(15))

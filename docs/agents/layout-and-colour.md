@@ -83,6 +83,13 @@ part of whatever's on a track. Two regions at once stack on "Privacy
 linked to the take, so the default takes the screen, camera and voice
 with them.
 
+A range can start or end partway through a clip, beside a clip that's
+already hidden or over one that is (to stack a second region on part of
+it): no need to `blade` first. An edge inside a clip goes to the nearest
+start of one of the file's own frames, which can be a few ms off the
+project's frame grid when the clip was placed off it or the file runs at
+another rate, so no frame is split between a hidden piece and a sharp one.
+
 Layouts move the copies with their picture: `applyLayout`,
 `setFormatLayout`, `tandem short` (in place or `--copy`) and `adoptFormat`
 put each copy where the clip it hides goes, cut to its region within what
