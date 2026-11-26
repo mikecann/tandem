@@ -238,7 +238,7 @@ extension Editing {
                 let boundary = frameStart(index)
                 let guess = timeline(boundary)
                 if guess - clip.start < near { found = clip.start; break }
-                for time in [guess - sample, guess, guess + sample] where time > clip.start && time < span.end
+                for time in [guess - sample, guess, guess + sample] where time > clip.start && time < span.end && time <= asked.start
                     && clip.sourceTime(atTimelineTime: time) == boundary {
                     found = time
                     break search
@@ -260,7 +260,7 @@ extension Editing {
                 let boundary = frameStart(index)
                 let guess = timeline(boundary)
                 if clip.end - guess < near { found = clip.end; break }
-                for time in [guess - sample, guess, guess + sample] where time > start
+                for time in [guess - sample, guess, guess + sample] where time > start && time >= asked.end
                     && sourceEnd(time) <= boundary && clip.sourceTime(atTimelineTime: time) >= boundary {
                     found = time
                     break search

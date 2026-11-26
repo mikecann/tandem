@@ -624,6 +624,18 @@ final class RedactTests: XCTestCase {
         for track in ["Privacy (Screen)", "Privacy (Camera)", "Privacy (B-roll)"] { assertCovered(c, track) }
     }
 
+    func testAStartNeverMovesIntoTheRangeOnTheSlowestClip() throws {
+        // At the slowest speed a source sample is most of a timeline frame,
+        // so the sample a frame starts on can sit inside the range.
+        let c = try oneClip(.fps30, speed: 0.0001, sourceStart: Time(flicks: 1599 * Time.flicksPerSample48k))
+        do {
+            try c.run("Hide", .redact(range: TimeRange(start: t(4.0 / 30), end: t(3)), rect: email, mediaID: "med_clip"))
+            XCTAssertLessThanOrEqual(try XCTUnwrap(c.clips("Privacy (B-roll)").first).start, t(4.0 / 30))
+        } catch {
+            XCTAssertTrue("\(error)".contains("Couldn't start the redaction"), "\(error)")
+        }
+    }
+
     func testLinkedClipsOfOneFileAtDifferentPointsInItsFramesSayToUnlinkThem() throws {
         let c = try oneClip(.fps30)
         let screen = try XCTUnwrap(c.project.track(named: "Screen"))
