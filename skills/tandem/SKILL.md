@@ -584,6 +584,7 @@ From his review comments on the Daytona and Build Your Own Convex videos
   on the same open. Typing in built B-roll goes at a speed you could read
   along to, and transitions stay as calm as his delivery. (Demos where speed
   is the point still play in real time, below.)
+- **Before the first hand-back of a long edit, get it reviewed by fresh eyes.** Sub-agents, one per 3 to 5 minute stretch, each read the rules themselves and judge every line against the frames on screen, then you fix what they find (the brief and the steps after it: `~/dev/convex/convex-videos/tools/edit-review/BRIEF.md`). On Sammy Cam that turned "I'm not all that happy with the job" into "wow, it is so much better now... even if that takes longer, burns more tokens... it's 100% worth it" (26 Nov 2026).
 - **What happens inside the shot lands on his word, too.** Edges on cuts aren't enough: on Sammy Cam the dog was still on the floor on "there's Sammy on the sofa" ("The timing is all way off here. You're not showing Sammy on the sofa when I say it", 25 Nov 2026). Slip the source so the action (a hop, a dent, a click, a highlight) lands on the word that names it, and never speed a graphic or recording up or down to fill a gap: cue each element to its word at 1.0x and cut back to his face for the rest.
 - **B-roll starts and ends on sentence boundaries:** the take's cuts, or a
   real pause between words. Never 0.2 s off a cut or mid-word. If less than
@@ -1415,7 +1416,9 @@ minutes over three rounds. What his comments asked for:
   zoomed in"). Text-aware upscaling is being looked at separately.
 - **Gags he asked for:** a Windows logo with a crying emoji popping up on
   "sorry Windows users"; a cartoon of his Mac mini Bruce as an Aussie bloke
-  in a cork hat (Codex image tool); the pairing QR code replaced with a
+  in a cork hat (Codex image tool), who from Sammy Cam on says "G'day mate!"
+  every time he appears (`shared:Sound effects/Bruce/Bruce says G'day
+  mate.wav`, just after Mike says "Bruce"); the pairing QR code replaced with a
   Rickroll QR rather than blurred ("it'd be funny to see if anybody actually
   tries scanning that QR code").
 - **The outro, as usual:** a title-less `Convex wipe` segment before the
