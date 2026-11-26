@@ -91,8 +91,9 @@ piece and a sharp one, and every frame the range shows is hidden. That can
 be a few ms off the project's frame grid (a clip placed off it, a file at
 another rate) and, on slow motion, more than a frame out. At 29.97 fps an
 edge can go nearly five frames out, to a frame that starts on an audio
-sample (times are kept to the sample). Clips of one file linked together at different points in
-its frames can't all be cut on a frame: unlink them first.
+sample (times are kept to the sample). Clips of one file linked together
+at different points in its frames can't all be cut on a frame: unlink
+them first.
 
 Layouts move the copies with their picture: `applyLayout`,
 `setFormatLayout`, `tandem short` (in place or `--copy`) and `adoptFormat`
