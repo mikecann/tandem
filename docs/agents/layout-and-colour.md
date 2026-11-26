@@ -85,10 +85,14 @@ with them.
 
 A range can start or end partway through a clip, beside a clip that's
 already hidden or over one that is (to stack a second region on part of
-it): no need to `blade` first. An edge inside a clip goes to the nearest
-start of one of the file's own frames, which can be a few ms off the
-project's frame grid when the clip was placed off it or the file runs at
-another rate, so no frame is split between a hidden piece and a sharp one.
+it): no need to `blade` first. An edge inside a clip goes out to the start
+of the file's own frame it falls in, so no frame is split between a hidden
+piece and a sharp one, and every frame the range shows is hidden. That can
+be a few ms off the project's frame grid (a clip placed off it, a file at
+another rate) and, on slow motion, more than a frame out. At 29.97 fps an
+end edge can go up to four frames further, to a frame that starts on an
+audio sample. Clips of one file linked together at different points in
+its frames can't all be cut on a frame: unlink them first.
 
 Layouts move the copies with their picture: `applyLayout`,
 `setFormatLayout`, `tandem short` (in place or `--copy`) and `adoptFormat`
