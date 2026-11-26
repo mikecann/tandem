@@ -172,15 +172,15 @@ extension Editing {
                 // cut suits both: the piece has an edge that's neither the
                 // clip's nor the range's.
                 guard let here = p[at].clip(at: target.span.start) else { throw EditError.notFound("clip \(target.clipID)") }
-                if here.end < target.span.end || ![target.span.start, target.clip.start].contains(here.start) || ![target.span.end, target.clip.end].contains(here.end) {
-                    throw EditError.invalid("\(here.name ?? here.id) on \"\(p[at].name)\" is linked to another clip being hidden whose frames fall at different times, so no cut splits both on a frame. Unlink them first.")
-                }
                 // A piece whose head was cut maps its time to the file's a
                 // sample differently on a slowed or sped up clip, so its end
                 // is worked out again from the piece.
                 var span = target.span
                 if here.id != target.clipID, let item = here.mediaID.flatMap(p.media) {
-                    span = try fileFrameSpan(span, asked: requested, of: here, media: item, rate: rate)
+                    span = try fileFrameSpan(span, asked: requested, of: here, media: item, rate: rate, snapToEdges: false)
+                }
+                if here.end < span.end || ![span.start, target.clip.start].contains(here.start) || ![span.end, target.clip.end].contains(here.end) {
+                    throw EditError.invalid("\(here.name ?? here.id) on \"\(p[at].name)\" is linked to another clip being hidden whose frames fall at different times, so no cut splits both on a frame. Unlink them first.")
                 }
                 var piece = try SyncedPlacement.isolate(&p, clipID: here.id, to: span, on: at, &context)
                 if piece.linkGroup == nil, let index = p[at].index(ofClip: piece.id) {
@@ -199,67 +199,75 @@ extension Editing {
     }
 
     /// `span` with each edge inside `clip` moved out to the start of the
-    /// file frame the edge `asked` for falls in (or the one it's within a
-    /// millisecond of), so no frame is split between the hidden piece and
-    /// a sharp one beside it, with the pieces' source times worked out as
-    /// `blade` will make them. A held frame, a still or a variable rate
-    /// file keeps `span`. An edge that comes within a frame of the clip's
-    /// goes to it, as in `redact`.
-    static func fileFrameSpan(_ span: TimeRange, asked: TimeRange, of clip: Clip, media: MediaItem, rate: FrameRate) throws -> TimeRange {
+    /// file frame the edge `asked` for falls in (the one after, for an end
+    /// edge), so no frame is split between the hidden piece and a sharp one
+    /// beside it and every frame the range shows is hidden, with the
+    /// pieces' source times worked out as `blade` will make them. A held
+    /// frame, a still or a variable rate file keeps `span`. An edge that
+    /// comes within a frame of the clip's goes to it, as in `redact`, unless
+    /// `snapToEdges` is off: a piece's edge cut for another clip isn't one
+    /// to move to, as it may split one of this clip's frames.
+    ///
+    /// The pieces either side of a cut have to meet exactly at the frame's
+    /// start: one that ends inside a frame owns it once it's hidden, and
+    /// one that starts inside the frame before shows that for a whole
+    /// frame. Times are kept to the 48 kHz sample, where a 29.97 fps frame
+    /// starts only every fifth frame, so an edge goes on out to the first
+    /// frame start a sample lands on.
+    static func fileFrameSpan(_ span: TimeRange, asked: TimeRange, of clip: Clip, media: MediaItem, rate: FrameRate, snapToEdges: Bool = true) throws -> TimeRange {
         guard !clip.freezeFrame, media.kind != .image, media.variableFrameRate != true else { return span }
         let fileRate = media.frameRate ?? rate
         let delay = media.pictureDelay ?? .zero
-        // A millisecond on the timeline, in the file's time: on slow
-        // motion, more would leave a frame the range shows unhidden.
-        let tolerance = Time.overlapTolerance.scaled(by: min(1, max(clip.speed, 0)))
         let sample = Time(flicks: Time.flicksPerSample48k)
         let speed = max(clip.speed, 0.0001)
-        let steps = 4 + Int((1 / speed).rounded(.up)) + Int(speed.rounded(.up))
+        let near = snapToEdges ? rate.frameDuration : sample
         func timeline(_ source: Time) -> Time { clip.start + (source - clip.sourceStart).scaled(by: 1 / speed) }
         func frameStart(_ index: Int64) -> Time { Time.frames(index, at: fileRate) - delay }
+        // At some speeds of a 29.97 fps file no sample lands on a frame
+        // start for a while. A cut anywhere else would be refused as
+        // exposing the frame it splits, so say why here.
+        func unreachable(_ edge: String, _ time: Time) -> EditError {
+            EditError.invalid("Couldn't \(edge) the redaction of \(clip.name ?? clip.id) on a frame of its file near \(time): at its speed of \(clip.speed)x, no frame there starts on an audio sample, where times are kept. Move that edge a little, or to the clip's edge.")
+        }
 
         var start = span.start
         if start > clip.start {
-            let boundary = frameStart((clip.sourceTime(atTimelineTime: asked.start) + delay + tolerance).frameIndex(at: fileRate))
-            // The first sample at or past the frame's start. The piece
-            // before may keep under a sample of the frame, which no check
-            // or render can see, but the copy owns none of the one before.
-            start = timeline(boundary)
-            for _ in 0..<steps where clip.sourceTime(atTimelineTime: start) < boundary { start += sample }
-            for _ in 0..<steps where clip.sourceTime(atTimelineTime: start - sample) >= boundary { start -= sample }
-            // Out to the clip's edge rather than leave a sliver of take.
-            if start - clip.start < rate.frameDuration { start = clip.start }
+            let first = (clip.sourceTime(atTimelineTime: asked.start) + delay).frameIndex(at: fileRate)
+            var found: Time?
+            search: for index in stride(from: first, to: first - 8, by: -1) {
+                let boundary = frameStart(index)
+                let guess = timeline(boundary)
+                if guess - clip.start < near { found = clip.start; break }
+                for time in [guess - sample, guess, guess + sample] where time > clip.start && time < span.end
+                    && clip.sourceTime(atTimelineTime: time) == boundary {
+                    found = time
+                    break search
+                }
+            }
+            guard let found else { throw unreachable("start", asked.start) }
+            start = found
         }
         var end = span.end
         if end < clip.end {
-            let first = (clip.sourceTime(atTimelineTime: asked.end) + delay - tolerance - Time(flicks: 1)).frameIndex(at: fileRate) + 1
+            let first = (clip.sourceTime(atTimelineTime: asked.end) + delay - Time(flicks: 1)).frameIndex(at: fileRate) + 1
             // The piece's source end as `blade` makes it: the end cut first,
-            // then the head moved to `start`, its source from there.
+            // then the head moved to `start`, its source from there. The
+            // piece after starts at the original's source there.
             let head = start > clip.start ? clip.sourceTime(atTimelineTime: start) : clip.sourceStart
             func sourceEnd(_ time: Time) -> Time { head + (time - start).scaled(by: clip.speed) }
-            // The piece has to end by the frame's start, and the piece after
-            // start at it: a first frame from before it holds for a whole
-            // frame. Times are kept to the 48 kHz sample, where a 29.97 fps
-            // frame starts only every fifth frame, so the cut goes on out to
-            // the first frame start a sample lands on.
             var found: Time?
             search: for index in first..<(first + 8) {
                 let boundary = frameStart(index)
                 let guess = timeline(boundary)
-                if clip.end - guess < rate.frameDuration { found = clip.end; break }
+                if clip.end - guess < near { found = clip.end; break }
                 for time in [guess - sample, guess, guess + sample] where time > start
                     && sourceEnd(time) <= boundary && clip.sourceTime(atTimelineTime: time) >= boundary {
                     found = time
                     break search
                 }
             }
-            // At some speeds of a 29.97 fps file no sample lands on a frame
-            // start for a while. A cut anywhere else would be refused as
-            // exposing the frame it splits, so say why here.
-            guard let found else {
-                throw EditError.invalid("Couldn't end the redaction of \(clip.name ?? clip.id) on a frame of its file near \(asked.end): at its speed of \(clip.speed)x, no frame there starts on an audio sample, where times are kept. End the range at the clip's end, or a little later or earlier.")
-            }
-            end = clip.end - found < rate.frameDuration ? clip.end : found
+            guard let found else { throw unreachable("end", asked.end) }
+            end = found
         }
         return end > start ? TimeRange(start: start, end: end) : span
     }
