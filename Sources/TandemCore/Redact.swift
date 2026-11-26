@@ -110,7 +110,7 @@ extension Editing {
         }
 
         // What to hide, by ID, since the tracks move as privacy tracks are added.
-        struct Target { var trackID: String; var clipID: String; var span: TimeRange }
+        struct Target { var trackID: String; var clipID: String; var clip: TimeRange; var span: TimeRange }
         var targets: [Target] = []
         for location in sources {
             let track = p[location]
@@ -138,7 +138,7 @@ extension Editing {
                 // off the frame grid, or a file at another rate) left that
                 // frame protected but sharp on the piece beside it, and the
                 // edit was refused. Sammy Cam's B-roll was cut 9 ms into one.
-                span = fileFrameSpan(span, asked: requested, of: clip, media: item, rate: rate)
+                span = try fileFrameSpan(span, asked: requested, of: clip, media: item, rate: rate)
                 // A format's own crop replaces the main one there, so the
                 // region's only already hidden when every layout crops it out.
                 let mainCrop = widestCrop(of: clip, override: nil)
@@ -147,7 +147,7 @@ extension Editing {
                     context.warn("Left \(clip.name ?? clip.id) on \"\(track.name)\" alone: its crop already hides that region.")
                     continue
                 }
-                targets.append(Target(trackID: track.id, clipID: clip.id, span: span))
+                targets.append(Target(trackID: track.id, clipID: clip.id, clip: clip.range, span: span))
             }
         }
         guard !targets.isEmpty else {
@@ -166,13 +166,16 @@ extension Editing {
             for target in targets where target.trackID == sourceID {
                 guard let at = p.location(ofTrack: sourceID) else { throw EditError.notFound("track \(sourceID)") }
                 // A clip linked to one cut earlier in this loop has been cut
-                // at that one's edges. Each clip's are on its own file's
-                // frames, so when the two sit at different points in their
-                // frames, no cut suits both.
-                if let here = p[at].clip(at: target.span.start), here.end < target.span.end || (here.id != target.clipID && here.range != target.span) {
+                // at that one's edges, so it's the piece there that's cut
+                // again. Each clip's edges are on its own file's frames, so
+                // when the two sit at different points in their frames, no
+                // cut suits both: the piece has an edge that's neither the
+                // clip's nor the range's.
+                guard let here = p[at].clip(at: target.span.start) else { throw EditError.notFound("clip \(target.clipID)") }
+                if here.end < target.span.end || ![target.span.start, target.clip.start].contains(here.start) || ![target.span.end, target.clip.end].contains(here.end) {
                     throw EditError.invalid("\(here.name ?? here.id) on \"\(p[at].name)\" is linked to another clip being hidden whose frames fall at different times, so no cut splits both on a frame. Unlink them first.")
                 }
-                var piece = try SyncedPlacement.isolate(&p, clipID: target.clipID, to: target.span, on: at, &context)
+                var piece = try SyncedPlacement.isolate(&p, clipID: here.id, to: target.span, on: at, &context)
                 if piece.linkGroup == nil, let index = p[at].index(ofClip: piece.id) {
                     piece.linkGroup = context.makeID("lnk")
                     p[at].clips[index].linkGroup = piece.linkGroup
@@ -195,11 +198,13 @@ extension Editing {
     /// `blade` will make them. A held frame, a still or a variable rate
     /// file keeps `span`. An edge that comes within a frame of the clip's
     /// goes to it, as in `redact`.
-    static func fileFrameSpan(_ span: TimeRange, asked: TimeRange, of clip: Clip, media: MediaItem, rate: FrameRate) -> TimeRange {
+    static func fileFrameSpan(_ span: TimeRange, asked: TimeRange, of clip: Clip, media: MediaItem, rate: FrameRate) throws -> TimeRange {
         guard !clip.freezeFrame, media.kind != .image, media.variableFrameRate != true else { return span }
         let fileRate = media.frameRate ?? rate
         let delay = media.pictureDelay ?? .zero
-        let tolerance = Time.overlapTolerance
+        // A millisecond on the timeline, in the file's time: on slow
+        // motion, more would leave a frame the range shows unhidden.
+        let tolerance = Time.overlapTolerance.scaled(by: min(1, max(clip.speed, 0)))
         let sample = Time(flicks: Time.flicksPerSample48k)
         let speed = max(clip.speed, 0.0001)
         let steps = 4 + Int((1 / speed).rounded(.up)) + Int(speed.rounded(.up))
@@ -230,18 +235,24 @@ extension Editing {
             // frame. Times are kept to the 48 kHz sample, where a 29.97 fps
             // frame starts only every fifth frame, so the cut goes on out to
             // the first frame start a sample lands on.
-            end = timeline(frameStart(first))
+            var found: Time?
             search: for index in first..<(first + 8) {
                 let boundary = frameStart(index)
                 let guess = timeline(boundary)
-                if clip.end - guess < rate.frameDuration { end = clip.end; break }
+                if clip.end - guess < rate.frameDuration { found = clip.end; break }
                 for time in [guess - sample, guess, guess + sample] where time > start
                     && sourceEnd(time) <= boundary && clip.sourceTime(atTimelineTime: time) >= boundary {
-                    end = time
+                    found = time
                     break search
                 }
             }
-            if clip.end - end < rate.frameDuration { end = clip.end }
+            // At some speeds of a 29.97 fps file no sample lands on a frame
+            // start for a while. A cut anywhere else would be refused as
+            // exposing the frame it splits, so say why here.
+            guard let found else {
+                throw EditError.invalid("Couldn't end the redaction of \(clip.name ?? clip.id) on a frame of its file near \(asked.end): at its speed of \(clip.speed)x, no frame there starts on an audio sample, where times are kept. End the range at the clip's end, or a little later or earlier.")
+            }
+            end = clip.end - found < rate.frameDuration ? clip.end : found
         }
         return end > start ? TimeRange(start: start, end: end) : span
     }

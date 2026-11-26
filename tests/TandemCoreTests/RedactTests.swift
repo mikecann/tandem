@@ -518,14 +518,14 @@ final class RedactTests: XCTestCase {
     }
 
     /// One file, 3 s of it from its start on B-roll.
-    func oneClip(_ rate: FrameRate, speed: Double? = nil) throws -> ProjectCoordinator {
+    func oneClip(_ rate: FrameRate, speed: Double? = nil, sourceStart: Time = .zero, duration: Time = t(3)) throws -> ProjectCoordinator {
         var fixture = Fixture()
         fixture.project.media.append(MediaItem(
             id: "med_clip", path: "broll/clip.mp4", kind: .video, role: .broll,
             duration: t(60), frameRate: rate, width: 1920, height: 1080, hasVideo: true, hasAudio: false
         ))
         let c = ProjectCoordinator(project: fixture.project)
-        try c.run("Place", .placeMedia(mediaIDs: ["med_clip"], at: .zero, sourceStart: .zero, duration: t(3), includeAudio: false, speed: speed))
+        try c.run("Place", .placeMedia(mediaIDs: ["med_clip"], at: .zero, sourceStart: sourceStart, duration: duration, includeAudio: false, speed: speed))
         return c
     }
 
@@ -556,6 +556,37 @@ final class RedactTests: XCTestCase {
         let copy = try XCTUnwrap(c.clips("Privacy (B-roll)").first)
         XCTAssertLessThanOrEqual(copy.start, t(0.2))
         XCTAssertGreaterThanOrEqual(copy.end, t(1.0))
+        assertCovered(c, "Privacy (B-roll)")
+    }
+
+    func testAFrameShownInTheRangeIsHiddenOnVerySlowMotionToo() throws {
+        // A millisecond's leeway at the edge, taken in the file's time, is
+        // a tenth of a second on the timeline at 1%: the frame at 1.0 was left sharp.
+        let c = try oneClip(.fps30, speed: 0.01, sourceStart: t(0.0235))
+        try c.run("Hide", .redact(range: TimeRange(start: t(0.2), end: t(1.0333333)), rect: email, mediaID: "med_clip"))
+        let copy = try XCTUnwrap(c.clips("Privacy (B-roll)").first)
+        XCTAssertLessThanOrEqual(copy.start, t(0.2))
+        XCTAssertGreaterThan(copy.end, t(1.0))
+        assertCovered(c, "Privacy (B-roll)")
+    }
+
+    func testAnEndNoSampleLandsNearOnAFrameStartSaysSo() throws {
+        // 29.97 fps at 0.9x: none of the next eight frame starts falls on a sample.
+        let c = try oneClip(FrameRate(30000, 1001), speed: 0.9)
+        XCTAssertThrowsError(try c.run("Hide", .redact(range: TimeRange(start: t(0.4), end: t(0.7666667)), rect: email, mediaID: "med_clip"))) { error in
+            XCTAssertTrue("\(error)".contains("Couldn't end the redaction"), "\(error)")
+        }
+    }
+
+    func testLinkedClipsOfOneFileInStepButOfDifferentLengthsAreBothHidden() throws {
+        let c = try oneClip(.fps30, duration: t(4))
+        let screen = try XCTUnwrap(c.project.track(named: "Screen"))
+        try c.run("Again", .placeMedia(mediaIDs: ["med_clip"], at: .zero, sourceStart: .zero, duration: t(3), videoTrackID: screen.id, includeAudio: false))
+        try c.run("Link", .link(clipIDs: [c.clips("B-roll")[0].id, c.clips("Screen")[0].id]))
+        try c.run("Hide", .redact(range: TimeRange(start: t(1), end: t(3.5)), rect: email, mediaID: "med_clip"))
+        XCTAssertEqual(c.clips("Privacy (Screen)").map(\.range), [TimeRange(start: t(1), end: t(3))])
+        XCTAssertEqual(c.clips("Privacy (B-roll)").map(\.range), [TimeRange(start: t(1), end: t(3.5))])
+        assertCovered(c, "Privacy (Screen)")
         assertCovered(c, "Privacy (B-roll)")
     }
 
