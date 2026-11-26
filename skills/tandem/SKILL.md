@@ -1115,6 +1115,14 @@ scripts and the speaker tracker are in
   repeating it: "we don't need to
   show the question on the screen... because it should get asked at the start
   of the video anyway" (Mike, 4 Nov 2026). Keep the small name line.
+- **Never share the same opening clip across two Shorts in a batch.** On the
+  Abstract Fireside batch, Fireside 1 and Fireside 2 both opened with the exact
+  same ~15 s question/setup from Luke and Meagan; because Instagram auto-picks
+  an early cover frame and autoplays the opening, Sophie flagged Nov 12 as a
+  duplicate upload of Nov 9 even though the clips were completely different
+  (26 Nov 2026). Give every Short from the same talk or interview its own
+  distinct opening shot/question (never reuse the same opening stretch of
+  source timecode across two Shorts).
 - **The filmmaker's own insets are crops too.** Seth's master cut to a tall
   "audience cam" phone inset on the left while people typed on calculators:
   it's nearly 9:16 already, so crop straight onto it, and back to the speaker
