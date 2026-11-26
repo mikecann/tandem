@@ -1418,7 +1418,9 @@ minutes over three rounds. What his comments asked for:
   "sorry Windows users"; a cartoon of his Mac mini Bruce as an Aussie bloke
   in a cork hat (Codex image tool), who from Sammy Cam on says "G'day mate!"
   every time he appears (`shared:Sound effects/Bruce/Bruce says G'day
-  mate.wav`, the moment he lands on screen, at `normalizeTo: -26`); the pairing QR code replaced with a
+  mate.wav`, the moment he lands on screen, at `normalizeTo: -26`, but
+  not again within a minute or so: "a couple too many... might get a bit
+  annoying"); the pairing QR code replaced with a
   Rickroll QR rather than blurred ("it'd be funny to see if anybody actually
   tries scanning that QR code").
 - **The outro, as usual:** a title-less `Convex wipe` segment before the
