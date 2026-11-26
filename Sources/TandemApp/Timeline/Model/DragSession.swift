@@ -14,6 +14,8 @@ struct DragSession {
     private(set) var preview: Project?
     /// Pixels moved, for telling a click from a drag.
     private(set) var distance: CGFloat = 0
+    /// The privacy checks' file lookups, shared by every preview.
+    private let files = RedactionSafety.FileLookups()
 
     init(kind: DragKind, context: DragContext) {
         self.kind = kind
@@ -29,7 +31,7 @@ struct DragSession {
             preview = nil
             return
         }
-        if let applied = EditPreview.apply(batch, to: context.project) {
+        if let applied = EditPreview.apply(batch, to: context.project, files: files) {
             plan = candidate
             preview = applied
         }

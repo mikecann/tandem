@@ -58,13 +58,146 @@ public enum RedactionSafety {
     }
 
     static func matches(_ scope: SourceRedaction, _ item: MediaItem, in p: Project) -> Bool {
-        if scope.matches(item) { return true }
-        let owners = Set([scope.mediaID] + (scope.identities ?? []).map(\.mediaID))
-        return p.media.contains { current in
-            owners.contains(current.id) && ((current.fingerprint?.isEmpty == false && current.fingerprint == item.fingerprint)
-                || (current.path as NSString).standardizingPath == (item.path as NSString).standardizingPath)
+        Matcher(scope, in: p).matches(item)
+    }
+
+    /// `matches(scope, item, in:)` for many items. Asking it of one item
+    /// looks through every media item for the scope's owners, so a check
+    /// over every clip or file was quadratic: a 578-file project spent two
+    /// seconds of each edit here, on every pointer move of a drag. This
+    /// works the owners' ids, fingerprints and paths out once.
+    struct Matcher {
+        private var ids: Set<String>
+        private var fingerprints: Set<String> = []
+        private var paths: Set<String>
+
+        init(_ scope: SourceRedaction, in p: Project) {
+            let identities = scope.identities ?? []
+            ids = Set([scope.mediaID] + identities.map(\.mediaID))
+            paths = Set(([scope.sourcePath] + identities.map(\.path)).map(Self.standard))
+            for fingerprint in [scope.fingerprint] + identities.map(\.fingerprint) { add(fingerprint) }
+            for current in p.media where ids.contains(current.id) {
+                add(current.fingerprint)
+                paths.insert(Self.standard(current.path))
+            }
+        }
+
+        private mutating func add(_ fingerprint: String?) {
+            if let fingerprint, !fingerprint.isEmpty { fingerprints.insert(fingerprint) }
+        }
+
+        private static func standard(_ path: String) -> String { (path as NSString).standardizingPath }
+
+        func matches(_ item: MediaItem) -> Bool {
+            ids.contains(item.id) || item.fingerprint.map(fingerprints.contains) == true || paths.contains(Self.standard(item.path))
         }
     }
+
+    /// What the privacy checks learn about media files, kept for one batch
+    /// or one drag. Every pass over the policies resolves and stats each
+    /// media file to find aliases of a protected one, and compares every
+    /// file's path with the policy's; a drag's preview makes a pass or two
+    /// on each pointer move. Within a batch or a drag the files don't
+    /// change, so each policy's answers are reused while the project's media
+    /// list is the same. `Editing.apply(_ batch:)` starts each batch with new
+    /// ones, so a committed edit always looks at the disk again.
+    ///
+    /// Paths are keyed and compared by their bytes, as the file system sees
+    /// them, not as Swift strings: those treat composed and decomposed
+    /// accents as equal, and a few volumes don't.
+    public final class FileLookups: @unchecked Sendable {
+        /// The parts of a policy that say which files are its source.
+        private struct Key: Equatable {
+            var mediaID: String
+            var fingerprint: String?
+            var identities: [RedactionSourceIdentity]?
+            /// The policy's and its identities' paths, and the folder
+            /// relative paths resolve in.
+            var paths: [[UInt8]]
+
+            init(_ scope: SourceRedaction, folder: URL?) {
+                mediaID = scope.mediaID
+                fingerprint = scope.fingerprint
+                identities = scope.identities
+                paths = ([scope.sourcePath] + (scope.identities ?? []).map(\.path) + [folder?.path ?? ""]).map { Array($0.utf8) }
+            }
+        }
+
+        private struct Answer<Value> {
+            let key: Key
+            let media: [MediaItem]
+            let value: Value
+
+            func answers(_ key: Key, _ media: [MediaItem]) -> Bool {
+                // Equal arrays sharing storage compare at once.
+                self.key == key && self.media == media
+                    && zip(self.media, media).allSatisfy { $0.path.utf8.elementsEqual($1.path.utf8) }
+            }
+        }
+
+        private let lock = NSLock()
+        // Not keyed by URLs: making or hashing one can touch the disk too.
+        private var urls: [[UInt8]: URL] = [:]
+        private var fileIDs: [[UInt8]: String?] = [:]
+        private var matching: [Answer<[Bool]>] = []
+        private var remembered: [Answer<[RedactionSourceIdentity]?>] = []
+        /// Answers kept of each kind: two or so for each protected file.
+        private static let capacity = 256
+
+        public init() {}
+
+        /// Where relative paths resolve: the project's folder, or failing
+        /// that the current directory, as `resolved` uses.
+        private static func folder(_ sourceFolder: URL?) -> URL {
+            sourceFolder ?? URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true)
+        }
+
+        func resolved(_ path: String, in sourceFolder: URL?) -> URL {
+            let expanded = (path as NSString).expandingTildeInPath
+            let relative = !expanded.hasPrefix("/")
+            let base = relative ? Self.folder(sourceFolder) : nil
+            let key = Array((base?.path ?? "").utf8) + [0] + Array(path.utf8)
+            if let known = lock.withLock({ urls[key] }) { return known }
+            let url = base.map { $0.appendingPathComponent(expanded) } ?? URL(fileURLWithPath: expanded)
+            let found = url.resolvingSymlinksInPath().standardizedFileURL
+            lock.withLock { urls[key] = found }
+            return found
+        }
+
+        func identity(_ url: URL) -> String? {
+            let key = Array(url.path.utf8)
+            if let known = lock.withLock({ fileIDs[key] }) { return known }
+            let found = RedactionSafety.fileIdentity(at: url)
+            lock.withLock { fileIDs[key] = found }
+            return found
+        }
+
+        /// Which of `p.media` the policy covers (`matches`), by index.
+        func matching(_ scope: SourceRedaction, in p: Project) -> [Bool] {
+            let key = Key(scope, folder: nil)
+            if let known = lock.withLock({ matching.first { $0.answers(key, p.media) } }) { return known.value }
+            let matcher = Matcher(scope, in: p)
+            let found = p.media.map(matcher.matches)
+            lock.withLock { Self.keep(Answer(key: key, media: p.media, value: found), in: &matching) }
+            return found
+        }
+
+        /// The policy's identities once `rememberIdentities` has looked
+        /// through `p.media`.
+        func identities(_ scope: SourceRedaction, in p: Project, sourceFolder: URL?, work: () -> [RedactionSourceIdentity]?) -> [RedactionSourceIdentity]? {
+            let key = Key(scope, folder: Self.folder(sourceFolder))
+            if let known = lock.withLock({ remembered.first { $0.answers(key, p.media) } }) { return known.value }
+            let found = work()
+            lock.withLock { Self.keep(Answer(key: key, media: p.media, value: found), in: &remembered) }
+            return found
+        }
+
+        private static func keep<Value>(_ answer: Answer<Value>, in list: inout [Answer<Value>]) {
+            list.append(answer)
+            if list.count > capacity { list.removeFirst(list.count - capacity) }
+        }
+    }
+
     public static func effect(on clip: Clip) -> Effect? {
         let effects = clip.video?.effects ?? []
         let preferred = effects.filter { $0.id == clip.video?.redactionEffectID }
@@ -203,41 +336,39 @@ public enum RedactionSafety {
         }
     }
 
-    static func rememberIdentities(_ scope: inout SourceRedaction, in p: Project, sourceFolder: URL?) {
-        var identities = scope.identities ?? []
-        func resolved(_ path: String) -> URL {
-            let expanded = (path as NSString).expandingTildeInPath
-            let url = expanded.hasPrefix("/") ? URL(fileURLWithPath: expanded)
-                : (sourceFolder ?? URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true)).appendingPathComponent(expanded)
-            return url.resolvingSymlinksInPath().standardizedFileURL
+    static func rememberIdentities(_ scope: inout SourceRedaction, in p: Project, sourceFolder: URL?, files lookups: FileLookups) {
+        let policy = scope
+        scope.identities = lookups.identities(policy, in: p, sourceFolder: sourceFolder) {
+            var identities = policy.identities ?? []
+            let owners = Set([policy.mediaID] + identities.map(\.mediaID))
+            let paths = [policy.sourcePath] + identities.map(\.path) + p.media.filter { owners.contains($0.id) }.map(\.path)
+            let files = Set(paths.map { lookups.resolved($0, in: sourceFolder) })
+            let fileIDs = Set(identities.compactMap(\.fileIdentity) + files.compactMap { lookups.identity($0) })
+            let matching = lookups.matching(policy, in: p)
+            for (index, item) in p.media.enumerated() {
+                let url = lookups.resolved(item.path, in: sourceFolder)
+                let fileID = lookups.identity(url)
+                guard matching[index] || files.contains(url) || fileID.map(fileIDs.contains) == true else { continue }
+                let identity = RedactionSourceIdentity(mediaID: item.id, path: item.path, fingerprint: item.fingerprint, fileIdentity: fileID)
+                let sameReference: (RedactionSourceIdentity) -> Bool = { $0.mediaID == item.id && $0.path == item.path && $0.fingerprint == item.fingerprint }
+                if fileID == nil, identities.contains(where: sameReference) { continue }
+                if let index = identities.firstIndex(where: { sameReference($0) && $0.fileIdentity == nil }) { identities[index] = identity }
+                else if !identities.contains(identity) { identities.append(identity) }
+            }
+            return identities.isEmpty ? nil : identities
         }
-        let owners = Set([scope.mediaID] + identities.map(\.mediaID))
-        let paths = [scope.sourcePath] + identities.map(\.path) + p.media.filter { owners.contains($0.id) }.map(\.path)
-        let files = Set(paths.map(resolved))
-        let fileIDs = Set(identities.compactMap(\.fileIdentity) + files.compactMap { fileIdentity(at: $0) })
-        for item in p.media {
-            let url = resolved(item.path)
-            let fileID = fileIdentity(at: url)
-            guard matches(scope, item, in: p) || files.contains(url) || fileID.map(fileIDs.contains) == true else { continue }
-            let identity = RedactionSourceIdentity(mediaID: item.id, path: item.path, fingerprint: item.fingerprint, fileIdentity: fileID)
-            let sameReference: (RedactionSourceIdentity) -> Bool = { $0.mediaID == item.id && $0.path == item.path && $0.fingerprint == item.fingerprint }
-            if fileID == nil, identities.contains(where: sameReference) { continue }
-            if let index = identities.firstIndex(where: { sameReference($0) && $0.fileIdentity == nil }) { identities[index] = identity }
-            else if !identities.contains(identity) { identities.append(identity) }
-        }
-        scope.identities = identities.isEmpty ? nil : identities
     }
 
     /// Union equal source-region policies without tying them to a timeline
     /// clip or a link group. Removing a take segment must not forget privacy.
-    static func rememberPolicies(_ p: inout Project, keepingCalibrationFrom previous: [SourceRedaction] = [], sourceFolder: URL? = nil) {
+    static func rememberPolicies(_ p: inout Project, keepingCalibrationFrom previous: [SourceRedaction] = [], sourceFolder: URL? = nil, files: FileLookups = FileLookups()) {
         let captured = copies(in: p)
         var policies: [SourceRedaction] = []
         // Persist each encountered identity before a later repoint can make
         // the current-path association disappear, even without live copies.
         for (index, saved) in (p.sourceRedactions ?? []).filter({ !$0.sources.isEmpty }).enumerated() {
             var policy = saved
-            rememberIdentities(&policy, in: p, sourceFolder: sourceFolder)
+            rememberIdentities(&policy, in: p, sourceFolder: sourceFolder, files: files)
             if policy.originID != nil { policies.append(policy); continue }
             // Unreleased development builds merged independent requests
             // without their origins. Neither matching effect IDs/settings
@@ -250,7 +381,7 @@ public enum RedactionSafety {
             policies.append(policy)
         }
         for var scope in captured {
-            rememberIdentities(&scope, in: p, sourceFolder: sourceFolder)
+            rememberIdentities(&scope, in: p, sourceFolder: sourceFolder, files: files)
             // Changing an effect's amount or style must not recalibrate its
             // units at a later zoom. A larger radius must stay stronger.
             for prior in previous where prior.sharesSource(with: scope) && prior.region == scope.region {
@@ -434,7 +565,7 @@ public enum RedactionSafety {
 
     /// Repairs the one-picture partners. More complicated changes must pass
     /// the same coverage check; an unsupported edit is refused atomically.
-    static func reconcile(_ project: inout Project, before: Project, command: EditCommand, validateCoverage: Bool, sourceFolder: URL?, cutFrom: [String: String] = [:]) throws {
+    static func reconcile(_ project: inout Project, before: Project, command: EditCommand, validateCoverage: Bool, sourceFolder: URL?, files: FileLookups = FileLookups(), cutFrom: [String: String] = [:]) throws {
         let old = protections(in: before)
         // Media timing is part of every privacy mapping. Check it after each
         // command, not only at batch end, so a batch can't change a frame
@@ -525,8 +656,8 @@ public enum RedactionSafety {
         // than once per clip: a 3,000 clip timeline spent 2.5 s here.
         guard before.videoTracks.contains(where: { track in track.isPrivacy && track.clips.contains { Editing.redactionRegion(of: $0, on: track) != nil } }) else {
             rememberSources(&project)
-            rememberPolicies(&project, keepingCalibrationFrom: old, sourceFolder: sourceFolder)
-            if validateCoverage { try requireCoverage(project, protecting: protections(in: project)) }
+            rememberPolicies(&project, keepingCalibrationFrom: old, sourceFolder: sourceFolder, files: files)
+            if validateCoverage { try requireCoverage(project, protecting: protections(in: project), files: files) }
             return
         }
         for ti in project.videoTracks.indices where project.videoTracks[ti].isPrivacy && !project.videoTracks[ti].hidden {
@@ -591,8 +722,8 @@ public enum RedactionSafety {
                 throw EditError.invalid("Privacy track \(track.name) is locked; its copies cannot change.")
             }
         }
-        rememberPolicies(&project, keepingCalibrationFrom: old, sourceFolder: sourceFolder)
-        if validateCoverage { try requireCoverage(project, protecting: protections(in: project)) }
+        rememberPolicies(&project, keepingCalibrationFrom: old, sourceFolder: sourceFolder, files: files)
+        if validateCoverage { try requireCoverage(project, protecting: protections(in: project), files: files) }
     }
 
     static func explicitlyEditsCopy(_ command: EditCommand, id: String) -> Bool {
@@ -610,9 +741,10 @@ public enum RedactionSafety {
 
     static let mappingMessage = "A protected file's frame timing, boundaries and dimensions cannot change while it has redactions. Keep its privacy source mapping unchanged."
 
-    static func requireSourceMappings(_ project: Project) throws {
+    static func requireSourceMappings(_ project: Project, files: FileLookups = FileLookups()) throws {
         for scope in protections(in: project) {
-            if project.media.contains(where: { matches(scope, $0, in: project) && mappingDiffers(scope, $0) }) {
+            let matching = files.matching(scope, in: project)
+            if project.media.indices.contains(where: { matching[$0] && mappingDiffers(scope, project.media[$0]) }) {
                 throw EditError.invalid(mappingMessage)
             }
         }
@@ -622,8 +754,10 @@ public enum RedactionSafety {
     /// on its own, so another file's broken mapping (an alias waiting to be
     /// removed) can't switch the check off for the rest of a batch.
     static func requireUnchangedClocks(_ project: Project, before: Project, protecting scopes: [SourceRedaction]) throws {
+        let priorMedia = Dictionary(before.media.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let matchers = scopes.map { Matcher($0, in: project) }
         for item in project.media {
-            let prior = before.media(item.id)
+            let prior = priorMedia[item.id]
             let changed = prior.map { ($0.pictureDelay ?? .zero) != (item.pictureDelay ?? .zero) || $0.duration != item.duration || $0.frameRate != item.frameRate
                 || $0.variableFrameRate != item.variableFrameRate || $0.kind != item.kind || $0.width != item.width || $0.height != item.height } ?? true
             guard changed else { continue }
@@ -631,7 +765,7 @@ public enum RedactionSafety {
             // A scope saved before the variable-rate flag was recorded keeps
             // the flag the file had, rather than accepting any new value.
             let flagMoved = prior.map { $0.variableFrameRate != item.variableFrameRate } ?? false
-            if scopes.contains(where: { matches($0, item, in: project) && (mappingDiffers($0, item) || ($0.sourceVariableFrameRate == nil && flagMoved)) }) {
+            if zip(scopes, matchers).contains(where: { scope, matcher in matcher.matches(item) && (mappingDiffers(scope, item) || (scope.sourceVariableFrameRate == nil && flagMoved)) }) {
                 throw EditError.invalid(mappingMessage)
             }
         }
@@ -681,14 +815,19 @@ public enum RedactionSafety {
         return TimeRange.union(result)
     }
 
-    static func requireCoverage(_ p: Project, protecting scopes: [SourceRedaction]) throws {
+    static func requireCoverage(_ p: Project, protecting scopes: [SourceRedaction], files: FileLookups = FileLookups()) throws {
         // A coordinator/journal batch may repair an invalid alias in steps.
         // Validate the complete result at the same gate as pixel coverage.
-        try requireSourceMappings(p)
+        try requireSourceMappings(p, files: files)
+        // Every picture and mask asks after its file: look each up once.
+        let media = Dictionary(p.media.indices.map { (p.media[$0].id, $0) }, uniquingKeysWith: { first, _ in first })
+        let matching = scopes.map { files.matching($0, in: p) }
         for (ti, track) in p.videoTracks.enumerated() where !track.hidden {
             for picture in track.clips where picture.enabled && picture.video?.redaction == nil {
-                for scope in scopes where picture.mediaID.flatMap(p.media).map({ matches(scope, $0, in: p) }) == true {
-                    let needed = intervals(picture, sources: scope.sources, media: picture.mediaID.flatMap(p.media), frame: p.settings.frameRate.frameDuration)
+                guard let index = picture.mediaID.flatMap({ media[$0] }) else { continue }
+                let item = p.media[index]
+                for (scope, covers) in zip(scopes, matching) where covers[index] {
+                    let needed = intervals(picture, sources: scope.sources, media: item, frame: p.settings.frameRate.frameDuration)
                     guard !needed.isEmpty else { continue }
                     let formats: [String?] = [nil] + Set(p.settings.alternateFormats.map(\.id) + Array(picture.video?.formatOverrides.keys ?? [:].keys)).sorted().map { Optional($0) }
                     for format in formats {
@@ -697,7 +836,7 @@ public enum RedactionSafety {
                         guard let visible = Editing.redactedCrop(widest, scope.region) else { continue }
                         var covered: [TimeRange] = []
                         for masks in p.videoTracks.dropFirst(ti + 1) where masks.isPrivacy && !masks.hidden {
-                            for mask in masks.clips where mask.enabled && mask.mediaID.flatMap(p.media).map({ matches(scope, $0, in: p) }) == true && mask.video?.redaction != nil && effect(on: mask) != nil {
+                            for mask in masks.clips where mask.enabled && mask.mediaID.flatMap({ media[$0] }).map({ covers[$0] }) == true && mask.video?.redaction != nil && effect(on: mask) != nil {
                                 guard let mv = mask.resolvedVideo(at: .zero, format: format), mv.opacity == 1, mask.keyframes["video.opacity"] == nil,
                                       !mask.keyframes.keys.contains(where: { $0.hasPrefix("video.crop.") }), mv.cutout?.enabled != true,
                                       !mv.effects.contains(where: { $0.enabled && $0.type == "roundedCorners" }),

@@ -27,6 +27,11 @@ public struct EditContext: Sendable {
     var defersPrivacyCoverage = false
     /// Relative media paths resolve here when discovering privacy aliases.
     public var sourceFolder: URL?
+    /// Media files' resolved paths and identities, shared by the commands
+    /// of one batch (`Editing.apply(_ batch:)`) or one preview
+    /// (`Editing.preview`), and nil between them, so a context used again
+    /// never answers from an earlier look at the disk.
+    var privacyFiles: RedactionSafety.FileLookups?
 
     public init(seed: UInt64 = UInt64.random(in: 0...UInt64.max), sourceFolder: URL? = nil) {
         self.seed = seed
