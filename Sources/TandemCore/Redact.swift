@@ -175,7 +175,14 @@ extension Editing {
                 if here.end < target.span.end || ![target.span.start, target.clip.start].contains(here.start) || ![target.span.end, target.clip.end].contains(here.end) {
                     throw EditError.invalid("\(here.name ?? here.id) on \"\(p[at].name)\" is linked to another clip being hidden whose frames fall at different times, so no cut splits both on a frame. Unlink them first.")
                 }
-                var piece = try SyncedPlacement.isolate(&p, clipID: here.id, to: target.span, on: at, &context)
+                // A piece whose head was cut maps its time to the file's a
+                // sample differently on a slowed or sped up clip, so its end
+                // is worked out again from the piece.
+                var span = target.span
+                if here.id != target.clipID, let item = here.mediaID.flatMap(p.media) {
+                    span = try fileFrameSpan(span, asked: requested, of: here, media: item, rate: rate)
+                }
+                var piece = try SyncedPlacement.isolate(&p, clipID: here.id, to: span, on: at, &context)
                 if piece.linkGroup == nil, let index = p[at].index(ofClip: piece.id) {
                     piece.linkGroup = context.makeID("lnk")
                     p[at].clips[index].linkGroup = piece.linkGroup

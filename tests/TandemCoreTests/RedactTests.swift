@@ -590,6 +590,18 @@ final class RedactTests: XCTestCase {
         assertCovered(c, "Privacy (B-roll)")
     }
 
+    func testASlowedLinkedClipWhoseHeadWasCutFirstStillEndsOnAFrame() throws {
+        // The shorter clip's cut at the range's start rebases the longer
+        // one's piece a sample off the original, so its end is worked out again.
+        let c = try oneClip(.fps30, speed: 0.9)
+        let screen = try XCTUnwrap(c.project.track(named: "Screen"))
+        try c.run("Again", .placeMedia(mediaIDs: ["med_clip"], at: .zero, sourceStart: .zero, duration: t(0.35), videoTrackID: screen.id, includeAudio: false, speed: 0.9))
+        try c.run("Link", .link(clipIDs: [c.clips("B-roll")[0].id, c.clips("Screen")[0].id]))
+        try c.run("Hide", .redact(range: TimeRange(start: t(0.2333333), end: t(0.4333333)), rect: email, mediaID: "med_clip"))
+        assertCovered(c, "Privacy (Screen)")
+        assertCovered(c, "Privacy (B-roll)")
+    }
+
     func testLinkedClipsOfOneFileAtDifferentPointsInItsFramesSayToUnlinkThem() throws {
         let c = try oneClip(.fps30)
         let screen = try XCTUnwrap(c.project.track(named: "Screen"))
